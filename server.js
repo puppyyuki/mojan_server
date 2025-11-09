@@ -4407,6 +4407,114 @@ io.on('connection', (socket) => {
   });
 });
 
+// 生成唯一的6位數字ID（確保不重複）
+async function generateUniqueId(checkUnique, maxAttempts = 100) {
+  for (let i = 0; i < maxAttempts; i++) {
+    const id = Math.floor(100000 + Math.random() * 900000).toString();
+    const isUnique = await checkUnique(id);
+    if (isUnique) {
+      return id;
+    }
+  }
+  throw new Error('無法生成唯一ID，請重試');
+}
+
+// CORS headers helper
+function setCorsHeaders(res) {
+  res.setHeader('Access-Control-Allow-Origin', process.env.CORS_ORIGIN || '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+}
+
+// 處理 OPTIONS 請求（CORS preflight）
+app.options('/api/*', (req, res) => {
+  setCorsHeaders(res);
+  res.status(200).end();
+});
+
+// API: 獲取所有玩家
+app.get('/api/players', async (req, res) => {
+  try {
+    const players = await prisma.player.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: players,
+    });
+  } catch (error) {
+    console.error('獲取玩家列表失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '獲取玩家列表失敗',
+    });
+  }
+});
+
+// API: 創建玩家（通過暱稱）
+app.post('/api/players', async (req, res) => {
+  try {
+    const { nickname } = req.body;
+
+    if (!nickname || !nickname.trim()) {
+      setCorsHeaders(res);
+      return res.status(400).json({
+        success: false,
+        error: '請輸入暱稱',
+      });
+    }
+
+    // 檢查暱稱是否已存在
+    const existingPlayer = await prisma.player.findUnique({
+      where: { nickname: nickname.trim() },
+    });
+
+    if (existingPlayer) {
+      // 如果已存在，返回現有玩家
+      setCorsHeaders(res);
+      return res.status(200).json({
+        success: true,
+        data: existingPlayer,
+        message: '使用現有玩家',
+      });
+    }
+
+    // 生成唯一的6位數字ID
+    const userId = await generateUniqueId(async (id) => {
+      const exists = await prisma.player.findUnique({
+        where: { userId: id },
+      });
+      return !exists;
+    });
+
+    // 創建新玩家
+    const player = await prisma.player.create({
+      data: {
+        userId,
+        nickname: nickname.trim(),
+        cardCount: 0,
+      },
+    });
+
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: player,
+      message: '玩家創建成功',
+    });
+  } catch (error) {
+    console.error('創建玩家失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '創建玩家失敗',
+    });
+  }
+});
+
 app.get('/', (req, res) => {
   res.send('Mahjong server running!');
 });
