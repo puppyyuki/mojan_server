@@ -71,7 +71,7 @@ export async function POST(
 ) {
   try {
     const { id } = await params
-    const { maxPlayers } = await request.json()
+    const { maxPlayers, creatorId } = await request.json()
 
     // 先嘗試通過內部ID查找
     let club = await prisma.club.findUnique({
@@ -92,6 +92,21 @@ export async function POST(
       )
     }
 
+    // 如果沒有提供 creatorId，使用俱樂部的創建者
+    const roomCreatorId = creatorId || club.creatorId
+
+    // 驗證創建者是否存在
+    const creator = await prisma.player.findUnique({
+      where: { id: roomCreatorId },
+    })
+
+    if (!creator) {
+      return NextResponse.json(
+        { success: false, error: '創建者不存在' },
+        { status: 404, headers: corsHeaders() }
+      )
+    }
+
     // 生成唯一的6位數字ID
     const roomId = await generateUniqueId(async (id) => {
       const exists = await prisma.room.findUnique({
@@ -105,6 +120,7 @@ export async function POST(
       data: {
         roomId,
         clubId: club.id,
+        creatorId: roomCreatorId,
         currentPlayers: 0,
         maxPlayers: maxPlayers || 4,
         status: 'WAITING',
