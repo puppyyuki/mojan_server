@@ -4669,6 +4669,113 @@ app.post('/api/clubs', async (req, res) => {
   }
 });
 
+// API: 獲取俱樂部的房間列表
+// clubId 可以是內部ID或俱樂部ID（6位數字）
+app.get('/api/clubs/:clubId/rooms', async (req, res) => {
+  try {
+    const { clubId } = req.params;
+    
+    // 先嘗試通過內部ID查找
+    let club = await prisma.club.findUnique({
+      where: { id: clubId },
+    });
+
+    // 如果找不到，嘗試通過俱樂部ID查找
+    if (!club) {
+      club = await prisma.club.findUnique({
+        where: { clubId: clubId },
+      });
+    }
+
+    if (!club) {
+      setCorsHeaders(res);
+      return res.status(404).json({
+        success: false,
+        error: '俱樂部不存在',
+      });
+    }
+
+    const rooms = await prisma.room.findMany({
+      where: { clubId: club.id },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: rooms,
+    });
+  } catch (error) {
+    console.error('獲取房間列表失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '獲取房間列表失敗',
+    });
+  }
+});
+
+// API: 創建房間
+app.post('/api/clubs/:clubId/rooms', async (req, res) => {
+  try {
+    const { clubId } = req.params;
+    const { maxPlayers } = req.body;
+
+    // 先嘗試通過內部ID查找
+    let club = await prisma.club.findUnique({
+      where: { id: clubId },
+    });
+
+    // 如果找不到，嘗試通過俱樂部ID查找
+    if (!club) {
+      club = await prisma.club.findUnique({
+        where: { clubId: clubId },
+      });
+    }
+
+    if (!club) {
+      setCorsHeaders(res);
+      return res.status(404).json({
+        success: false,
+        error: '俱樂部不存在',
+      });
+    }
+
+    // 生成唯一的6位數字ID
+    const roomId = await generateUniqueId(async (id) => {
+      const exists = await prisma.room.findUnique({
+        where: { roomId: id },
+      });
+      return !exists;
+    });
+
+    // 創建房間
+    const room = await prisma.room.create({
+      data: {
+        roomId,
+        clubId: club.id,
+        currentPlayers: 0,
+        maxPlayers: maxPlayers || 4,
+        status: 'WAITING',
+      },
+    });
+
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: room,
+      message: '房間創建成功',
+    });
+  } catch (error) {
+    console.error('創建房間失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '創建房間失敗',
+    });
+  }
+});
+
 app.get('/', (req, res) => {
   res.send('Mahjong server running!');
 });
