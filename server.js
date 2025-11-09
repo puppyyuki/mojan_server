@@ -4776,6 +4776,58 @@ app.post('/api/clubs/:clubId/rooms', async (req, res) => {
   }
 });
 
+// API: 獲取玩家加入的俱樂部列表
+app.get('/api/players/:playerId/clubs', async (req, res) => {
+  try {
+    const { playerId } = req.params;
+    
+    const player = await prisma.player.findUnique({
+      where: { id: playerId },
+    });
+
+    if (!player) {
+      setCorsHeaders(res);
+      return res.status(404).json({
+        success: false,
+        error: '玩家不存在',
+      });
+    }
+
+    const memberships = await prisma.clubMember.findMany({
+      where: { playerId: playerId },
+      include: {
+        club: {
+          include: {
+            creator: {
+              select: {
+                id: true,
+                userId: true,
+                nickname: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { joinedAt: 'desc' },
+    });
+
+    const clubs = memberships.map((membership) => membership.club);
+
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: clubs,
+    });
+  } catch (error) {
+    console.error('獲取玩家俱樂部列表失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '獲取玩家俱樂部列表失敗',
+    });
+  }
+});
+
 app.get('/', (req, res) => {
   res.send('Mahjong server running!');
 });
