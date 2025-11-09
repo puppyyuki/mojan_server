@@ -2,7 +2,7 @@ services:
   # Web Service (Next.js Admin Panel)
   - type: web
     name: mojan-admin
-    env: node
+    runtime: node
     plan: starter
     buildCommand: npm install && npm run build
     startCommand: npm run admin:start
@@ -23,7 +23,7 @@ services:
   # Web Service (Socket.io Server)
   - type: web
     name: mojan-server
-    env: node
+    runtime: node
     plan: starter
     buildCommand: npm install && npx prisma generate
     startCommand: npm start
