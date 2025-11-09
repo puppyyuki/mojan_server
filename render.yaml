@@ -41,7 +41,7 @@ services:
     healthCheckPath: /health
 
   # Database (PostgreSQL)
-  - type: pg
+  - type: postgres
     name: mojan-database
     plan: starter
     databaseName: mojan_db
