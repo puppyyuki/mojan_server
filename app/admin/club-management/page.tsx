@@ -24,7 +24,9 @@ interface Club {
       id: string
       userId: string
       nickname: string
+      cardCount: number
     }
+    joinedAt: string
   }>
   createdAt: string
   updatedAt: string
