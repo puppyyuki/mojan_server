@@ -4719,7 +4719,7 @@ app.get('/api/clubs/:clubId/rooms', async (req, res) => {
 app.post('/api/clubs/:clubId/rooms', async (req, res) => {
   try {
     const { clubId } = req.params;
-    const { maxPlayers } = req.body;
+    const { maxPlayers, creatorId } = req.body;
 
     // 先嘗試通過內部ID查找
     let club = await prisma.club.findUnique({
@@ -4741,6 +4741,22 @@ app.post('/api/clubs/:clubId/rooms', async (req, res) => {
       });
     }
 
+    // 如果沒有提供 creatorId，使用俱樂部的創建者
+    const roomCreatorId = creatorId || club.creatorId;
+
+    // 驗證創建者是否存在
+    const creator = await prisma.player.findUnique({
+      where: { id: roomCreatorId },
+    });
+
+    if (!creator) {
+      setCorsHeaders(res);
+      return res.status(404).json({
+        success: false,
+        error: '創建者不存在',
+      });
+    }
+
     // 生成唯一的6位數字ID
     const roomId = await generateUniqueId(async (id) => {
       const exists = await prisma.room.findUnique({
@@ -4754,6 +4770,7 @@ app.post('/api/clubs/:clubId/rooms', async (req, res) => {
       data: {
         roomId,
         clubId: club.id,
+        creatorId: roomCreatorId,
         currentPlayers: 0,
         maxPlayers: maxPlayers || 4,
         status: 'WAITING',
@@ -4772,6 +4789,7 @@ app.post('/api/clubs/:clubId/rooms', async (req, res) => {
     res.status(500).json({
       success: false,
       error: '創建房間失敗',
+      message: error.message || '未知錯誤',
     });
   }
 });

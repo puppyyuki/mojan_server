@@ -29,6 +29,7 @@ model Player {
 
   createdClubs Club[] @relation("ClubCreator")
   clubMembers  ClubMember[]
+  createdRooms Room[] @relation("RoomCreator")
 
   @@map("players")
 }
@@ -66,6 +67,8 @@ model Room {
   roomId        String   @unique // 6位數字，唯一
   clubId        String?
   club          Club?    @relation(fields: [clubId], references: [id], onDelete: SetNull)
+  creatorId     String
+  creator       Player   @relation("RoomCreator", fields: [creatorId], references: [id], onDelete: Cascade)
   currentPlayers Int      @default(0)
   maxPlayers    Int      @default(4)
   status        String   @default("WAITING") // WAITING, PLAYING, FINISHED
