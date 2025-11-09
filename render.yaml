@@ -4,6 +4,7 @@ services:
     name: mojan-admin
     runtime: node
     plan: starter
+    region: singapore
     buildCommand: npm install && npm run build
     startCommand: npm run admin:start
     envVars:
@@ -25,6 +26,7 @@ services:
     name: mojan-server
     runtime: node
     plan: starter
+    region: singapore
     buildCommand: npm install && npx prisma generate
     startCommand: npm start
     envVars:
@@ -45,5 +47,6 @@ databases:
     plan: free
     databaseName: mojan_db
     user: mojan_user
+    region: singapore
 
 
