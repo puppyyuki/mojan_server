@@ -1,0 +1,475 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 隱藏滾動條 */
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;  /* Chrome, Safari and Opera */
+}
+
+/* 跑馬燈動畫 */
+@keyframes marquee {
+  0% {
+    transform: translateX(100%);
+  }
+  100% {
+    transform: translateX(-100%);
+  }
+}
+
+.animate-marquee {
+  animation: marquee 15s linear infinite;
+}
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --foreground-rgb: 0, 0, 0;
+  --background-start-rgb: 214, 219, 220;
+  --background-end-rgb: 255, 255, 255;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --foreground-rgb: 255, 255, 255;
+    --background-start-rgb: 0, 0, 0;
+    --background-end-rgb: 0, 0, 0;
+  }
+}
+
+body {
+  color: rgb(var(--foreground-rgb));
+  background: #ffffff;
+  font-family: 'Inter', sans-serif;
+  overflow-x: hidden;
+}
+
+html {
+  overflow-x: hidden;
+}
+
+/* 自定義組件樣式 */
+@layer components {
+  .btn-primary {
+    @apply bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200;
+  }
+  
+  .btn-secondary {
+    @apply bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium py-2 px-4 rounded-lg transition-colors duration-200;
+  }
+  
+  .card {
+    @apply bg-white rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow duration-200;
+  }
+  
+  .input-field {
+    @apply w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent;
+  }
+  
+  .nav-link {
+    @apply text-gray-700 hover:text-blue-600 transition-colors duration-200;
+  }
+  
+  .nav-link-active {
+    @apply text-blue-600 font-medium;
+  }
+
+  /* 管理後台專用樣式 */
+  .admin-container {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+
+  .admin-card {
+    @apply bg-white rounded-lg shadow-sm border border-gray-200;
+  }
+
+  .admin-table {
+    @apply min-w-full divide-y divide-gray-200;
+  }
+
+  .admin-table-header {
+    @apply bg-gray-50 border-b border-gray-200;
+  }
+
+  .admin-table-cell {
+    @apply px-6 py-4 whitespace-nowrap text-sm text-gray-900;
+  }
+
+  .admin-table-header-cell {
+    @apply px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider;
+  }
+
+  .admin-form-group {
+    @apply space-y-2;
+  }
+
+  .admin-form-label {
+    @apply block text-sm font-medium text-gray-700;
+  }
+
+  .admin-form-input {
+    @apply w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent;
+  }
+
+  .admin-form-textarea {
+    @apply w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent resize-none;
+  }
+
+  .admin-upload-area {
+    @apply w-full h-48 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-primary-400 hover:bg-primary-50 transition-colors;
+  }
+
+  .admin-upload-area-small {
+    @apply w-32 h-32 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-primary-400 hover:bg-primary-50 transition-colors;
+  }
+
+  .admin-tag {
+    @apply bg-primary-100 text-primary-700 px-2 py-1 rounded text-xs;
+  }
+
+  .admin-badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .admin-badge-success {
+    @apply bg-green-100 text-green-800;
+  }
+
+  .admin-badge-warning {
+    @apply bg-yellow-100 text-yellow-800;
+  }
+
+  .admin-badge-error {
+    @apply bg-red-100 text-red-800;
+  }
+
+  .admin-modal {
+    @apply fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4;
+  }
+
+  .admin-modal-content {
+    @apply bg-white rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] overflow-y-auto;
+  }
+
+  .admin-modal-header {
+    @apply p-6 border-b border-gray-200;
+  }
+
+  .admin-modal-body {
+    @apply p-6;
+  }
+
+  .admin-search-input {
+    @apply w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-primary-500 focus:border-transparent;
+  }
+
+  .admin-view-toggle {
+    @apply p-2 rounded transition-colors;
+  }
+
+  .admin-view-toggle-active {
+    @apply bg-primary-100 text-primary-600;
+  }
+
+  .admin-view-toggle-inactive {
+    @apply bg-gray-100 text-gray-600 hover:bg-gray-200;
+  }
+
+  .admin-grid-card {
+    @apply bg-white rounded-lg shadow-sm border overflow-hidden hover:shadow-md transition-shadow;
+  }
+
+  .admin-grid-image {
+    @apply relative aspect-[16/9] bg-gray-200;
+  }
+
+  .admin-grid-content {
+    @apply p-4;
+  }
+
+  .admin-action-button {
+    @apply p-1 rounded transition-colors;
+  }
+
+  .admin-action-edit {
+    @apply text-primary-600 hover:text-primary-800 hover:bg-primary-50;
+  }
+
+  .admin-action-delete {
+    @apply text-red-600 hover:text-red-800 hover:bg-red-50;
+  }
+
+  .admin-loading {
+    @apply text-center py-12;
+  }
+
+  .admin-loading-spinner {
+    @apply w-8 h-8 border-4 border-primary-600 border-t-transparent rounded-full animate-spin mx-auto mb-4;
+  }
+
+  .admin-empty {
+    @apply text-center py-12;
+  }
+
+  .admin-empty-icon {
+    @apply text-gray-400 mx-auto mb-4;
+  }
+
+  .admin-empty-text {
+    @apply text-gray-600;
+  }
+}
+
+/* 文字截斷工具類 */
+@layer utilities {
+  .line-clamp-1 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+  }
+
+  .line-clamp-2 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+  }
+
+  .line-clamp-3 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+  }
+
+  .line-clamp-4 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 4;
+  }
+
+  .line-clamp-5 {
+    overflow: hidden;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 5;
+  }
+
+  .animate-fade-in {
+    animation: fadeIn 0.5s ease-in-out;
+  }
+  
+  .animate-slide-up {
+    animation: slideUp 0.3s ease-out;
+  }
+
+  .animate-scale-in {
+    animation: scaleIn 0.2s ease-out;
+  }
+
+  .animate-bounce-in {
+    animation: bounceIn 0.6s ease-out;
+  }
+}
+
+/* 動畫關鍵幀 */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideUp {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes bounceIn {
+  0% {
+    transform: scale(0.3);
+    opacity: 0;
+  }
+  50% {
+    transform: scale(1.05);
+  }
+  70% {
+    transform: scale(0.9);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* 響應式設計 */
+@media (max-width: 768px) {
+  .container {
+    @apply px-4;
+  }
+
+  .admin-grid {
+    @apply grid-cols-1 sm:grid-cols-2;
+  }
+
+  .admin-modal-content {
+    @apply max-w-full mx-4;
+  }
+
+  .admin-table {
+    @apply text-xs;
+  }
+
+  .admin-table-cell {
+    @apply px-3 py-2;
+  }
+
+  .admin-table-header-cell {
+    @apply px-3 py-2;
+  }
+}
+
+@media (max-width: 640px) {
+  .admin-grid {
+    @apply grid-cols-1;
+  }
+
+  .admin-search-filters {
+    @apply grid-cols-1 gap-3;
+  }
+}
+
+/* 載入動畫 */
+.loading-spinner {
+  border: 2px solid #f3f3f3;
+  border-top: 2px solid #ef4444;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* React Select 自定義樣式 */
+.react-select__control {
+  border-color: #d1d5db !important;
+  border-radius: 0.5rem !important;
+  min-height: 42px !important;
+}
+
+.react-select__control--is-focused {
+  border-color: #dc2626 !important;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.2) !important;
+}
+
+.react-select__menu {
+  border-radius: 0.5rem !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+}
+
+.react-select__option {
+  padding: 8px 12px !important;
+}
+
+.react-select__option--is-focused {
+  background-color: #f1f5f9 !important;
+}
+
+.react-select__option--is-selected {
+  background-color: #dc2626 !important;
+  color: white !important;
+}
+
+.react-select__multi-value {
+  background-color: #dc2626 !important;
+  border-radius: 0.375rem !important;
+}
+
+.react-select__multi-value__label {
+  color: white !important;
+  font-size: 0.75rem !important;
+}
+
+.react-select__multi-value__remove {
+  color: white !important;
+}
+
+.react-select__multi-value__remove:hover {
+  background-color: #b91c1c !important;
+  color: white !important;
+}
+
+/* DatePicker 自定義樣式 */
+.react-datepicker-wrapper {
+  width: 100% !important;
+}
+
+.react-datepicker__input-container input {
+  width: 100% !important;
+  padding: 8px 12px !important;
+  border: 1px solid #d1d5db !important;
+  border-radius: 0.5rem !important;
+  font-size: 0.875rem !important;
+}
+
+.react-datepicker__input-container input:focus {
+  outline: none !important;
+  border-color: #dc2626 !important;
+  box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.2) !important;
+}
+
+.react-datepicker {
+  border-radius: 0.5rem !important;
+  border: 1px solid #d1d5db !important;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+}
+
+.react-datepicker__header {
+  background-color: #f9fafb !important;
+  border-bottom: 1px solid #d1d5db !important;
+  border-radius: 0.5rem 0.5rem 0 0 !important;
+}
+
+.react-datepicker__day--selected {
+  background-color: #dc2626 !important;
+  color: white !important;
+}
+
+.react-datepicker__day--keyboard-selected {
+  background-color: #dc2626 !important;
+  color: white !important;
+}
+
+.react-datepicker__day:hover {
+  background-color: #f1f5f9 !important;
+}
+
