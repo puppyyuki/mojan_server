@@ -4515,6 +4515,160 @@ app.post('/api/players', async (req, res) => {
   }
 });
 
+// API: 獲取所有俱樂部
+app.get('/api/clubs', async (req, res) => {
+  try {
+    const clubs = await prisma.club.findMany({
+      include: {
+        creator: {
+          select: {
+            id: true,
+            userId: true,
+            nickname: true,
+          },
+        },
+        members: {
+          include: {
+            player: {
+              select: {
+                id: true,
+                userId: true,
+                nickname: true,
+                cardCount: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: clubs,
+    });
+  } catch (error) {
+    console.error('獲取俱樂部列表失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '獲取俱樂部列表失敗',
+    });
+  }
+});
+
+// API: 創建俱樂部
+app.post('/api/clubs', async (req, res) => {
+  try {
+    const { name, creatorId } = req.body;
+
+    if (!name || !name.trim()) {
+      setCorsHeaders(res);
+      return res.status(400).json({
+        success: false,
+        error: '請輸入俱樂部名稱',
+      });
+    }
+
+    if (!creatorId) {
+      setCorsHeaders(res);
+      return res.status(400).json({
+        success: false,
+        error: '請提供創建者ID',
+      });
+    }
+
+    // 檢查創建者是否存在
+    const creator = await prisma.player.findUnique({
+      where: { id: creatorId },
+    });
+
+    if (!creator) {
+      setCorsHeaders(res);
+      return res.status(404).json({
+        success: false,
+        error: '創建者不存在',
+      });
+    }
+
+    // 生成唯一的6位數字ID
+    const clubId = await generateUniqueId(async (id) => {
+      const exists = await prisma.club.findUnique({
+        where: { clubId: id },
+      });
+      return !exists;
+    });
+
+    // 創建俱樂部
+    const club = await prisma.club.create({
+      data: {
+        clubId,
+        name: name.trim(),
+        creatorId,
+        cardCount: 0,
+      },
+      include: {
+        creator: {
+          select: {
+            id: true,
+            userId: true,
+            nickname: true,
+          },
+        },
+      },
+    });
+
+    // 將創建者添加為成員
+    await prisma.clubMember.create({
+      data: {
+        clubId: club.id,
+        playerId: creatorId,
+      },
+    });
+
+    // 重新獲取包含成員的俱樂部
+    const clubWithMembers = await prisma.club.findUnique({
+      where: { id: club.id },
+      include: {
+        creator: {
+          select: {
+            id: true,
+            userId: true,
+            nickname: true,
+          },
+        },
+        members: {
+          include: {
+            player: {
+              select: {
+                id: true,
+                userId: true,
+                nickname: true,
+                cardCount: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: clubWithMembers,
+      message: '俱樂部創建成功',
+    });
+  } catch (error) {
+    console.error('創建俱樂部失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '創建俱樂部失敗',
+    });
+  }
+});
+
 app.get('/', (req, res) => {
   res.send('Mahjong server running!');
 });
