@@ -40,10 +40,10 @@ services:
         value: https://mojan-app.onrender.com
     healthCheckPath: /health
 
-  # Database (PostgreSQL)
-  - type: postgresql
-    name: mojan-database
+databases:
+  - name: mojan-database
     plan: free
     databaseName: mojan_db
     user: mojan_user
+
 
