@@ -4669,6 +4669,89 @@ app.post('/api/clubs', async (req, res) => {
   }
 });
 
+// API: 獲取單個俱樂部詳細資訊
+// clubId 可以是內部ID或俱樂部ID（6位數字）
+app.get('/api/clubs/:clubId', async (req, res) => {
+  try {
+    const { clubId } = req.params;
+    
+    // 先嘗試通過內部ID查找
+    let club = await prisma.club.findUnique({
+      where: { id: clubId },
+      include: {
+        creator: {
+          select: {
+            id: true,
+            userId: true,
+            nickname: true,
+          },
+        },
+        members: {
+          include: {
+            player: {
+              select: {
+                id: true,
+                userId: true,
+                nickname: true,
+                cardCount: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // 如果沒找到，嘗試通過俱樂部ID（6位數字）查找
+    if (!club) {
+      club = await prisma.club.findUnique({
+        where: { clubId: clubId },
+        include: {
+          creator: {
+            select: {
+              id: true,
+              userId: true,
+              nickname: true,
+            },
+          },
+          members: {
+            include: {
+              player: {
+                select: {
+                  id: true,
+                  userId: true,
+                  nickname: true,
+                  cardCount: true,
+                },
+              },
+            },
+          },
+        },
+      });
+    }
+
+    if (!club) {
+      setCorsHeaders(res);
+      return res.status(404).json({
+        success: false,
+        error: '俱樂部不存在',
+      });
+    }
+
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: club,
+    });
+  } catch (error) {
+    console.error('獲取俱樂部詳細資訊失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '獲取俱樂部詳細資訊失敗',
+    });
+  }
+});
+
 // API: 獲取俱樂部的房間列表
 // clubId 可以是內部ID或俱樂部ID（6位數字）
 app.get('/api/clubs/:clubId/rooms', async (req, res) => {
@@ -4821,6 +4904,18 @@ app.get('/api/players/:playerId/clubs', async (req, res) => {
                 id: true,
                 userId: true,
                 nickname: true,
+              },
+            },
+            members: {
+              include: {
+                player: {
+                  select: {
+                    id: true,
+                    userId: true,
+                    nickname: true,
+                    cardCount: true,
+                  },
+                },
               },
             },
           },
