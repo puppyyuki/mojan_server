@@ -4802,7 +4802,7 @@ app.get('/api/clubs/:clubId/rooms', async (req, res) => {
 app.post('/api/clubs/:clubId/rooms', async (req, res) => {
   try {
     const { clubId } = req.params;
-    const { maxPlayers, creatorId } = req.body;
+    const { maxPlayers, creatorId, gameSettings } = req.body;
 
     // 先嘗試通過內部ID查找
     let club = await prisma.club.findUnique({
@@ -4848,6 +4848,31 @@ app.post('/api/clubs/:clubId/rooms', async (req, res) => {
       return !exists;
     });
 
+    // 構建完整的遊戲設定
+    // 如果提供了 gameSettings，使用它；否則使用俱樂部的默認設定
+    let finalGameSettings = gameSettings || club.gameSettings || {};
+
+    // 確保遊戲設定包含所有必要的字段
+    if (gameSettings) {
+      finalGameSettings = {
+        base_points: gameSettings.base_points || 100,
+        scoring_unit: gameSettings.scoring_unit || 20,
+        rounds: gameSettings.rounds || 4,
+        game_type: gameSettings.game_type || 'NORTHERN',
+        special_rules: gameSettings.special_rules || {
+          li_gu: false,
+          eye_tile_feature: false,
+          forced_win: false,
+          no_points_dealer: false,
+        },
+        point_cap: gameSettings.point_cap || 'UP_TO_8_POINTS',
+        deduction: gameSettings.deduction || 'AA_DEDUCTION',
+        manual_start: gameSettings.manual_start || false,
+        ip_check: gameSettings.ip_check || false,
+        gps_lock: gameSettings.gps_lock || false,
+      };
+    }
+
     // 創建房間
     const room = await prisma.room.create({
       data: {
@@ -4857,6 +4882,7 @@ app.post('/api/clubs/:clubId/rooms', async (req, res) => {
         currentPlayers: 0,
         maxPlayers: maxPlayers || 4,
         status: 'WAITING',
+        gameSettings: finalGameSettings,
       },
     });
 
@@ -5169,6 +5195,390 @@ app.delete('/api/clubs/:clubId/members', async (req, res) => {
     res.status(500).json({
       success: false,
       error: '退出俱樂部失敗',
+      message: error.message || '未知錯誤',
+    });
+  }
+});
+
+// API: 獲取俱樂部遊戲設定
+// clubId 可以是內部ID或俱樂部ID（6位數字）
+app.get('/api/clubs/:clubId/game-settings', async (req, res) => {
+  try {
+    const { clubId } = req.params;
+    
+    // 先嘗試通過內部ID查找
+    let club = await prisma.club.findUnique({
+      where: { id: clubId },
+      select: {
+        id: true,
+        clubId: true,
+        name: true,
+        gameSettings: true,
+      },
+    });
+
+    // 如果找不到，嘗試通過俱樂部ID查找
+    if (!club) {
+      club = await prisma.club.findUnique({
+        where: { clubId: clubId },
+        select: {
+          id: true,
+          clubId: true,
+          name: true,
+          gameSettings: true,
+        },
+      });
+    }
+
+    if (!club) {
+      setCorsHeaders(res);
+      return res.status(404).json({
+        success: false,
+        error: '俱樂部不存在',
+      });
+    }
+
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: {
+        game_settings: club.gameSettings || null,
+      },
+    });
+  } catch (error) {
+    console.error('獲取俱樂部遊戲設定失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '獲取俱樂部遊戲設定失敗',
+      message: error.message || '未知錯誤',
+    });
+  }
+});
+
+// API: 更新俱樂部遊戲設定
+// clubId 可以是內部ID或俱樂部ID（6位數字）
+app.put('/api/clubs/:clubId/game-settings', async (req, res) => {
+  try {
+    const { clubId } = req.params;
+    const { gameSettings } = req.body;
+
+    if (!gameSettings) {
+      setCorsHeaders(res);
+      return res.status(400).json({
+        success: false,
+        error: '請提供遊戲設定',
+      });
+    }
+
+    // 先嘗試通過內部ID查找
+    let club = await prisma.club.findUnique({
+      where: { id: clubId },
+    });
+
+    // 如果找不到，嘗試通過俱樂部ID查找
+    if (!club) {
+      club = await prisma.club.findUnique({
+        where: { clubId: clubId },
+      });
+    }
+
+    if (!club) {
+      setCorsHeaders(res);
+      return res.status(404).json({
+        success: false,
+        error: '俱樂部不存在',
+      });
+    }
+
+    // 更新遊戲設定
+    const updatedClub = await prisma.club.update({
+      where: { id: club.id },
+      data: {
+        gameSettings: gameSettings,
+      },
+      select: {
+        id: true,
+        clubId: true,
+        name: true,
+        gameSettings: true,
+      },
+    });
+
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: {
+        game_settings: updatedClub.gameSettings,
+      },
+      message: '遊戲設定更新成功',
+    });
+  } catch (error) {
+    console.error('更新俱樂部遊戲設定失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '更新俱樂部遊戲設定失敗',
+      message: error.message || '未知錯誤',
+    });
+  }
+});
+
+// ================================
+// Agent Management APIs
+// ================================
+
+// API: 檢查代理狀態
+app.get('/api/agents/status', async (req, res) => {
+  try {
+    // TODO: 實現代理狀態檢查邏輯
+    // 這裡需要從請求中獲取玩家ID，然後檢查是否為代理
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: {
+        isAgent: false,
+        agentRequestStatus: null,
+        agentDetails: null,
+      },
+    });
+  } catch (error) {
+    console.error('檢查代理狀態失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '檢查代理狀態失敗',
+      message: error.message || '未知錯誤',
+    });
+  }
+});
+
+// API: 獲取代理首頁數據
+app.get('/api/agents/home', async (req, res) => {
+  try {
+    // TODO: 實現獲取代理首頁數據邏輯
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: {
+        totalSales: 0,
+        totalRevenue: 0,
+        currentMonthActivity: 0,
+      },
+    });
+  } catch (error) {
+    console.error('獲取代理首頁數據失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '獲取代理首頁數據失敗',
+      message: error.message || '未知錯誤',
+    });
+  }
+});
+
+// API: 搜索玩家
+app.post('/api/agents/players/search', async (req, res) => {
+  try {
+    const { search } = req.body;
+    
+    // TODO: 實現玩家搜索邏輯
+    // 這裡應該根據 search 參數搜索玩家
+    const players = [];
+    
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: {
+        players: players,
+      },
+    });
+  } catch (error) {
+    console.error('搜索玩家失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '搜索玩家失敗',
+      message: error.message || '未知錯誤',
+    });
+  }
+});
+
+// API: 銷售房卡給玩家
+app.post('/api/agents/sell-room-card', async (req, res) => {
+  try {
+    const { playerId, cardAmount } = req.body;
+    
+    if (!playerId || !cardAmount || cardAmount <= 0) {
+      setCorsHeaders(res);
+      return res.status(400).json({
+        success: false,
+        error: '參數錯誤',
+      });
+    }
+    
+    // TODO: 實現銷售房卡邏輯
+    // 這裡應該：
+    // 1. 驗證代理身份
+    // 2. 檢查代理是否有足夠的房卡
+    // 3. 轉移房卡給玩家
+    // 4. 記錄交易
+    
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: {
+        transactionId: 'TXN' + Date.now().toString(),
+        cardAmount: cardAmount,
+      },
+      message: '銷售成功',
+    });
+  } catch (error) {
+    console.error('銷售房卡失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '銷售房卡失敗',
+      message: error.message || '未知錯誤',
+    });
+  }
+});
+
+// API: 獲取房卡產品列表
+app.get('/api/agents/room-cards/products', async (req, res) => {
+  try {
+    // TODO: 實現獲取房卡產品列表邏輯
+    const products = [];
+    
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: {
+        products: products,
+      },
+    });
+  } catch (error) {
+    console.error('獲取房卡產品列表失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '獲取房卡產品列表失敗',
+      message: error.message || '未知錯誤',
+    });
+  }
+});
+
+// API: 購買房卡
+app.post('/api/agents/room-cards/buy', async (req, res) => {
+  try {
+    const { productId, quantity } = req.body;
+    
+    if (!productId || !quantity || quantity <= 0) {
+      setCorsHeaders(res);
+      return res.status(400).json({
+        success: false,
+        error: '參數錯誤',
+      });
+    }
+    
+    // TODO: 實現購買房卡邏輯
+    // 這裡應該：
+    // 1. 驗證代理身份
+    // 2. 獲取產品信息
+    // 3. 處理付款
+    // 4. 增加代理的房卡數量
+    
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: {
+        transactionId: 'TXN' + Date.now().toString(),
+        cardAmount: 0,
+      },
+      message: '購買成功',
+    });
+  } catch (error) {
+    console.error('購買房卡失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '購買房卡失敗',
+      message: error.message || '未知錯誤',
+    });
+  }
+});
+
+// API: 獲取銷售記錄
+app.post('/api/agents/sales-record', async (req, res) => {
+  try {
+    const { search } = req.body;
+    
+    // TODO: 實現獲取銷售記錄邏輯
+    const sales = [];
+    
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: {
+        sales: sales,
+      },
+    });
+  } catch (error) {
+    console.error('獲取銷售記錄失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '獲取銷售記錄失敗',
+      message: error.message || '未知錯誤',
+    });
+  }
+});
+
+// API: 獲取代理活動記錄
+app.post('/api/agents/activity', async (req, res) => {
+  try {
+    const { search } = req.body;
+    
+    // TODO: 實現獲取代理活動記錄邏輯
+    const activities = [];
+    
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: {
+        activities: activities,
+      },
+    });
+  } catch (error) {
+    console.error('獲取代理活動記錄失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '獲取代理活動記錄失敗',
+      message: error.message || '未知錯誤',
+    });
+  }
+});
+
+// API: 獲取付款歷史
+app.get('/api/agents/payment-history', async (req, res) => {
+  try {
+    // TODO: 實現獲取付款歷史邏輯
+    const payments = [];
+    
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: {
+        payments: payments,
+      },
+    });
+  } catch (error) {
+    console.error('獲取付款歷史失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '獲取付款歷史失敗',
       message: error.message || '未知錯誤',
     });
   }

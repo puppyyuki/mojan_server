@@ -24,6 +24,7 @@ model Player {
   userId    String   @unique // 6位數字，唯一
   nickname  String   @unique
   cardCount Int      @default(0)
+  avatarUrl String?  // 頭像URL
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -35,14 +36,15 @@ model Player {
 }
 
 model Club {
-  id        String   @id @default(cuid())
-  clubId    String   @unique // 6位數字，唯一
-  name      String
-  creatorId String
-  creator   Player   @relation("ClubCreator", fields: [creatorId], references: [id], onDelete: Cascade)
-  cardCount Int      @default(0)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id           String   @id @default(cuid())
+  clubId       String   @unique // 6位數字，唯一
+  name         String
+  creatorId    String
+  creator      Player   @relation("ClubCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  cardCount    Int      @default(0)
+  gameSettings Json?    // 俱樂部遊戲設定
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   members ClubMember[]
   rooms   Room[]
@@ -72,6 +74,7 @@ model Room {
   currentPlayers Int      @default(0)
   maxPlayers    Int      @default(4)
   status        String   @default("WAITING") // WAITING, PLAYING, FINISHED
+  gameSettings  Json?    // 遊戲設定（JSON格式）
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
