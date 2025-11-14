@@ -8,7 +8,6 @@ interface Player {
   userId: string
   nickname: string
   cardCount: number
-  notes?: string
 }
 
 interface EditUserModalProps {
@@ -26,14 +25,12 @@ export default function EditUserModal({
 }: EditUserModalProps) {
   const [nickname, setNickname] = useState<string>('')
   const [cardCount, setCardCount] = useState<string>('0')
-  const [notes, setNotes] = useState<string>('')
   const [loading, setLoading] = useState<boolean>(false)
 
   useEffect(() => {
     if (isOpen && player) {
       setNickname(player.nickname)
       setCardCount(player.cardCount.toString())
-      setNotes(player.notes || '')
     }
   }, [isOpen, player])
 
@@ -42,13 +39,6 @@ export default function EditUserModal({
 
     if (!nickname.trim()) {
       alert('請輸入暱稱')
-      return
-    }
-
-    // 驗證 cardCount 是否為有效數字
-    const cardCountNum = parseInt(cardCount)
-    if (isNaN(cardCountNum) || cardCountNum < 0) {
-      alert('房卡數量必須為非負整數')
       return
     }
 
@@ -61,28 +51,22 @@ export default function EditUserModal({
         },
         body: JSON.stringify({
           nickname: nickname.trim(),
-          cardCount: cardCountNum,
-          notes: notes.trim() || null,
+          cardCount: parseInt(cardCount),
         })
       })
 
-      const result = await response.json()
-      
       if (response.ok) {
+        const result = await response.json()
         alert(result.message || '更新成功')
         onSuccess()
         onClose()
       } else {
-        // 顯示詳細的錯誤訊息
-        const errorMessage = result.error || '更新玩家失敗'
-        console.error('更新玩家失敗:', errorMessage, result)
-        alert(errorMessage)
+        const result = await response.json()
+        alert(result.error || '更新失敗')
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('更新使用者失敗:', error)
-      // 處理 JSON 解析錯誤或網路錯誤
-      const errorMessage = error.message || '更新失敗，請檢查網路連線'
-      alert(errorMessage)
+      alert('更新失敗')
     } finally {
       setLoading(false)
     }
@@ -142,19 +126,6 @@ export default function EditUserModal({
               placeholder="0"
               min="0"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              備註
-            </label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="請輸入備註"
-              rows={3}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400 resize-none"
             />
           </div>
         </div>
