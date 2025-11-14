@@ -3895,29 +3895,78 @@ io.on('connection', (socket) => {
         nicknameToPlayerId[nickname] = playerId;
         console.log(`暱稱 "${nickname}" 已存在於數據庫，使用ID: ${playerId}, userId: ${userId}`);
       } else {
-        // 如果數據庫中不存在，檢查內存映射
-        if (nicknameToPlayerId[nickname]) {
-          playerId = nicknameToPlayerId[nickname];
-          console.log(`暱稱 "${nickname}" 已存在於內存映射，使用ID: ${playerId}`);
-        } else {
-          // 生成新的ID（使用簡單的哈希算法或時間戳）
-          // 這裡使用時間戳 + 隨機數生成唯一ID
-          playerId = `player_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        // 如果數據庫中不存在，創建新玩家
+        try {
+          // 生成唯一的6位數字ID
+          const newUserId = await generateUniqueId(async (id) => {
+            const exists = await prisma.player.findUnique({
+              where: { userId: id },
+            });
+            return !exists;
+          });
+
+          // 創建新玩家到資料庫
+          const newPlayer = await prisma.player.create({
+            data: {
+              userId: newUserId,
+              nickname: nickname.trim(),
+              cardCount: 0,
+            },
+          });
+
+          playerId = newPlayer.id;
+          userId = newPlayer.userId;
           // 保存暱稱到ID的映射
           nicknameToPlayerId[nickname] = playerId;
-          console.log(`新暱稱 "${nickname}"，生成新ID: ${playerId}`);
+          console.log(`新暱稱 "${nickname}"，已創建玩家到資料庫，ID: ${playerId}, userId: ${userId}`);
+        } catch (createError) {
+          console.error(`創建玩家失敗: ${createError.message}`);
+          // 如果創建失敗，檢查內存映射
+          if (nicknameToPlayerId[nickname]) {
+            playerId = nicknameToPlayerId[nickname];
+            console.log(`暱稱 "${nickname}" 已存在於內存映射，使用ID: ${playerId}`);
+          } else {
+            // 最後的備選方案：生成臨時ID（不推薦，但作為後備）
+            playerId = `player_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            nicknameToPlayerId[nickname] = playerId;
+            console.log(`警告：無法創建玩家到資料庫，使用臨時ID: ${playerId}`);
+          }
         }
       }
     } catch (error) {
       console.error(`查詢玩家失敗: ${error.message}`);
-      // 如果數據庫查詢失敗，使用內存映射或生成新ID
-      if (nicknameToPlayerId[nickname]) {
-        playerId = nicknameToPlayerId[nickname];
-        console.log(`暱稱 "${nickname}" 已存在於內存映射，使用ID: ${playerId}`);
-      } else {
-        playerId = `player_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      // 如果數據庫查詢失敗，嘗試創建新玩家
+      try {
+        const newUserId = await generateUniqueId(async (id) => {
+          const exists = await prisma.player.findUnique({
+            where: { userId: id },
+          });
+          return !exists;
+        });
+
+        const newPlayer = await prisma.player.create({
+          data: {
+            userId: newUserId,
+            nickname: nickname.trim(),
+            cardCount: 0,
+          },
+        });
+
+        playerId = newPlayer.id;
+        userId = newPlayer.userId;
         nicknameToPlayerId[nickname] = playerId;
-        console.log(`新暱稱 "${nickname}"，生成新ID: ${playerId}`);
+        console.log(`查詢失敗後創建新玩家，ID: ${playerId}, userId: ${userId}`);
+      } catch (createError) {
+        console.error(`創建玩家失敗: ${createError.message}`);
+        // 如果創建也失敗，使用內存映射或生成臨時ID
+        if (nicknameToPlayerId[nickname]) {
+          playerId = nicknameToPlayerId[nickname];
+          console.log(`暱稱 "${nickname}" 已存在於內存映射，使用ID: ${playerId}`);
+        } else {
+          playerId = `player_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          nicknameToPlayerId[nickname] = playerId;
+          console.log(`警告：無法創建玩家到資料庫，使用臨時ID: ${playerId}`);
+        }
       }
     }
     
@@ -4432,7 +4481,11 @@ io.on('connection', (socket) => {
       // 清除映射
       delete socketToPlayer[socket.id];
     } else {
-      console.log(`警告：找不到 socket ${socket.id} 對應的玩家資訊`);
+      // 這是正常情況：玩家連線後未執行 joinTable 就離線（例如網路問題、頁面關閉等）
+      // 改為 debug 級別的日誌，避免過多警告訊息
+      if (process.env.NODE_ENV === 'development') {
+        console.log(`[DEBUG] Socket ${socket.id} 離線時未找到對應的玩家資訊（可能是連線後未加入房間就離線）`);
+      }
     }
   });
 });
