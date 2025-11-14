@@ -45,6 +45,13 @@ export default function EditUserModal({
       return
     }
 
+    // 驗證 cardCount 是否為有效數字
+    const cardCountNum = parseInt(cardCount)
+    if (isNaN(cardCountNum) || cardCountNum < 0) {
+      alert('房卡數量必須為非負整數')
+      return
+    }
+
     setLoading(true)
     try {
       const response = await fetch(`/api/players/${player.id}`, {
@@ -54,23 +61,28 @@ export default function EditUserModal({
         },
         body: JSON.stringify({
           nickname: nickname.trim(),
-          cardCount: parseInt(cardCount),
+          cardCount: cardCountNum,
           notes: notes.trim() || null,
         })
       })
 
+      const result = await response.json()
+      
       if (response.ok) {
-        const result = await response.json()
         alert(result.message || '更新成功')
         onSuccess()
         onClose()
       } else {
-        const result = await response.json()
-        alert(result.error || '更新失敗')
+        // 顯示詳細的錯誤訊息
+        const errorMessage = result.error || '更新玩家失敗'
+        console.error('更新玩家失敗:', errorMessage, result)
+        alert(errorMessage)
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('更新使用者失敗:', error)
-      alert('更新失敗')
+      // 處理 JSON 解析錯誤或網路錯誤
+      const errorMessage = error.message || '更新失敗，請檢查網路連線'
+      alert(errorMessage)
     } finally {
       setLoading(false)
     }

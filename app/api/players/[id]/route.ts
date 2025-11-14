@@ -69,7 +69,14 @@ export async function PATCH(
       updateData.nickname = nickname.trim()
     }
     if (cardCount !== undefined) {
-      updateData.cardCount = parseInt(cardCount)
+      const cardCountNum = typeof cardCount === 'number' ? cardCount : parseInt(cardCount)
+      if (isNaN(cardCountNum) || cardCountNum < 0) {
+        return NextResponse.json(
+          { success: false, error: '房卡數量必須為非負整數' },
+          { status: 400, headers: corsHeaders() }
+        )
+      }
+      updateData.cardCount = cardCountNum
     }
     if (notes !== undefined) {
       updateData.notes = notes?.trim() || null
@@ -87,9 +94,21 @@ export async function PATCH(
       if (existingPlayer) {
         return NextResponse.json(
           { success: false, error: '暱稱已存在' },
-          { status: 400 }
+          { status: 400, headers: corsHeaders() }
         )
       }
+    }
+
+    // 檢查玩家是否存在
+    const existingPlayer = await prisma.player.findUnique({
+      where: { id },
+    })
+
+    if (!existingPlayer) {
+      return NextResponse.json(
+        { success: false, error: '玩家不存在' },
+        { status: 404, headers: corsHeaders() }
+      )
     }
 
     const player = await prisma.player.update({
@@ -102,11 +121,28 @@ export async function PATCH(
       data: player,
       message: '玩家更新成功',
     }, { headers: corsHeaders() })
-  } catch (error) {
+  } catch (error: any) {
     console.error('更新玩家失敗:', error)
+    
+    // 處理 Prisma 特定錯誤
+    let errorMessage = '更新玩家失敗'
+    let statusCode = 500
+
+    if (error.code === 'P2025') {
+      // Record not found
+      errorMessage = '玩家不存在'
+      statusCode = 404
+    } else if (error.code === 'P2002') {
+      // Unique constraint violation
+      errorMessage = '暱稱已存在'
+      statusCode = 400
+    } else if (error.message) {
+      errorMessage = error.message
+    }
+
     return NextResponse.json(
-      { success: false, error: '更新玩家失敗' },
-      { status: 500, headers: corsHeaders() }
+      { success: false, error: errorMessage },
+      { status: statusCode, headers: corsHeaders() }
     )
   }
 }
