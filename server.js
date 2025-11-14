@@ -3874,22 +3874,51 @@ function canSelfKong(hand, newTile) {
 io.on('connection', (socket) => {
   console.log('有玩家連線', socket.id);
 
-  socket.on('joinTable', ({ tableId, player }) => {
+  socket.on('joinTable', async ({ tableId, player }) => {
     // 根據暱稱獲取或生成玩家ID
     const nickname = player.name || player.nickname || '玩家';
     let playerId;
+    let userId = null;
     
-    // 檢查暱稱是否已經有對應的ID
-    if (nicknameToPlayerId[nickname]) {
-      playerId = nicknameToPlayerId[nickname];
-      console.log(`暱稱 "${nickname}" 已存在，使用綁定的ID: ${playerId}`);
-    } else {
-      // 生成新的ID（使用簡單的哈希算法或時間戳）
-      // 這裡使用時間戳 + 隨機數生成唯一ID
-      playerId = `player_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      // 保存暱稱到ID的映射
-      nicknameToPlayerId[nickname] = playerId;
-      console.log(`新暱稱 "${nickname}"，生成新ID: ${playerId}`);
+    // 嘗試從數據庫中查找玩家
+    try {
+      const dbPlayer = await prisma.player.findUnique({
+        where: { nickname: nickname.trim() },
+        select: { id: true, userId: true }
+      });
+      
+      if (dbPlayer) {
+        // 使用數據庫中的ID
+        playerId = dbPlayer.id;
+        userId = dbPlayer.userId;
+        // 保存暱稱到ID的映射
+        nicknameToPlayerId[nickname] = playerId;
+        console.log(`暱稱 "${nickname}" 已存在於數據庫，使用ID: ${playerId}, userId: ${userId}`);
+      } else {
+        // 如果數據庫中不存在，檢查內存映射
+        if (nicknameToPlayerId[nickname]) {
+          playerId = nicknameToPlayerId[nickname];
+          console.log(`暱稱 "${nickname}" 已存在於內存映射，使用ID: ${playerId}`);
+        } else {
+          // 生成新的ID（使用簡單的哈希算法或時間戳）
+          // 這裡使用時間戳 + 隨機數生成唯一ID
+          playerId = `player_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          // 保存暱稱到ID的映射
+          nicknameToPlayerId[nickname] = playerId;
+          console.log(`新暱稱 "${nickname}"，生成新ID: ${playerId}`);
+        }
+      }
+    } catch (error) {
+      console.error(`查詢玩家失敗: ${error.message}`);
+      // 如果數據庫查詢失敗，使用內存映射或生成新ID
+      if (nicknameToPlayerId[nickname]) {
+        playerId = nicknameToPlayerId[nickname];
+        console.log(`暱稱 "${nickname}" 已存在於內存映射，使用ID: ${playerId}`);
+      } else {
+        playerId = `player_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        nicknameToPlayerId[nickname] = playerId;
+        console.log(`新暱稱 "${nickname}"，生成新ID: ${playerId}`);
+      }
     }
     
     // 使用服務器端生成的ID，而不是客戶端發送的ID
@@ -3966,7 +3995,8 @@ io.on('connection', (socket) => {
     // 發送玩家ID給客戶端，讓客戶端知道實際使用的ID
     socket.emit('playerIdAssigned', {
       playerId: playerId,
-      nickname: nickname
+      nickname: nickname,
+      userId: userId // 添加 userId（6位數字）
     });
     
     // 四人到齊自動開始（添加倒數計時）
