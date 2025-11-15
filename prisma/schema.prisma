@@ -25,6 +25,7 @@ model Player {
   nickname  String   @unique
   cardCount Int      @default(0)
   avatarUrl String?  // 頭像URL
+  bio       String?  // 備註
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

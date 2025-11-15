@@ -8,6 +8,7 @@ interface Player {
   userId: string
   nickname: string
   cardCount: number
+  bio?: string | null
 }
 
 interface EditUserModalProps {
@@ -25,12 +26,14 @@ export default function EditUserModal({
 }: EditUserModalProps) {
   const [nickname, setNickname] = useState<string>('')
   const [cardCount, setCardCount] = useState<string>('0')
+  const [bio, setBio] = useState<string>('')
   const [loading, setLoading] = useState<boolean>(false)
 
   useEffect(() => {
     if (isOpen && player) {
       setNickname(player.nickname)
       setCardCount(player.cardCount.toString())
+      setBio(player.bio || '')
     }
   }, [isOpen, player])
 
@@ -52,6 +55,7 @@ export default function EditUserModal({
         body: JSON.stringify({
           nickname: nickname.trim(),
           cardCount: parseInt(cardCount),
+          bio: bio.trim() || null,
         })
       })
 
@@ -126,6 +130,19 @@ export default function EditUserModal({
               placeholder="0"
               min="0"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              備註
+            </label>
+            <textarea
+              value={bio}
+              onChange={(e) => setBio(e.target.value)}
+              placeholder="請輸入備註..."
+              rows={4}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400 resize-none"
             />
           </div>
         </div>

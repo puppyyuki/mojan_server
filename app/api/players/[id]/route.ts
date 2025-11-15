@@ -1,6 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
+// CORS headers helper
+function corsHeaders() {
+  return {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, PATCH, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+  }
+}
+
+// 處理 OPTIONS 請求（CORS preflight）
+export async function OPTIONS() {
+  return NextResponse.json({}, { headers: corsHeaders() })
+}
+
 // 獲取單個玩家
 export async function GET(
   request: NextRequest,
@@ -23,19 +37,19 @@ export async function GET(
     if (!player) {
       return NextResponse.json(
         { success: false, error: '玩家不存在' },
-        { status: 404 }
+        { status: 404, headers: corsHeaders() }
       )
     }
 
     return NextResponse.json({
       success: true,
       data: player,
-    })
+    }, { headers: corsHeaders() })
   } catch (error) {
     console.error('獲取玩家失敗:', error)
     return NextResponse.json(
       { success: false, error: '獲取玩家失敗' },
-      { status: 500 }
+      { status: 500, headers: corsHeaders() }
     )
   }
 }
@@ -48,7 +62,7 @@ export async function PATCH(
   try {
     const { id } = await params
     const body = await request.json()
-    const { nickname, cardCount } = body
+    const { nickname, cardCount, bio } = body
 
     const updateData: any = {}
     if (nickname !== undefined) {
@@ -56,6 +70,9 @@ export async function PATCH(
     }
     if (cardCount !== undefined) {
       updateData.cardCount = parseInt(cardCount)
+    }
+    if (bio !== undefined) {
+      updateData.bio = bio === null || bio === '' ? null : bio.trim()
     }
 
     // 如果更新暱稱，檢查是否重複
@@ -70,7 +87,7 @@ export async function PATCH(
       if (existingPlayer) {
         return NextResponse.json(
           { success: false, error: '暱稱已存在' },
-          { status: 400 }
+          { status: 400, headers: corsHeaders() }
         )
       }
     }
@@ -84,12 +101,12 @@ export async function PATCH(
       success: true,
       data: player,
       message: '玩家更新成功',
-    })
+    }, { headers: corsHeaders() })
   } catch (error) {
     console.error('更新玩家失敗:', error)
     return NextResponse.json(
       { success: false, error: '更新玩家失敗' },
-      { status: 500 }
+      { status: 500, headers: corsHeaders() }
     )
   }
 }
@@ -108,12 +125,12 @@ export async function DELETE(
     return NextResponse.json({
       success: true,
       message: '玩家刪除成功',
-    })
+    }, { headers: corsHeaders() })
   } catch (error) {
     console.error('刪除玩家失敗:', error)
     return NextResponse.json(
       { success: false, error: '刪除玩家失敗' },
-      { status: 500 }
+      { status: 500, headers: corsHeaders() }
     )
   }
 }
