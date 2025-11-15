@@ -324,13 +324,15 @@ export default function ClubManagementPage() {
                       {item.name || '-'}
                     </td>
                     <td className="px-6 py-4 text-center border-r border-gray-200">
-                      <button
-                        onClick={() => handleViewMembers(item)}
-                        className="flex items-center justify-center gap-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded px-2 py-1 transition-colors"
-                      >
-                        <Users className="w-4 h-4" />
-                        <span className="text-sm">{item.members?.length || 0} 人</span>
-                      </button>
+                      <div className="flex items-center justify-center">
+                        <button
+                          onClick={() => handleViewMembers(item)}
+                          className="flex items-center justify-center gap-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded px-2 py-1 transition-colors"
+                        >
+                          <Users className="w-4 h-4" />
+                          <span className="text-sm">{item.members?.length || 0} 人</span>
+                        </button>
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200 text-gray-900">
                       {item.creator?.nickname || '-'} ({item.creator?.userId || '-'})

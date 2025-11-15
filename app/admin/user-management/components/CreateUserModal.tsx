@@ -95,7 +95,7 @@ export default function CreateUserModal({
         <div className="px-6 py-4 space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              使用者暱稱 <span className="text-red-500">*</span>
+              玩家名稱 <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
@@ -108,7 +108,7 @@ export default function CreateUserModal({
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              房卡數量
+              當前房卡數量
             </label>
             <input
               type="number"

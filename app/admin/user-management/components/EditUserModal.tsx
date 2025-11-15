@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { X, Save } from 'lucide-react'
+import { apiPatch } from '@/lib/api-client'
 
 interface Player {
   id: string
@@ -47,16 +48,10 @@ export default function EditUserModal({
 
     setLoading(true)
     try {
-      const response = await fetch(`/api/players/${player.id}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          nickname: nickname.trim(),
-          cardCount: parseInt(cardCount),
-          bio: bio.trim() || null,
-        })
+      const response = await apiPatch(`/api/players/${player.id}`, {
+        nickname: nickname.trim(),
+        cardCount: parseInt(cardCount),
+        bio: bio.trim() || null,
       })
 
       if (response.ok) {
@@ -110,7 +105,7 @@ export default function EditUserModal({
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              使用者暱稱 <span className="text-red-500">*</span>
+              玩家名稱 <span className="text-red-500">*</span>
             </label>
             <input
               type="text"
@@ -123,7 +118,7 @@ export default function EditUserModal({
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              房卡數量
+              當前房卡數量
             </label>
             <input
               type="number"

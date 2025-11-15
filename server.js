@@ -1000,7 +1000,7 @@ function drawTile(tableId, playerId) {
   // 檢查牌組是否還有牌
   if (table.deck.length === 0) {
     console.log('牌組已空，遊戲結束');
-    endGame(tableId, 'draw');
+    endGame(tableId, 'draw').catch(err => console.error('結束遊戲失敗:', err));
     return;
   }
   
@@ -1566,7 +1566,7 @@ function handleFlowerTile(tableId, playerId, flower) {
       }
   } else {
     console.log('牌組已空，無法補花');
-    endGame(tableId, 'draw');
+    endGame(tableId, 'draw').catch(err => console.error('結束遊戲失敗:', err));
   }
 }
 
@@ -1661,7 +1661,7 @@ function autoDiscardTile(tableId, playerId) {
 }
 
 // 結束遊戲
-function endGame(tableId, reason, scores = null) {
+async function endGame(tableId, reason, scores = null) {
   const table = tables[tableId];
   if (!table) return;
   
@@ -1973,6 +1973,60 @@ function endGame(tableId, reason, scores = null) {
     players: playersWithDescription,
     finalScores: table.players.map(p => ({ id: p.id, score: p.score }))
   });
+
+  // 扣除房間創建者的卡片（流局或胡牌時都扣除）
+  if (reason === 'draw' || reason === 'hu') {
+    try {
+      // 從數據庫獲取房間信息
+      const room = await prisma.room.findUnique({
+        where: { roomId: tableId },
+        select: { creatorId: true },
+      });
+
+      if (room && room.creatorId) {
+        // 獲取創建者的當前卡片數量
+        const creator = await prisma.player.findUnique({
+          where: { id: room.creatorId },
+          select: { cardCount: true },
+        });
+
+        if (creator && creator.cardCount > 0) {
+          const previousCount = creator.cardCount;
+          const newCount = previousCount - 1;
+          
+          // 扣除一張卡片並記錄消耗
+          await prisma.$transaction([
+            prisma.player.update({
+              where: { id: room.creatorId },
+              data: {
+                cardCount: {
+                  decrement: 1,
+                },
+              },
+            }),
+            prisma.cardConsumptionRecord.create({
+              data: {
+                playerId: room.creatorId,
+                roomId: tableId,
+                amount: 1,
+                reason: 'game_end',
+                previousCount: previousCount,
+                newCount: newCount,
+              },
+            }),
+          ]);
+          console.log(`已扣除房間創建者 ${room.creatorId} 的卡片，剩餘: ${newCount}`);
+        } else {
+          console.log(`房間創建者 ${room.creatorId} 卡片數量不足，無法扣除`);
+        }
+      } else {
+        console.log(`無法找到房間 ${tableId} 的創建者信息`);
+      }
+    } catch (error) {
+      console.error(`扣除房間創建者卡片失敗: ${tableId}`, error);
+      // 不影響遊戲結束流程，只記錄錯誤
+    }
+  }
 }
 
 // 打牌函數
@@ -3559,7 +3613,7 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
   });
   
   // 結束遊戲（傳入分數）
-  endGame(tableId, 'hu', scores);
+  endGame(tableId, 'hu', scores).catch(err => console.error('結束遊戲失敗:', err));
 }
 
 // 清理資料，確保可序列化（移除函數、循環引用等）

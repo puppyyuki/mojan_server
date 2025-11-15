@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { getCurrentUserId } from '@/lib/auth'
 
 // CORS headers helper
 function corsHeaders() {
@@ -64,6 +65,18 @@ export async function PATCH(
     const body = await request.json()
     const { nickname, cardCount, bio } = body
 
+    // 獲取當前玩家資料（用於記錄補卡前的數量）
+    const currentPlayer = await prisma.player.findUnique({
+      where: { id },
+    })
+
+    if (!currentPlayer) {
+      return NextResponse.json(
+        { success: false, error: '玩家不存在' },
+        { status: 404, headers: corsHeaders() }
+      )
+    }
+
     const updateData: any = {}
     if (nickname !== undefined) {
       updateData.nickname = nickname.trim()
@@ -89,6 +102,32 @@ export async function PATCH(
           { success: false, error: '暱稱已存在' },
           { status: 400, headers: corsHeaders() }
         )
+      }
+    }
+
+    // 如果更新房卡數量，記錄補卡操作
+    if (cardCount !== undefined) {
+      const previousCount = currentPlayer.cardCount
+      const newCount = parseInt(cardCount)
+      const amount = newCount - previousCount
+
+      // 如果有補卡（增加），記錄補卡歷史
+      if (amount > 0) {
+        // 獲取當前登入的管理員ID
+        const adminUserId = await getCurrentUserId(request)
+        
+        if (adminUserId) {
+          // 記錄補卡操作
+          await prisma.cardRechargeRecord.create({
+            data: {
+              playerId: id,
+              adminUserId: adminUserId,
+              amount: amount,
+              previousCount: previousCount,
+              newCount: newCount,
+            },
+          })
+        }
       }
     }
 

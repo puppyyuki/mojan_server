@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { RefreshCw, Edit, Trash2, Plus, Search } from 'lucide-react'
+import { RefreshCw, Edit, Trash2, Plus, Search, History } from 'lucide-react'
 import { apiGet, apiDelete } from '@/lib/api-client'
 import CreateUserModal from './components/CreateUserModal'
 import EditUserModal from './components/EditUserModal'
+import CardRechargeHistoryModal from './components/CardRechargeHistoryModal'
 
 interface Player {
   id: string
@@ -12,8 +13,16 @@ interface Player {
   nickname: string
   cardCount: number
   bio?: string | null
+  lastLoginAt?: string | null
   createdAt: string
   updatedAt: string
+  totalRechargeAmount: number
+  averageMonthlyRecharge: number
+  currentClubs: Array<{
+    id: string
+    clubId: string
+    name: string
+  }>
 }
 
 export default function UserManagementPage() {
@@ -32,6 +41,8 @@ export default function UserManagementPage() {
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null)
+  const [historyModalOpen, setHistoryModalOpen] = useState(false)
+  const [viewingPlayerId, setViewingPlayerId] = useState<string | null>(null)
 
   // 獲取玩家列表
   const fetchPlayers = useCallback(async () => {
@@ -82,6 +93,12 @@ export default function UserManagementPage() {
   const handleEdit = (player: Player) => {
     setEditingPlayer(player)
     setEditModalOpen(true)
+  }
+
+  // 查看補卡紀錄
+  const handleViewHistory = (player: Player) => {
+    setViewingPlayerId(player.id)
+    setHistoryModalOpen(true)
   }
 
   // 刪除玩家
@@ -206,7 +223,7 @@ export default function UserManagementPage() {
       {/* 數據表格 */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[800px] divide-y divide-gray-200">
+          <table className="w-full min-w-[1400px] divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-center border-r border-gray-200 w-[60px]">
@@ -224,13 +241,25 @@ export default function UserManagementPage() {
                   使用者ID
                 </th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 whitespace-nowrap w-[200px]">
-                  使用者暱稱
+                  玩家名稱
                 </th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 whitespace-nowrap w-[150px]">
-                  房卡數量
+                  當前房卡數量
                 </th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 whitespace-nowrap w-[200px]">
                   備註
+                </th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 whitespace-nowrap w-[200px]">
+                  加入的俱樂部
+                </th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 whitespace-nowrap w-[120px]">
+                  總補卡數
+                </th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 whitespace-nowrap w-[120px]">
+                  平均月耗卡量
+                </th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 whitespace-nowrap w-[180px]">
+                  最後登入時間
                 </th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-[200px]">
                   操作
@@ -240,7 +269,7 @@ export default function UserManagementPage() {
             <tbody className="divide-y divide-gray-200">
               {loading && !dataLoaded ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={11} className="px-6 py-12 text-center text-gray-500">
                     <div className="flex items-center justify-center">
                       <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
                       <span className="ml-2">載入中...</span>
@@ -249,7 +278,7 @@ export default function UserManagementPage() {
                 </tr>
               ) : displayData.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={11} className="px-6 py-12 text-center text-gray-500">
                     暫無數據
                   </td>
                 </tr>
@@ -281,6 +310,30 @@ export default function UserManagementPage() {
                         {item.bio || '-'}
                       </div>
                     </td>
+                    <td className="px-6 py-4 text-center border-r border-gray-200 text-gray-900 max-w-[200px]">
+                      <div className="truncate" title={item.currentClubs.map(c => `${c.name}(${c.clubId})`).join(', ') || '無'}>
+                        {item.currentClubs.length > 0
+                          ? item.currentClubs.map((club) => `${club.name}(${club.clubId})`).join(', ')
+                          : '-'}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200 text-gray-900">
+                      {item.totalRechargeAmount}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200 text-gray-900">
+                      {item.averageMonthlyRecharge.toFixed(2)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200 text-gray-900">
+                      {item.lastLoginAt
+                        ? new Date(item.lastLoginAt).toLocaleString('zh-TW', {
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })
+                        : '尚未登入'}
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center">
                       <div className="flex items-center justify-center gap-2">
                         <button
@@ -289,6 +342,13 @@ export default function UserManagementPage() {
                         >
                           <Edit className="w-3 h-3" />
                           編輯
+                        </button>
+                        <button
+                          onClick={() => handleViewHistory(item)}
+                          className="flex items-center gap-1 px-2 py-1 text-xs text-purple-600 hover:text-purple-800 hover:bg-purple-50 rounded transition-colors"
+                        >
+                          <History className="w-3 h-3" />
+                          補卡紀錄
                         </button>
                         <button
                           onClick={() => handleDelete(item.id)}
@@ -330,6 +390,16 @@ export default function UserManagementPage() {
           fetchPlayers()
         }}
         player={editingPlayer}
+      />
+
+      {/* 補卡紀錄 Modal */}
+      <CardRechargeHistoryModal
+        isOpen={historyModalOpen}
+        onClose={() => {
+          setHistoryModalOpen(false)
+          setViewingPlayerId(null)
+        }}
+        playerId={viewingPlayerId || ''}
       />
     </div>
   )

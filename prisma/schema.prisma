@@ -16,22 +16,27 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  cardRechargeRecords CardRechargeRecord[]
+
   @@map("users")
 }
 
 model Player {
-  id        String   @id @default(cuid())
-  userId    String   @unique // 6位數字，唯一
-  nickname  String   @unique
-  cardCount Int      @default(0)
-  avatarUrl String?  // 頭像URL
-  bio       String?  // 備註
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(cuid())
+  userId     String   @unique // 6位數字，唯一
+  nickname   String   @unique
+  cardCount  Int      @default(0)
+  avatarUrl  String?  // 頭像URL
+  bio        String?  // 備註
+  lastLoginAt DateTime? // 最後登入時間
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
-  createdClubs Club[] @relation("ClubCreator")
-  clubMembers  ClubMember[]
-  createdRooms Room[] @relation("RoomCreator")
+  createdClubs           Club[]                  @relation("ClubCreator")
+  clubMembers            ClubMember[]
+  createdRooms           Room[]                  @relation("RoomCreator")
+  cardRechargeRecords    CardRechargeRecord[]
+  cardConsumptionRecords CardConsumptionRecord[]
 
   @@map("players")
 }
@@ -80,5 +85,33 @@ model Room {
   updatedAt     DateTime @updatedAt
 
   @@map("rooms")
+}
+
+model CardRechargeRecord {
+  id          String   @id @default(cuid())
+  playerId    String
+  player      Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  adminUserId String
+  adminUser   User     @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  amount      Int      // 補卡數量
+  previousCount Int    // 補卡前的數量
+  newCount    Int      // 補卡後的數量
+  createdAt   DateTime @default(now())
+
+  @@map("card_recharge_records")
+}
+
+model CardConsumptionRecord {
+  id          String   @id @default(cuid())
+  playerId    String
+  player      Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  roomId      String?  // 房間ID
+  amount      Int      // 消耗數量（通常為1）
+  reason      String   // 消耗原因：'game_end' (流局或胡牌)
+  previousCount Int    // 消耗前的數量
+  newCount    Int      // 消耗後的數量
+  createdAt   DateTime @default(now())
+
+  @@map("card_consumption_records")
 }
 
