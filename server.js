@@ -4452,7 +4452,7 @@ async function generateUniqueId(checkUnique, maxAttempts = 100) {
 // CORS headers helper
 function setCorsHeaders(res) {
   res.setHeader('Access-Control-Allow-Origin', process.env.CORS_ORIGIN || '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 }
 
@@ -4541,6 +4541,62 @@ app.post('/api/players', async (req, res) => {
     res.status(500).json({
       success: false,
       error: '創建玩家失敗',
+    });
+  }
+});
+
+// API: 更新玩家（PATCH /api/players/:id）
+app.patch('/api/players/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { nickname, cardCount, bio } = req.body;
+
+    const updateData = {};
+    if (nickname !== undefined) {
+      updateData.nickname = nickname.trim();
+    }
+    if (cardCount !== undefined) {
+      updateData.cardCount = parseInt(cardCount);
+    }
+    if (bio !== undefined) {
+      updateData.bio = bio === null || bio === '' ? null : bio.trim();
+    }
+
+    // 如果更新暱稱，檢查是否重複
+    if (updateData.nickname) {
+      const existingPlayer = await prisma.player.findFirst({
+        where: {
+          nickname: updateData.nickname,
+          NOT: { id },
+        },
+      });
+
+      if (existingPlayer) {
+        setCorsHeaders(res);
+        return res.status(400).json({
+          success: false,
+          error: '暱稱已存在',
+        });
+      }
+    }
+
+    const player = await prisma.player.update({
+      where: { id },
+      data: updateData,
+    });
+
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: player,
+      message: '玩家更新成功',
+    });
+  } catch (error) {
+    console.error('更新玩家失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '更新玩家失敗',
     });
   }
 });
