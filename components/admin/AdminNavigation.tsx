@@ -6,7 +6,12 @@ import {
   Building2,
   UserCircle,
   Wallet,
-  FileText
+  FileText,
+  CreditCard,
+  Terminal,
+  BarChart,
+  Megaphone,
+  PieChart
 } from 'lucide-react'
 
 interface MenuItem {
@@ -44,7 +49,7 @@ export default function AdminNavigation({ onMenuClick, activeMenu }: AdminNaviga
     },
     {
       id: 'user-management',
-      label: '使用者管理',
+      label: '玩家管理',
       icon: UserCircle,
       path: '/admin/user-management'
     },
@@ -59,6 +64,36 @@ export default function AdminNavigation({ onMenuClick, activeMenu }: AdminNaviga
       label: '遊戲紀錄管理',
       icon: FileText,
       path: '/admin/game-record-management'
+    },
+    {
+      id: 'card-replenishment',
+      label: '補卡',
+      icon: CreditCard,
+      path: '/admin/card-replenishment'
+    },
+    {
+      id: 'command',
+      label: '指令',
+      icon: Terminal,
+      path: '/admin/command'
+    },
+    {
+      id: 'report',
+      label: '報表',
+      icon: BarChart,
+      path: '/admin/report'
+    },
+    {
+      id: 'promotion',
+      label: '推廣',
+      icon: Megaphone,
+      path: '/admin/promotion'
+    },
+    {
+      id: 'statistics',
+      label: '統計圖表',
+      icon: PieChart,
+      path: '/admin/statistics'
     }
   ]
 

@@ -26,7 +26,14 @@ export default function AdminLayout({
     if (savedTabs) {
       try {
         const parsedTabs = JSON.parse(savedTabs)
-        setTabs(parsedTabs)
+        // 更新舊的"使用者管理"標籤為"玩家管理"
+        const updatedTabs = parsedTabs.map((tab: Tab) => {
+          if (tab.path === '/admin/user-management' && tab.label === '使用者管理') {
+            return { ...tab, label: '玩家管理' }
+          }
+          return tab
+        })
+        setTabs(updatedTabs)
         if (savedActiveTab) {
           setActiveTab(savedActiveTab)
         }
@@ -85,7 +92,10 @@ export default function AdminLayout({
     const existingTab = tabs.find(tab => tab.path === path)
     
     if (existingTab) {
-      // 如果已存在，切換到該頁籤
+      // 如果已存在，更新 label 並切換到該頁籤
+      setTabs(prev => prev.map(tab => 
+        tab.path === path ? { ...tab, label } : tab
+      ))
       setActiveTab(existingTab.id)
       router.push(path)
     } else {
