@@ -1,11 +1,12 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { RefreshCw, Edit, Trash2, Plus, Search, History } from 'lucide-react'
+import { RefreshCw, Edit, Trash2, Plus, Search, History, Users } from 'lucide-react'
 import { apiGet, apiDelete } from '@/lib/api-client'
 import CreateUserModal from './components/CreateUserModal'
 import EditUserModal from './components/EditUserModal'
 import CardRechargeHistoryModal from './components/CardRechargeHistoryModal'
+import PlayerClubsModal from './components/PlayerClubsModal'
 
 interface Player {
   id: string
@@ -43,6 +44,11 @@ export default function UserManagementPage() {
   const [editingPlayer, setEditingPlayer] = useState<Player | null>(null)
   const [historyModalOpen, setHistoryModalOpen] = useState(false)
   const [viewingPlayerId, setViewingPlayerId] = useState<string | null>(null)
+  const [clubsModalOpen, setClubsModalOpen] = useState(false)
+  const [viewingPlayerClubs, setViewingPlayerClubs] = useState<{
+    player: Player
+    clubs: any[]
+  } | null>(null)
 
   // 獲取玩家列表
   const fetchPlayers = useCallback(async () => {
@@ -99,6 +105,28 @@ export default function UserManagementPage() {
   const handleViewHistory = (player: Player) => {
     setViewingPlayerId(player.id)
     setHistoryModalOpen(true)
+  }
+
+  // 查看玩家加入的俱樂部
+  const handleViewClubs = async (player: Player) => {
+    try {
+      const response = await apiGet(`/api/players/${player.id}/clubs`)
+      if (response.ok) {
+        const result = await response.json()
+        setViewingPlayerClubs({
+          player,
+          clubs: result.data || []
+        })
+        setClubsModalOpen(true)
+      } else {
+        const result = await response.json()
+        console.error('獲取玩家俱樂部列表失敗:', result.error || '未知錯誤')
+        alert(result.error || '獲取玩家俱樂部列表失敗')
+      }
+    } catch (error) {
+      console.error('獲取玩家俱樂部列表失敗:', error)
+      alert('獲取玩家俱樂部列表失敗')
+    }
   }
 
   // 刪除玩家
@@ -310,11 +338,15 @@ export default function UserManagementPage() {
                         {item.bio || '-'}
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-center border-r border-gray-200 text-gray-900 max-w-[200px]">
-                      <div className="truncate" title={item.currentClubs.map(c => `${c.name}(${c.clubId})`).join(', ') || '無'}>
-                        {item.currentClubs.length > 0
-                          ? item.currentClubs.map((club) => `${club.name}(${club.clubId})`).join(', ')
-                          : '-'}
+                    <td className="px-6 py-4 text-center border-r border-gray-200">
+                      <div className="flex items-center justify-center">
+                        <button
+                          onClick={() => handleViewClubs(item)}
+                          className="flex items-center justify-center gap-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded px-2 py-1 transition-colors"
+                        >
+                          <Users className="w-4 h-4" />
+                          <span className="text-sm">{item.currentClubs.length} 個</span>
+                        </button>
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200 text-gray-900">
@@ -400,6 +432,17 @@ export default function UserManagementPage() {
           setViewingPlayerId(null)
         }}
         playerId={viewingPlayerId || ''}
+      />
+
+      {/* 玩家加入的俱樂部 Modal */}
+      <PlayerClubsModal
+        isOpen={clubsModalOpen}
+        onClose={() => {
+          setClubsModalOpen(false)
+          setViewingPlayerClubs(null)
+        }}
+        clubs={viewingPlayerClubs?.clubs || []}
+        playerName={viewingPlayerClubs?.player.nickname || ''}
       />
     </div>
   )

@@ -4818,7 +4818,11 @@ app.get('/api/clubs/:clubId', async (req, res) => {
     // 先嘗試通過內部ID查找
     let club = await prisma.club.findUnique({
       where: { id: clubId },
-      include: {
+      select: {
+        id: true,
+        clubId: true,
+        name: true,
+        cardCount: true, // 包含俱樂部房卡數量
         creator: {
           select: {
             id: true,
@@ -4845,7 +4849,11 @@ app.get('/api/clubs/:clubId', async (req, res) => {
     if (!club) {
       club = await prisma.club.findUnique({
         where: { clubId: clubId },
-        include: {
+        select: {
+          id: true,
+          clubId: true,
+          name: true,
+          cardCount: true, // 包含俱樂部房卡數量
           creator: {
             select: {
               id: true,
@@ -5064,7 +5072,11 @@ app.get('/api/players/:playerId/clubs', async (req, res) => {
       where: { playerId: playerId },
       include: {
         club: {
-          include: {
+          select: {
+            id: true,
+            clubId: true,
+            name: true,
+            cardCount: true,
             creator: {
               select: {
                 id: true,
@@ -5079,7 +5091,6 @@ app.get('/api/players/:playerId/clubs', async (req, res) => {
                     id: true,
                     userId: true,
                     nickname: true,
-                    cardCount: true,
                   },
                 },
               },

@@ -37,12 +37,27 @@ export async function GET(
       where: { playerId: id },
       include: {
         club: {
-          include: {
+          select: {
+            id: true,
+            clubId: true,
+            name: true,
+            cardCount: true,
             creator: {
               select: {
                 id: true,
                 userId: true,
                 nickname: true,
+              },
+            },
+            members: {
+              include: {
+                player: {
+                  select: {
+                    id: true,
+                    userId: true,
+                    nickname: true,
+                  },
+                },
               },
             },
           },

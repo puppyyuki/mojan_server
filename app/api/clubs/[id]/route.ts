@@ -24,7 +24,11 @@ export async function GET(
     const { id } = await params
     const club = await prisma.club.findUnique({
       where: { id },
-      include: {
+      select: {
+        id: true,
+        clubId: true,
+        name: true,
+        cardCount: true, // 包含俱樂部房卡數量
         creator: {
           select: {
             id: true,
