@@ -104,8 +104,9 @@ export async function PATCH(
     }, { headers: corsHeaders() })
   } catch (error) {
     console.error('更新玩家失敗:', error)
+    const errorMessage = error instanceof Error ? error.message : '更新玩家失敗'
     return NextResponse.json(
-      { success: false, error: '更新玩家失敗' },
+      { success: false, error: errorMessage },
       { status: 500, headers: corsHeaders() }
     )
   }

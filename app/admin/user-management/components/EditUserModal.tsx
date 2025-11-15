@@ -65,12 +65,14 @@ export default function EditUserModal({
         onSuccess()
         onClose()
       } else {
-        const result = await response.json()
-        alert(result.error || '更新失敗')
+        const result = await response.json().catch(() => ({ error: '未知錯誤' }))
+        const errorMessage = result.error || `更新失敗 (HTTP ${response.status})`
+        console.error('更新失敗:', errorMessage, result)
+        alert(errorMessage)
       }
     } catch (error) {
       console.error('更新使用者失敗:', error)
-      alert('更新失敗')
+      alert(`更新失敗: ${error instanceof Error ? error.message : '未知錯誤'}`)
     } finally {
       setLoading(false)
     }
