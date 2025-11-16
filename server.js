@@ -4557,11 +4557,18 @@ app.post('/api/players', async (req, res) => {
     });
 
     if (existingPlayer) {
-      // 如果已存在，返回現有玩家
+      // 如果已存在，更新最後登入時間並返回現有玩家
+      const updatedPlayer = await prisma.player.update({
+        where: { id: existingPlayer.id },
+        data: {
+          lastLoginAt: new Date(),
+        },
+      });
+      
       setCorsHeaders(res);
       return res.status(200).json({
         success: true,
-        data: existingPlayer,
+        data: updatedPlayer,
         message: '使用現有玩家',
       });
     }
@@ -4580,6 +4587,7 @@ app.post('/api/players', async (req, res) => {
         userId,
         nickname: nickname.trim(),
         cardCount: 0,
+        lastLoginAt: new Date(), // 新玩家也記錄登入時間
       },
     });
 
@@ -5478,6 +5486,8 @@ app.put('/api/clubs/:clubId/game-settings', async (req, res) => {
 // ================================
 // Agent Management APIs
 // ================================
+// 注意：代理申請 API 已移至 Next.js API 路由 (app/api/agents/apply/route.ts)
+// 此處保留其他代理相關的 Socket.io 端點
 
 // API: 檢查代理狀態
 app.get('/api/agents/status', async (req, res) => {

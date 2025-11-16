@@ -17,6 +17,7 @@ model User {
   updatedAt DateTime @updatedAt
 
   cardRechargeRecords CardRechargeRecord[]
+  reviewedAgentApplications AgentApplication[]
 
   @@map("users")
 }
@@ -37,6 +38,7 @@ model Player {
   createdRooms           Room[]                  @relation("RoomCreator")
   cardRechargeRecords    CardRechargeRecord[]
   cardConsumptionRecords CardConsumptionRecord[]
+  agentApplications      AgentApplication[]
 
   @@map("players")
 }
@@ -115,3 +117,22 @@ model CardConsumptionRecord {
   @@map("card_consumption_records")
 }
 
+model AgentApplication {
+  id          String   @id @default(cuid())
+  playerId    String
+  player      Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  fullName    String
+  email       String
+  phone       String
+  note        String?
+  phoneOtpCode String
+  emailOtpCode String
+  status      String   @default("pending") // pending, approved, rejected
+  reviewedAt  DateTime?
+  reviewedBy  String?  // 審核者 ID (User ID)
+  reviewer    User?    @relation(fields: [reviewedBy], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("agent_applications")
+}
