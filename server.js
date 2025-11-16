@@ -5596,17 +5596,82 @@ app.post('/api/agents/apply', async (req, res) => {
 // API: 檢查代理狀態
 app.get('/api/agents/status', async (req, res) => {
   try {
-    // TODO: 實現代理狀態檢查邏輯
-    // 這裡需要從請求中獲取玩家ID，然後檢查是否為代理
-    setCorsHeaders(res);
-    res.status(200).json({
-      success: true,
-      data: {
-        isAgent: false,
-        agentRequestStatus: null,
-        agentDetails: null,
+    // 從查詢參數獲取玩家ID（userId，6位數字）
+    const playerId = req.query.playerId;
+    
+    if (!playerId) {
+      setCorsHeaders(res);
+      return res.status(400).json({
+        success: false,
+        error: '缺少玩家ID',
+      });
+    }
+
+    // 查找玩家的代理申請（已批准的）
+    const approvedApplication = await prisma.agentApplication.findFirst({
+      where: {
+        player: {
+          userId: playerId,
+        },
+        status: 'approved', // 只查找已批准的申請
+      },
+      include: {
+        player: true,
+        reviewer: {
+          select: {
+            username: true,
+          },
+        },
+      },
+      orderBy: {
+        reviewedAt: 'desc', // 獲取最新的批准記錄
       },
     });
+
+    if (approvedApplication) {
+      // 玩家是已批准的代理
+      setCorsHeaders(res);
+      return res.status(200).json({
+        success: true,
+        data: {
+          isAgent: true,
+          agentRequestStatus: 'approved',
+          agentDetails: {
+            id: approvedApplication.id,
+            fullName: approvedApplication.fullName,
+            email: approvedApplication.email,
+            phone: approvedApplication.phone,
+            approvedAt: approvedApplication.reviewedAt?.toISOString() || null,
+            approvedBy: approvedApplication.reviewer?.username || null,
+          },
+        },
+      });
+    } else {
+      // 檢查是否有待審核或已拒絕的申請
+      const pendingOrRejected = await prisma.agentApplication.findFirst({
+        where: {
+          player: {
+            userId: playerId,
+          },
+          status: {
+            in: ['pending', 'rejected'],
+          },
+        },
+        orderBy: {
+          createdAt: 'desc',
+        },
+      });
+
+      setCorsHeaders(res);
+      return res.status(200).json({
+        success: true,
+        data: {
+          isAgent: false,
+          agentRequestStatus: pendingOrRejected?.status || null,
+          agentDetails: null,
+        },
+      });
+    }
   } catch (error) {
     console.error('檢查代理狀態失敗:', error);
     setCorsHeaders(res);
