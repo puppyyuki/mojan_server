@@ -5486,8 +5486,112 @@ app.put('/api/clubs/:clubId/game-settings', async (req, res) => {
 // ================================
 // Agent Management APIs
 // ================================
-// 注意：代理申請 API 已移至 Next.js API 路由 (app/api/agents/apply/route.ts)
-// 此處保留其他代理相關的 Socket.io 端點
+
+// API: 提交代理申請
+app.post('/api/agents/apply', async (req, res) => {
+  try {
+    const { fullName, email, phone, note, phoneOtpCode, emailOtpCode, playerId } = req.body;
+
+    if (!fullName || !email || !phone || !playerId) {
+      setCorsHeaders(res);
+      return res.status(400).json({
+        success: false,
+        error: '缺少必填欄位',
+      });
+    }
+
+    // 檢查玩家是否存在
+    const player = await prisma.player.findUnique({
+      where: { id: playerId },
+    });
+
+    if (!player) {
+      setCorsHeaders(res);
+      return res.status(404).json({
+        success: false,
+        error: '玩家不存在',
+      });
+    }
+
+    // 檢查是否已有申請記錄（任何狀態）
+    const existingApplication = await prisma.agentApplication.findFirst({
+      where: {
+        playerId: playerId,
+      },
+      orderBy: {
+        createdAt: 'desc', // 獲取最新的申請記錄
+      },
+    });
+
+    let application;
+
+    if (existingApplication) {
+      // 如果已有申請記錄
+      if (existingApplication.status === 'pending') {
+        // 已有待審核的申請，不允許重複提交
+        setCorsHeaders(res);
+        return res.status(400).json({
+          success: false,
+          error: '您已有待審核的申請',
+        });
+      } else if (existingApplication.status === 'approved') {
+        // 已經是代理，不允許重新申請
+        setCorsHeaders(res);
+        return res.status(400).json({
+          success: false,
+          error: '您已經是代理，無需重新申請',
+        });
+      } else if (existingApplication.status === 'rejected') {
+        // 被拒絕後重新提交，更新現有記錄
+        application = await prisma.agentApplication.update({
+          where: { id: existingApplication.id },
+          data: {
+            fullName: fullName,
+            email: email,
+            phone: phone,
+            note: note || null,
+            phoneOtpCode: phoneOtpCode || '000000',
+            emailOtpCode: emailOtpCode || '000000',
+            status: 'pending', // 重新設置為待審核
+            reviewedAt: null, // 清除審核時間
+            reviewedBy: null, // 清除審核者
+          },
+        });
+      }
+    } else {
+      // 沒有申請記錄，創建新記錄
+      application = await prisma.agentApplication.create({
+        data: {
+          playerId: playerId,
+          fullName: fullName,
+          email: email,
+          phone: phone,
+          note: note || null,
+          phoneOtpCode: phoneOtpCode || '000000',
+          emailOtpCode: emailOtpCode || '000000',
+          status: 'pending',
+        },
+      });
+    }
+
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: {
+        applicationId: application.id,
+        message: '申請提交成功，請等待審核',
+      },
+    });
+  } catch (error) {
+    console.error('提交代理申請失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '提交申請失敗',
+      message: error.message || '未知錯誤',
+    });
+  }
+});
 
 // API: 檢查代理狀態
 app.get('/api/agents/status', async (req, res) => {
