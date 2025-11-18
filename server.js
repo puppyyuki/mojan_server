@@ -5918,6 +5918,55 @@ app.get('/', (req, res) => {
   res.send('Mahjong server running!');
 });
 
+// API: 推送房卡更新通知（供 Next.js API 調用）
+app.post('/api/internal/notify-card-update', async (req, res) => {
+  try {
+    const { playerId, cardCount } = req.body;
+    
+    if (!playerId || cardCount === undefined) {
+      setCorsHeaders(res);
+      return res.status(400).json({
+        success: false,
+        error: '參數錯誤：需要 playerId 和 cardCount',
+      });
+    }
+    
+    console.log(`收到補卡通知：playerId=${playerId}, cardCount=${cardCount}`);
+    
+    // 查找該玩家的所有 socket 連接
+    let notifiedCount = 0;
+    const sockets = await io.fetchSockets();
+    
+    for (const socket of sockets) {
+      const playerInfo = socketToPlayer[socket.id];
+      if (playerInfo && playerInfo.playerId === playerId) {
+        // 推送房卡更新事件給該玩家
+        socket.emit('roomCardUpdated', {
+          playerId: playerId,
+          cardCount: parseInt(cardCount),
+        });
+        notifiedCount++;
+        console.log(`已推送房卡更新給 socket ${socket.id} (playerId: ${playerId})`);
+      }
+    }
+    
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      message: `已通知 ${notifiedCount} 個連接`,
+      notifiedCount: notifiedCount,
+    });
+  } catch (error) {
+    console.error('推送房卡更新失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '推送房卡更新失敗',
+      message: error.message || '未知錯誤',
+    });
+  }
+});
+
 // 健康檢查端點（Render 需要）
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });

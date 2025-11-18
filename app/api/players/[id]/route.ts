@@ -136,6 +136,32 @@ export async function PATCH(
       data: updateData,
     })
 
+    // 如果更新了房卡數量，通知 WebSocket 伺服器推送更新
+    if (cardCount !== undefined) {
+      try {
+        const socketServerUrl = process.env.SOCKET_SERVER_URL || process.env.NEXT_PUBLIC_SOCKET_SERVER_URL || 'http://localhost:3000'
+        const notifyUrl = `${socketServerUrl}/api/internal/notify-card-update`
+        
+        // 異步調用，不等待響應（避免阻塞 API 響應）
+        fetch(notifyUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            playerId: id,
+            cardCount: player.cardCount,
+          }),
+        }).catch((error) => {
+          // 記錄錯誤但不影響 API 響應
+          console.error('通知 WebSocket 伺服器失敗:', error)
+        })
+      } catch (error) {
+        // 記錄錯誤但不影響 API 響應
+        console.error('通知 WebSocket 伺服器時發生錯誤:', error)
+      }
+    }
+
     return NextResponse.json({
       success: true,
       data: player,
