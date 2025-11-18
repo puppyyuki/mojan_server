@@ -4538,6 +4538,45 @@ app.get('/api/players', async (req, res) => {
   }
 });
 
+// API: 獲取單個玩家
+app.get('/api/players/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const player = await prisma.player.findUnique({
+      where: { id },
+      include: {
+        createdClubs: true,
+        clubMembers: {
+          include: {
+            club: true,
+          },
+        },
+      },
+    });
+
+    if (!player) {
+      setCorsHeaders(res);
+      return res.status(404).json({
+        success: false,
+        error: '玩家不存在',
+      });
+    }
+
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: player,
+    });
+  } catch (error) {
+    console.error('獲取玩家失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '獲取玩家失敗',
+    });
+  }
+});
+
 // API: 創建玩家（通過暱稱）
 app.post('/api/players', async (req, res) => {
   try {

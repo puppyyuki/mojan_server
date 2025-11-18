@@ -23,8 +23,6 @@ export async function GET(
 ) {
   try {
     const { id } = await params
-    console.log(`>>> [DEBUG] GET /api/players/${id} - 開始查詢玩家`)
-    
     const player = await prisma.player.findUnique({
       where: { id },
       include: {
@@ -38,22 +36,18 @@ export async function GET(
     })
 
     if (!player) {
-      console.log(`>>> [ERROR] GET /api/players/${id} - 玩家不存在`)
       return NextResponse.json(
         { success: false, error: '玩家不存在' },
         { status: 404, headers: corsHeaders() }
       )
     }
 
-    console.log(`>>> [DEBUG] GET /api/players/${id} - 查詢成功`)
-    console.log(`>>> [DEBUG] 玩家資料: id=${player.id}, userId=${player.userId}, nickname=${player.nickname}, cardCount=${player.cardCount}, bio=${player.bio}`)
-
     return NextResponse.json({
       success: true,
       data: player,
     }, { headers: corsHeaders() })
   } catch (error) {
-    console.error(`>>> [ERROR] GET /api/players/${await params.then(p => p.id)} - 獲取玩家失敗:`, error)
+    console.error('獲取玩家失敗:', error)
     return NextResponse.json(
       { success: false, error: '獲取玩家失敗' },
       { status: 500, headers: corsHeaders() }
@@ -71,23 +65,17 @@ export async function PATCH(
     const body = await request.json()
     const { nickname, cardCount, bio } = body
 
-    console.log(`>>> [DEBUG] PATCH /api/players/${id} - 更新玩家`)
-    console.log(`>>> [DEBUG] 請求參數: nickname=${nickname}, cardCount=${cardCount}, bio=${bio}`)
-
     // 獲取當前玩家資料（用於記錄補卡前的數量）
     const currentPlayer = await prisma.player.findUnique({
       where: { id },
     })
 
     if (!currentPlayer) {
-      console.log(`>>> [ERROR] PATCH /api/players/${id} - 玩家不存在`)
       return NextResponse.json(
         { success: false, error: '玩家不存在' },
         { status: 404, headers: corsHeaders() }
       )
     }
-
-    console.log(`>>> [DEBUG] 當前玩家資料: cardCount=${currentPlayer.cardCount}`)
 
     const updateData: any = {}
     if (nickname !== undefined) {
@@ -123,14 +111,10 @@ export async function PATCH(
       const newCount = parseInt(cardCount)
       const amount = newCount - previousCount
 
-      console.log(`>>> [DEBUG] 更新房卡數量: ${previousCount} -> ${newCount} (變化: ${amount})`)
-
       // 如果有補卡（增加），記錄補卡歷史
       if (amount > 0) {
         // 獲取當前登入的管理員ID
         const adminUserId = await getCurrentUserId(request)
-        
-        console.log(`>>> [DEBUG] 補卡操作 - 管理員ID: ${adminUserId}`)
         
         if (adminUserId) {
           // 記錄補卡操作
@@ -143,9 +127,6 @@ export async function PATCH(
               newCount: newCount,
             },
           })
-          console.log(`>>> [DEBUG] 補卡記錄已創建: playerId=${id}, amount=${amount}`)
-        } else {
-          console.log(`>>> [WARNING] 無法獲取管理員ID，補卡記錄未創建`)
         }
       }
     }
@@ -154,8 +135,6 @@ export async function PATCH(
       where: { id },
       data: updateData,
     })
-
-    console.log(`>>> [DEBUG] 玩家更新成功: id=${player.id}, cardCount=${player.cardCount}`)
 
     return NextResponse.json({
       success: true,
