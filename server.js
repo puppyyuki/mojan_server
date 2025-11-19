@@ -5953,6 +5953,230 @@ app.get('/api/agents/payment-history', async (req, res) => {
   }
 });
 
+// ===== 活動更新 API =====
+
+// 獲取所有活動更新
+app.get('/api/announcements', async (req, res) => {
+  try {
+    const announcements = await prisma.announcement.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: announcements,
+    });
+  } catch (error) {
+    console.error('獲取活動更新列表失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '獲取活動更新列表失敗',
+    });
+  }
+});
+
+// 創建活動更新
+app.post('/api/announcements', async (req, res) => {
+  try {
+    const { title, content, type, isVisible } = req.body;
+
+    if (!title || !title.trim()) {
+      setCorsHeaders(res);
+      return res.status(400).json({
+        success: false,
+        error: '請輸入標題',
+      });
+    }
+
+    if (!content || !content.trim()) {
+      setCorsHeaders(res);
+      return res.status(400).json({
+        success: false,
+        error: '請輸入內容',
+      });
+    }
+
+    if (!type || (type !== '活動' && type !== '更新')) {
+      setCorsHeaders(res);
+      return res.status(400).json({
+        success: false,
+        error: '請選擇類型（活動或更新）',
+      });
+    }
+
+    // 如果設置為顯示，自動取消其他同類型的顯示狀態
+    if (isVisible) {
+      await prisma.announcement.updateMany({
+        where: {
+          type: type,
+          isVisible: true,
+        },
+        data: {
+          isVisible: false,
+        },
+      });
+    }
+
+    // 生成唯一的6位數字ID
+    const announcementId = await generateUniqueId(async (id) => {
+      const exists = await prisma.announcement.findUnique({
+        where: { announcementId: id },
+      });
+      return !exists;
+    });
+
+    // 創建活動更新
+    const announcement = await prisma.announcement.create({
+      data: {
+        announcementId,
+        title: title.trim(),
+        content: content.trim(),
+        type,
+        isVisible: isVisible || false,
+      },
+    });
+
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: announcement,
+      message: '活動更新創建成功',
+    });
+  } catch (error) {
+    console.error('創建活動更新失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '創建活動更新失敗',
+    });
+  }
+});
+
+// 獲取單個活動更新
+app.get('/api/announcements/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const announcement = await prisma.announcement.findUnique({
+      where: { id },
+    });
+
+    if (!announcement) {
+      setCorsHeaders(res);
+      return res.status(404).json({
+        success: false,
+        error: '活動更新不存在',
+      });
+    }
+
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: announcement,
+    });
+  } catch (error) {
+    console.error('獲取活動更新失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '獲取活動更新失敗',
+    });
+  }
+});
+
+// 更新活動更新
+app.patch('/api/announcements/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { title, content, type, isVisible } = req.body;
+
+    // 獲取當前活動更新
+    const currentAnnouncement = await prisma.announcement.findUnique({
+      where: { id },
+    });
+
+    if (!currentAnnouncement) {
+      setCorsHeaders(res);
+      return res.status(404).json({
+        success: false,
+        error: '活動更新不存在',
+      });
+    }
+
+    // 如果設置為顯示，自動取消其他同類型的顯示狀態（排除自己）
+    if (isVisible && (type !== undefined || isVisible !== currentAnnouncement.isVisible)) {
+      const checkType = type || currentAnnouncement.type;
+      await prisma.announcement.updateMany({
+        where: {
+          type: checkType,
+          isVisible: true,
+          id: { not: id },
+        },
+        data: {
+          isVisible: false,
+        },
+      });
+    }
+
+    const updateData = {};
+    if (title !== undefined) {
+      updateData.title = title.trim();
+    }
+    if (content !== undefined) {
+      updateData.content = content.trim();
+    }
+    if (type !== undefined) {
+      updateData.type = type;
+    }
+    if (isVisible !== undefined) {
+      updateData.isVisible = isVisible;
+    }
+
+    const announcement = await prisma.announcement.update({
+      where: { id },
+      data: updateData,
+    });
+
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: announcement,
+      message: '活動更新更新成功',
+    });
+  } catch (error) {
+    console.error('更新活動更新失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '更新活動更新失敗',
+    });
+  }
+});
+
+// 刪除活動更新
+app.delete('/api/announcements/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    await prisma.announcement.delete({
+      where: { id },
+    });
+
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      message: '活動更新刪除成功',
+    });
+  } catch (error) {
+    console.error('刪除活動更新失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '刪除活動更新失敗',
+    });
+  }
+});
+
 app.get('/', (req, res) => {
   res.send('Mahjong server running!');
 });
