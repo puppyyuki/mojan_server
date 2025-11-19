@@ -5813,11 +5813,39 @@ app.post('/api/agents/sell-room-card', async (req, res) => {
   }
 });
 
-// API: 獲取房卡產品列表
+// API: 獲取房卡產品列表（公開 API，供商店頁面使用）
+app.get('/api/room-cards/products', async (req, res) => {
+  try {
+    const products = await prisma.roomCardProduct.findMany({
+      where: { isActive: true },
+      orderBy: { cardAmount: 'asc' },
+    });
+    
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: {
+        products: products,
+      },
+    });
+  } catch (error) {
+    console.error('獲取房卡產品列表失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '獲取房卡產品列表失敗',
+      message: error.message || '未知錯誤',
+    });
+  }
+});
+
+// API: 獲取房卡產品列表（代理商用）
 app.get('/api/agents/room-cards/products', async (req, res) => {
   try {
-    // TODO: 實現獲取房卡產品列表邏輯
-    const products = [];
+    const products = await prisma.roomCardProduct.findMany({
+      where: { isActive: true },
+      orderBy: { cardAmount: 'asc' },
+    });
     
     setCorsHeaders(res);
     res.status(200).json({
@@ -6173,6 +6201,288 @@ app.delete('/api/announcements/:id', async (req, res) => {
     res.status(500).json({
       success: false,
       error: '刪除活動更新失敗',
+    });
+  }
+});
+
+// ===== 綠界金流 API =====
+
+// 引入綠界相關函數
+const ecpayLib = require('./lib/ecpay.js');
+
+// API: 建立綠界付款
+app.post('/api/ecpay/create-payment', async (req, res) => {
+  try {
+    const { productId, cardAmount, price, playerId, description, paymentType } = req.body;
+
+    if (!productId || !cardAmount || !price || !playerId) {
+      setCorsHeaders(res);
+      return res.status(400).json({
+        success: false,
+        error: '缺少必要參數',
+      });
+    }
+
+    // 驗證產品是否存在
+    const product = await prisma.roomCardProduct.findUnique({
+      where: { id: productId },
+    });
+
+    if (!product || !product.isActive) {
+      setCorsHeaders(res);
+      return res.status(400).json({
+        success: false,
+        error: '產品不存在或已停用',
+      });
+    }
+
+    // 驗證玩家是否存在
+    const player = await prisma.player.findUnique({
+      where: { id: playerId },
+    });
+
+    if (!player) {
+      setCorsHeaders(res);
+      return res.status(400).json({
+        success: false,
+        error: '玩家不存在',
+      });
+    }
+
+    // 建立臨時訂單記錄
+    const merchantTradeNo = ecpayLib.generateMerchantTradeNo();
+    const tempOrderData = {
+      productId,
+      cardAmount,
+      price,
+      playerId,
+      description: description || `購買 ${cardAmount} 張房卡`,
+    };
+
+    // 建立綠界付款資料
+    const paymentData = ecpayLib.createEcpayPaymentData(
+      price,
+      tempOrderData.description,
+      paymentType || 'ATM',
+      merchantTradeNo,
+      tempOrderData
+    );
+
+    // 建立臨時訂單記錄（狀態為 TEMP，等待取號成功後更新）
+    await prisma.roomCardOrder.create({
+      data: {
+        playerId,
+        productId,
+        merchantTradeNo,
+        cardAmount,
+        price,
+        status: 'PENDING',
+        paymentType: paymentType || 'ATM',
+        raw: {
+          ...paymentData,
+          tempOrderData,
+        },
+      },
+    });
+
+    // 建立支付表單 HTML
+    const paymentFormHtml = ecpayLib.createEcpayPaymentForm(
+      price,
+      tempOrderData.description,
+      paymentType || 'ATM'
+    );
+
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      paymentData,
+      paymentFormHtml,
+      paymentUrl: ecpayLib.getEcpayPaymentUrl(),
+      message: '支付表單建立成功',
+    });
+  } catch (error) {
+    console.error('建立支付資料失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '建立支付資料失敗',
+      message: error.message || '未知錯誤',
+    });
+  }
+});
+
+// API: 綠界取號結果通知（PaymentInfoURL）
+app.post('/api/ecpay/payment-info', async (req, res) => {
+  try {
+    console.log('\n📬 收到綠界取號結果通知 (PaymentInfoURL)');
+    
+    // 解析表單資料
+    const data = {};
+    for (const [key, value] of Object.entries(req.body)) {
+      data[key] = value;
+    }
+
+    console.log('📦 通知內容:', data);
+
+    // 驗證檢查碼
+    const isValid = ecpayLib.verifyCheckMacValue({ ...data });
+    if (!isValid) {
+      console.error('❌ PaymentInfoURL CheckMacValue 驗證失敗');
+    } else {
+      console.log('✅ PaymentInfoURL CheckMacValue 驗證成功');
+    }
+
+    // 解析付款資訊
+    const paymentInfo = {
+      virtualAccount: data.vAccount || null,
+      bankCode: data.BankCode || null,
+      expireDate: data.ExpireDate ? new Date(data.ExpireDate) : null,
+    };
+
+    // 更新訂單記錄
+    await prisma.roomCardOrder.updateMany({
+      where: { merchantTradeNo: data.MerchantTradeNo },
+      data: {
+        ecpayTradeNo: data.TradeNo,
+        status: 'PENDING',
+        paymentType: data.PaymentType,
+        virtualAccount: paymentInfo.virtualAccount,
+        bankCode: paymentInfo.bankCode,
+        expireDate: paymentInfo.expireDate,
+        raw: data,
+      },
+    });
+
+    console.log('✅ 訂單記錄已更新');
+
+    setCorsHeaders(res);
+    res.status(200).send('1|OK');
+  } catch (error) {
+    console.error('處理 PaymentInfo 通知失敗:', error);
+    setCorsHeaders(res);
+    res.status(200).send('1|OK'); // 綠界要求回傳 1|OK
+  }
+});
+
+// API: 綠界付款完成通知（ReturnURL）
+app.post('/api/ecpay/notify', async (req, res) => {
+  try {
+    console.log('\n🎉🎉🎉 SUCCESS: 收到綠界 Callback！🎉🎉🎉');
+    
+    // 解析表單資料
+    const formData = {};
+    for (const [key, value] of Object.entries(req.body)) {
+      formData[key] = value;
+    }
+
+    const paymentResult = ecpayLib.parseEcpayResponse(formData);
+
+    // 驗證 CheckMac
+    const isValidCheckMac = ecpayLib.verifyCheckMacValue({ ...paymentResult });
+    if (!isValidCheckMac) {
+      console.error('❌ CheckMacValue 驗證失敗');
+    } else {
+      console.log('✅ CheckMacValue 驗證成功');
+    }
+
+    const rtnCode = paymentResult.RtnCode;
+    const rtnMsg = paymentResult.RtnMsg;
+
+    console.log('📊 綠界回傳狀態:', { rtnCode, rtnMsg });
+
+    let newStatus = 'PENDING';
+    if (rtnCode === '1') {
+      // 付款成功
+      newStatus = 'PAID';
+      console.log('✅ 付款成功，更新狀態為 PAID');
+
+      // 更新玩家房卡數量
+      const order = await prisma.roomCardOrder.findUnique({
+        where: { merchantTradeNo: paymentResult.MerchantTradeNo },
+        include: { player: true },
+      });
+
+      if (order && order.status !== 'PAID') {
+        // 更新玩家房卡數量
+        await prisma.player.update({
+          where: { id: order.playerId },
+          data: {
+            cardCount: {
+              increment: order.cardAmount,
+            },
+          },
+        });
+
+        console.log(`✅ 已為玩家 ${order.playerId} 增加 ${order.cardAmount} 張房卡`);
+      }
+    } else if (rtnCode === '10100073') {
+      // 取號成功但未付款（ATM/超商等）
+      newStatus = 'PENDING';
+      console.log('⏳ 取號成功，維持 PENDING 狀態等待付款');
+    } else {
+      // 其他錯誤情況
+      newStatus = 'FAILED';
+      console.log('❌ 付款失敗，更新狀態為 FAILED:', { rtnCode, rtnMsg });
+    }
+
+    // 更新訂單狀態
+    await prisma.roomCardOrder.updateMany({
+      where: { merchantTradeNo: paymentResult.MerchantTradeNo },
+      data: {
+        ecpayTradeNo: paymentResult.TradeNo,
+        status: newStatus,
+        paymentType: paymentResult.PaymentType,
+        paidAt: newStatus === 'PAID' ? new Date() : null,
+        raw: paymentResult,
+      },
+    });
+
+    setCorsHeaders(res);
+    res.status(200).send('1|OK');
+  } catch (error) {
+    console.error('處理支付通知失敗:', error);
+    setCorsHeaders(res);
+    res.status(200).send('1|OK'); // 綠界要求回傳 1|OK
+  }
+});
+
+// ===== 後台管理 API =====
+
+// API: 獲取房卡訂單列表（後台用）
+app.get('/api/admin/room-card-orders', async (req, res) => {
+  try {
+    const orders = await prisma.roomCardOrder.findMany({
+      include: {
+        player: {
+          select: {
+            userId: true,
+            nickname: true,
+            avatarUrl: true,
+          },
+        },
+        product: {
+          select: {
+            id: true,
+            cardAmount: true,
+            price: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    setCorsHeaders(res);
+    res.status(200).json({
+      success: true,
+      data: orders,
+    });
+  } catch (error) {
+    console.error('獲取訂單列表失敗:', error);
+    setCorsHeaders(res);
+    res.status(500).json({
+      success: false,
+      error: '獲取訂單列表失敗',
+      message: error.message || '未知錯誤',
     });
   }
 });

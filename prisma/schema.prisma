@@ -40,6 +40,7 @@ model Player {
   cardRechargeRecords    CardRechargeRecord[]
   cardConsumptionRecords CardConsumptionRecord[]
   agentApplications      AgentApplication[]
+  roomCardOrders         RoomCardOrder[]
 
   @@map("players")
 }
@@ -149,4 +150,40 @@ model Announcement {
   updatedAt      DateTime @updatedAt
 
   @@map("announcements")
+}
+
+model RoomCardProduct {
+  id         String   @id @default(cuid())
+  cardAmount Int      // 房卡數量
+  price      Int      // 價格（新台幣）
+  isActive   Boolean  @default(true) // 是否啟用
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  orders RoomCardOrder[]
+
+  @@map("room_card_products")
+}
+
+model RoomCardOrder {
+  id                String    @id @default(cuid())
+  playerId          String
+  player            Player    @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  productId         String
+  product           RoomCardProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  merchantTradeNo   String    @unique // 商店訂單編號
+  ecpayTradeNo      String?   // 綠界交易編號
+  cardAmount        Int       // 房卡數量
+  price             Int       // 價格
+  status            String    @default("PENDING") // PENDING, PAID, FAILED, CANCELLED
+  paymentType       String?   // 付款方式
+  virtualAccount    String?   // ATM 虛擬帳號
+  bankCode          String?   // 銀行代碼
+  expireDate        DateTime? // 繳費期限
+  paidAt            DateTime? // 付款時間
+  raw               Json?     // 原始資料
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@map("room_card_orders")
 }
