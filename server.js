@@ -6270,6 +6270,12 @@ app.post('/api/ecpay/create-payment', async (req, res) => {
 
     // 建立綠界付款資料（使用傳入的 paymentType，預設為 'ALL'）
     const finalPaymentType = paymentType || 'ALL';
+    console.log('🔧 準備建立支付資料:');
+    console.log('   接收到的 paymentType:', paymentType);
+    console.log('   最終使用的 finalPaymentType:', finalPaymentType);
+    console.log('   金額:', price);
+    console.log('   描述:', tempOrderData.description);
+    
     const paymentData = ecpayLib.createEcpayPaymentData(
       price,
       tempOrderData.description,
@@ -6277,6 +6283,8 @@ app.post('/api/ecpay/create-payment', async (req, res) => {
       merchantTradeNo,
       tempOrderData
     );
+    
+    console.log('✅ 支付資料建立完成，ChoosePayment:', paymentData.ChoosePayment);
 
     // 建立臨時訂單記錄（狀態為 TEMP，等待取號成功後更新）
     await prisma.roomCardOrder.create({
