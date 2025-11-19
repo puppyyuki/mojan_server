@@ -6214,6 +6214,15 @@ const ecpayLib = require('./lib/ecpay.js');
 app.post('/api/ecpay/create-payment', async (req, res) => {
   try {
     const { productId, cardAmount, price, playerId, description, paymentType } = req.body;
+    
+    // 調試：確認接收到的參數
+    console.log('📥 接收到的請求參數:');
+    console.log('   productId:', productId);
+    console.log('   cardAmount:', cardAmount);
+    console.log('   price:', price);
+    console.log('   playerId:', playerId);
+    console.log('   description:', description);
+    console.log('   paymentType:', paymentType);
 
     if (!productId || !cardAmount || !price || !playerId) {
       setCorsHeaders(res);
