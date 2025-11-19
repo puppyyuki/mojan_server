@@ -16,22 +16,23 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  cardRechargeRecords CardRechargeRecord[]
+  cardRechargeRecords       CardRechargeRecord[]
   reviewedAgentApplications AgentApplication[]
 
   @@map("users")
 }
 
 model Player {
-  id         String   @id @default(cuid())
-  userId     String   @unique // 6位數字，唯一
-  nickname   String   @unique
-  cardCount  Int      @default(0)
-  avatarUrl  String?  // 頭像URL
-  bio        String?  // 備註
+  id          String    @id @default(cuid())
+  userId      String    @unique // 6位數字，唯一
+  nickname    String    @unique
+  cardCount   Int       @default(0)
+  avatarUrl   String? // 頭像URL
+  bio         String? // 備註
+  lineUserId  String?   @unique // LINE 使用者 ID
   lastLoginAt DateTime? // 最後登入時間
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   createdClubs           Club[]                  @relation("ClubCreator")
   clubMembers            ClubMember[]
@@ -50,7 +51,7 @@ model Club {
   creatorId    String
   creator      Player   @relation("ClubCreator", fields: [creatorId], references: [id], onDelete: Cascade)
   cardCount    Int      @default(0)
-  gameSettings Json?    // 俱樂部遊戲設定
+  gameSettings Json? // 俱樂部遊戲設定
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -73,79 +74,79 @@ model ClubMember {
 }
 
 model Room {
-  id            String   @id @default(cuid())
-  roomId        String   @unique // 6位數字，唯一
-  clubId        String?
-  club          Club?    @relation(fields: [clubId], references: [id], onDelete: SetNull)
-  creatorId     String
-  creator       Player   @relation("RoomCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  id             String   @id @default(cuid())
+  roomId         String   @unique // 6位數字，唯一
+  clubId         String?
+  club           Club?    @relation(fields: [clubId], references: [id], onDelete: SetNull)
+  creatorId      String
+  creator        Player   @relation("RoomCreator", fields: [creatorId], references: [id], onDelete: Cascade)
   currentPlayers Int      @default(0)
-  maxPlayers    Int      @default(4)
-  status        String   @default("WAITING") // WAITING, PLAYING, FINISHED
-  gameSettings  Json?    // 遊戲設定（JSON格式）
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  maxPlayers     Int      @default(4)
+  status         String   @default("WAITING") // WAITING, PLAYING, FINISHED
+  gameSettings   Json? // 遊戲設定（JSON格式）
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   @@map("rooms")
 }
 
 model CardRechargeRecord {
-  id          String   @id @default(cuid())
-  playerId    String
-  player      Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
-  adminUserId String
-  adminUser   User     @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
-  amount      Int      // 補卡數量
-  previousCount Int    // 補卡前的數量
-  newCount    Int      // 補卡後的數量
-  createdAt   DateTime @default(now())
+  id            String   @id @default(cuid())
+  playerId      String
+  player        Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  adminUserId   String
+  adminUser     User     @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  amount        Int // 補卡數量
+  previousCount Int // 補卡前的數量
+  newCount      Int // 補卡後的數量
+  createdAt     DateTime @default(now())
 
   @@map("card_recharge_records")
 }
 
 model CardConsumptionRecord {
-  id          String   @id @default(cuid())
-  playerId    String
-  player      Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
-  roomId      String?  // 房間ID
-  amount      Int      // 消耗數量（通常為1）
-  reason      String   // 消耗原因：'game_end' (流局或胡牌)
-  previousCount Int    // 消耗前的數量
-  newCount    Int      // 消耗後的數量
-  createdAt   DateTime @default(now())
+  id            String   @id @default(cuid())
+  playerId      String
+  player        Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  roomId        String? // 房間ID
+  amount        Int // 消耗數量（通常為1）
+  reason        String // 消耗原因：'game_end' (流局或胡牌)
+  previousCount Int // 消耗前的數量
+  newCount      Int // 消耗後的數量
+  createdAt     DateTime @default(now())
 
   @@map("card_consumption_records")
 }
 
 model AgentApplication {
-  id          String   @id @default(cuid())
-  playerId    String
-  player      Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
-  fullName    String
-  email       String
-  phone       String
-  note        String?
+  id           String    @id @default(cuid())
+  playerId     String
+  player       Player    @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  fullName     String
+  email        String
+  phone        String
+  note         String?
   phoneOtpCode String
   emailOtpCode String
-  status      String   @default("pending") // pending, approved, rejected
-  reviewedAt  DateTime?
-  reviewedBy  String?  // 審核者 ID (User ID)
-  reviewer    User?    @relation(fields: [reviewedBy], references: [id], onDelete: SetNull)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  status       String    @default("pending") // pending, approved, rejected
+  reviewedAt   DateTime?
+  reviewedBy   String? // 審核者 ID (User ID)
+  reviewer     User?     @relation(fields: [reviewedBy], references: [id], onDelete: SetNull)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
 
   @@map("agent_applications")
 }
 
 model Announcement {
-  id          String   @id @default(cuid())
-  announcementId String @unique // 公告ID
-  title       String   // 標題
-  content     String   // 內容
-  type        String   // 類型: "活動" 或 "更新"
-  isVisible   Boolean  @default(false) // 是否顯示
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id             String   @id @default(cuid())
+  announcementId String   @unique // 公告ID
+  title          String // 標題
+  content        String // 內容
+  type           String // 類型: "活動" 或 "更新"
+  isVisible      Boolean  @default(false) // 是否顯示
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 
   @@map("announcements")
 }

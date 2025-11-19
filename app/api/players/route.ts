@@ -71,6 +71,8 @@ export async function GET(request: NextRequest) {
         nickname: player.nickname,
         cardCount: player.cardCount,
         bio: player.bio,
+        avatarUrl: player.avatarUrl,
+        lineUserId: player.lineUserId,
         lastLoginAt: player.lastLoginAt,
         createdAt: player.createdAt,
         updatedAt: player.updatedAt,
@@ -96,14 +98,101 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// 創建玩家（通過暱稱）
+// 創建玩家（通過暱稱或 LINE 登入）
 export async function POST(request: NextRequest) {
   try {
-    const { nickname } = await request.json()
+    const { nickname, lineUserId, displayName, pictureUrl } = await request.json()
 
+    // LINE 登入流程
+    if (lineUserId) {
+      // 檢查是否已存在該 LINE 帳號
+      const existingLinePlayer = await prisma.player.findUnique({
+        where: { lineUserId: lineUserId },
+      })
+
+      if (existingLinePlayer) {
+        // 如果已存在，更新最後登入時間和頭像（如有變更）
+        const updateData: any = {
+          lastLoginAt: new Date(),
+        }
+        
+        // 如果提供了新的頭像 URL，更新它
+        if (pictureUrl && pictureUrl !== existingLinePlayer.avatarUrl) {
+          updateData.avatarUrl = pictureUrl
+        }
+        
+        // 如果提供了新的顯示名稱且與現有暱稱不同，更新暱稱
+        if (displayName && displayName.trim() && displayName.trim() !== existingLinePlayer.nickname) {
+          // 檢查新暱稱是否已被其他玩家使用
+          const nicknameExists = await prisma.player.findUnique({
+            where: { nickname: displayName.trim() },
+          })
+          
+          if (!nicknameExists) {
+            updateData.nickname = displayName.trim()
+          }
+        }
+
+        const updatedPlayer = await prisma.player.update({
+          where: { id: existingLinePlayer.id },
+          data: updateData,
+        })
+        
+        return NextResponse.json(
+          {
+            success: true,
+            data: updatedPlayer,
+            message: 'LINE 登入成功',
+          },
+          { headers: corsHeaders() }
+        )
+      }
+
+      // 如果不存在，創建新玩家
+      // 使用 displayName 作為 nickname，如果沒有則使用預設值
+      const playerNickname = displayName?.trim() || `LINE用戶_${lineUserId.substring(0, 6)}`
+      
+      // 檢查暱稱是否已被使用，如果被使用則添加後綴
+      let finalNickname = playerNickname
+      let nicknameCounter = 1
+      while (await prisma.player.findUnique({ where: { nickname: finalNickname } })) {
+        finalNickname = `${playerNickname}_${nicknameCounter}`
+        nicknameCounter++
+      }
+
+      // 生成唯一的6位數字ID
+      const userId = await generateUniqueId(async (id) => {
+        const exists = await prisma.player.findUnique({
+          where: { userId: id },
+        })
+        return !exists
+      })
+
+      const newPlayer = await prisma.player.create({
+        data: {
+          userId,
+          nickname: finalNickname,
+          lineUserId: lineUserId,
+          avatarUrl: pictureUrl || null,
+          cardCount: 0,
+          lastLoginAt: new Date(),
+        },
+      })
+
+      return NextResponse.json(
+        {
+          success: true,
+          data: newPlayer,
+          message: 'LINE 玩家創建成功',
+        },
+        { headers: corsHeaders() }
+      )
+    }
+
+    // 傳統暱稱登入流程
     if (!nickname || !nickname.trim()) {
       return NextResponse.json(
-        { success: false, error: '請輸入暱稱' },
+        { success: false, error: '請輸入暱稱或使用 LINE 登入' },
         { status: 400, headers: corsHeaders() }
       )
     }

@@ -34,6 +34,7 @@ export async function GET(
             id: true,
             userId: true,
             nickname: true,
+            avatarUrl: true, // 包含創建者頭像 URL
           },
         },
         members: {
@@ -101,6 +102,7 @@ export async function PATCH(
             id: true,
             userId: true,
             nickname: true,
+            avatarUrl: true, // 包含創建者頭像 URL
           },
         },
         members: {

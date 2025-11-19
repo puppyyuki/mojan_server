@@ -26,6 +26,7 @@ export async function GET(request: NextRequest) {
             id: true,
             userId: true,
             nickname: true,
+            avatarUrl: true, // 包含創建者頭像 URL
           },
         },
         members: {
@@ -113,6 +114,7 @@ export async function POST(request: NextRequest) {
             id: true,
             userId: true,
             nickname: true,
+            avatarUrl: true, // 包含創建者頭像 URL
           },
         },
       },
@@ -135,6 +137,7 @@ export async function POST(request: NextRequest) {
             id: true,
             userId: true,
             nickname: true,
+            avatarUrl: true, // 包含創建者頭像 URL
           },
         },
         members: {
