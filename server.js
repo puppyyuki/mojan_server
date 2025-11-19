@@ -6259,11 +6259,12 @@ app.post('/api/ecpay/create-payment', async (req, res) => {
       description: description || `購買 ${cardAmount} 張房卡`,
     };
 
-    // 建立綠界付款資料
+    // 建立綠界付款資料（使用傳入的 paymentType，預設為 'ALL'）
+    const finalPaymentType = paymentType || 'ALL';
     const paymentData = ecpayLib.createEcpayPaymentData(
       price,
       tempOrderData.description,
-      paymentType || 'ATM',
+      finalPaymentType,
       merchantTradeNo,
       tempOrderData
     );
@@ -6277,7 +6278,7 @@ app.post('/api/ecpay/create-payment', async (req, res) => {
         cardAmount,
         price,
         status: 'PENDING',
-        paymentType: paymentType || 'ATM',
+        paymentType: finalPaymentType,
         raw: {
           ...paymentData,
           tempOrderData,
@@ -6285,11 +6286,12 @@ app.post('/api/ecpay/create-payment', async (req, res) => {
       },
     });
 
-    // 建立支付表單 HTML
+    // 建立支付表單 HTML（使用已生成的 paymentData 確保 CheckMacValue 一致）
     const paymentFormHtml = ecpayLib.createEcpayPaymentForm(
       price,
       tempOrderData.description,
-      paymentType || 'ATM'
+      finalPaymentType,
+      paymentData  // 傳入已生成的 paymentData
     );
 
     setCorsHeaders(res);
