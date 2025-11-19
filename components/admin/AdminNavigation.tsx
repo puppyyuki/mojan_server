@@ -11,7 +11,8 @@ import {
   Terminal,
   BarChart,
   Megaphone,
-  PieChart
+  PieChart,
+  Bell
 } from 'lucide-react'
 
 interface MenuItem {
@@ -94,6 +95,12 @@ export default function AdminNavigation({ onMenuClick, activeMenu }: AdminNaviga
       label: '統計圖表',
       icon: PieChart,
       path: '/admin/statistics'
+    },
+    {
+      id: 'announcement-management',
+      label: '活動更新',
+      icon: Bell,
+      path: '/admin/announcement-management'
     }
   ]
 
