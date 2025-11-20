@@ -121,16 +121,9 @@ export async function POST(request: NextRequest) {
           updateData.avatarUrl = pictureUrl
         }
         
-        // 如果提供了新的顯示名稱且與現有暱稱不同，更新暱稱
+        // 如果提供了新的顯示名稱且與現有暱稱不同，直接更新暱稱（允許重複）
         if (displayName && displayName.trim() && displayName.trim() !== existingLinePlayer.nickname) {
-          // 檢查新暱稱是否已被其他玩家使用
-          const nicknameExists = await prisma.player.findUnique({
-            where: { nickname: displayName.trim() },
-          })
-          
-          if (!nicknameExists) {
-            updateData.nickname = displayName.trim()
-          }
+          updateData.nickname = displayName.trim()
         }
 
         const updatedPlayer = await prisma.player.update({
@@ -150,15 +143,8 @@ export async function POST(request: NextRequest) {
 
       // 如果不存在，創建新玩家
       // 使用 displayName 作為 nickname，如果沒有則使用預設值
-      const playerNickname = displayName?.trim() || `LINE用戶_${lineUserId.substring(0, 6)}`
-      
-      // 檢查暱稱是否已被使用，如果被使用則添加後綴
-      let finalNickname = playerNickname
-      let nicknameCounter = 1
-      while (await prisma.player.findUnique({ where: { nickname: finalNickname } })) {
-        finalNickname = `${playerNickname}_${nicknameCounter}`
-        nicknameCounter++
-      }
+      // 允許暱稱重複，因為有 lineUserId 作為唯一標識
+      const finalNickname = displayName?.trim() || `LINE用戶_${lineUserId.substring(0, 6)}`
 
       // 生成唯一的6位數字ID
       const userId = await generateUniqueId(async (id) => {
@@ -197,8 +183,9 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // 檢查暱稱是否已存在
-    const existingPlayer = await prisma.player.findUnique({
+    // 檢查暱稱是否已存在（使用 findFirst 因為現在允許暱稱重複）
+    // 注意：如果有多個相同暱稱，會使用第一個找到的玩家
+    const existingPlayer = await prisma.player.findFirst({
       where: { nickname: nickname.trim() },
     })
 

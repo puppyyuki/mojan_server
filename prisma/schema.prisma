@@ -25,7 +25,7 @@ model User {
 model Player {
   id          String    @id @default(cuid())
   userId      String    @unique // 6位數字，唯一
-  nickname    String    @unique
+  nickname    String    // 允許重複，因為有 id、userId、lineUserId 作為唯一標識
   cardCount   Int       @default(0)
   avatarUrl   String? // 頭像URL
   bio         String? // 備註

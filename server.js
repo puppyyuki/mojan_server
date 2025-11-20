@@ -3936,9 +3936,9 @@ io.on('connection', (socket) => {
     let playerId;
     let userId = null;
     
-    // 嘗試從數據庫中查找玩家
+    // 嘗試從數據庫中查找玩家（使用 findFirst 因為現在允許暱稱重複）
     try {
-      const dbPlayer = await prisma.player.findUnique({
+      const dbPlayer = await prisma.player.findFirst({
         where: { nickname: nickname.trim() },
         select: { id: true, userId: true }
       });
@@ -4602,16 +4602,9 @@ app.post('/api/players', async (req, res) => {
           updateData.avatarUrl = pictureUrl;
         }
         
-        // 如果提供了新的顯示名稱且與現有暱稱不同，更新暱稱
+        // 如果提供了新的顯示名稱且與現有暱稱不同，直接更新暱稱（允許重複）
         if (displayName && displayName.trim() && displayName.trim() !== existingLinePlayer.nickname) {
-          // 檢查新暱稱是否已被其他玩家使用
-          const nicknameExists = await prisma.player.findUnique({
-            where: { nickname: displayName.trim() },
-          });
-          
-          if (!nicknameExists) {
-            updateData.nickname = displayName.trim();
-          }
+          updateData.nickname = displayName.trim();
         }
 
         const updatedPlayer = await prisma.player.update({
@@ -4629,15 +4622,8 @@ app.post('/api/players', async (req, res) => {
 
       // 如果不存在，創建新玩家
       // 使用 displayName 作為 nickname，如果沒有則使用預設值
-      const playerNickname = (displayName && displayName.trim()) || `LINE用戶_${lineUserId.substring(0, 6)}`;
-      
-      // 檢查暱稱是否已被使用，如果被使用則添加後綴
-      let finalNickname = playerNickname;
-      let nicknameCounter = 1;
-      while (await prisma.player.findUnique({ where: { nickname: finalNickname } })) {
-        finalNickname = `${playerNickname}_${nicknameCounter}`;
-        nicknameCounter++;
-      }
+      // 允許暱稱重複，因為有 lineUserId 作為唯一標識
+      const finalNickname = (displayName && displayName.trim()) || `LINE用戶_${lineUserId.substring(0, 6)}`;
 
       // 生成唯一的6位數字ID
       const userId = await generateUniqueId(async (id) => {
@@ -4675,8 +4661,9 @@ app.post('/api/players', async (req, res) => {
       });
     }
 
-    // 檢查暱稱是否已存在
-    const existingPlayer = await prisma.player.findUnique({
+    // 檢查暱稱是否已存在（使用 findFirst 因為現在允許暱稱重複）
+    // 注意：如果有多個相同暱稱，會使用第一個找到的玩家
+    const existingPlayer = await prisma.player.findFirst({
       where: { nickname: nickname.trim() },
     });
 
@@ -4748,23 +4735,7 @@ app.patch('/api/players/:id', async (req, res) => {
       updateData.bio = bio === null || bio === '' ? null : bio.trim();
     }
 
-    // 如果更新暱稱，檢查是否重複
-    if (updateData.nickname) {
-      const existingPlayer = await prisma.player.findFirst({
-        where: {
-          nickname: updateData.nickname,
-          NOT: { id },
-        },
-      });
-
-      if (existingPlayer) {
-        setCorsHeaders(res);
-        return res.status(400).json({
-          success: false,
-          error: '暱稱已存在',
-        });
-      }
-    }
+    // 允許暱稱重複，不需要檢查
 
     const player = await prisma.player.update({
       where: { id },
