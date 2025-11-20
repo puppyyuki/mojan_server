@@ -4579,16 +4579,99 @@ app.get('/api/players/:id', async (req, res) => {
   }
 });
 
-// API: 創建玩家（通過暱稱）
+// API: 創建玩家（通過暱稱或 LINE 登入）
 app.post('/api/players', async (req, res) => {
   try {
-    const { nickname } = req.body;
+    const { nickname, lineUserId, displayName, pictureUrl } = req.body;
 
+    // LINE 登入流程
+    if (lineUserId) {
+      // 檢查是否已存在該 LINE 帳號
+      const existingLinePlayer = await prisma.player.findUnique({
+        where: { lineUserId: lineUserId },
+      });
+
+      if (existingLinePlayer) {
+        // 如果已存在，更新最後登入時間和頭像（如有變更）
+        const updateData = {
+          lastLoginAt: new Date(),
+        };
+        
+        // 如果提供了新的頭像 URL，更新它
+        if (pictureUrl && pictureUrl !== existingLinePlayer.avatarUrl) {
+          updateData.avatarUrl = pictureUrl;
+        }
+        
+        // 如果提供了新的顯示名稱且與現有暱稱不同，更新暱稱
+        if (displayName && displayName.trim() && displayName.trim() !== existingLinePlayer.nickname) {
+          // 檢查新暱稱是否已被其他玩家使用
+          const nicknameExists = await prisma.player.findUnique({
+            where: { nickname: displayName.trim() },
+          });
+          
+          if (!nicknameExists) {
+            updateData.nickname = displayName.trim();
+          }
+        }
+
+        const updatedPlayer = await prisma.player.update({
+          where: { id: existingLinePlayer.id },
+          data: updateData,
+        });
+        
+        setCorsHeaders(res);
+        return res.status(200).json({
+          success: true,
+          data: updatedPlayer,
+          message: 'LINE 登入成功',
+        });
+      }
+
+      // 如果不存在，創建新玩家
+      // 使用 displayName 作為 nickname，如果沒有則使用預設值
+      const playerNickname = (displayName && displayName.trim()) || `LINE用戶_${lineUserId.substring(0, 6)}`;
+      
+      // 檢查暱稱是否已被使用，如果被使用則添加後綴
+      let finalNickname = playerNickname;
+      let nicknameCounter = 1;
+      while (await prisma.player.findUnique({ where: { nickname: finalNickname } })) {
+        finalNickname = `${playerNickname}_${nicknameCounter}`;
+        nicknameCounter++;
+      }
+
+      // 生成唯一的6位數字ID
+      const userId = await generateUniqueId(async (id) => {
+        const exists = await prisma.player.findUnique({
+          where: { userId: id },
+        });
+        return !exists;
+      });
+
+      const newPlayer = await prisma.player.create({
+        data: {
+          userId,
+          nickname: finalNickname,
+          lineUserId: lineUserId,
+          avatarUrl: pictureUrl || null,
+          cardCount: 0,
+          lastLoginAt: new Date(),
+        },
+      });
+
+      setCorsHeaders(res);
+      return res.status(200).json({
+        success: true,
+        data: newPlayer,
+        message: 'LINE 玩家創建成功',
+      });
+    }
+
+    // 傳統暱稱登入流程
     if (!nickname || !nickname.trim()) {
       setCorsHeaders(res);
       return res.status(400).json({
         success: false,
-        error: '請輸入暱稱',
+        error: '請輸入暱稱或使用 LINE 登入',
       });
     }
 
