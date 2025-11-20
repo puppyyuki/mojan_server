@@ -52,6 +52,7 @@ model Club {
   creatorId    String
   creator      Player   @relation("ClubCreator", fields: [creatorId], references: [id], onDelete: Cascade)
   cardCount    Int      @default(0)
+  avatarUrl    String?  // 俱樂部頭像URL (通常是創建者的頭像)
   gameSettings Json? // 俱樂部遊戲設定
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
