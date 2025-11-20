@@ -4768,6 +4768,7 @@ app.get('/api/clubs', async (req, res) => {
             id: true,
             userId: true,
             nickname: true,
+            avatarUrl: true, // 包含創建者頭像
           },
         },
         members: {
@@ -4927,11 +4928,13 @@ app.get('/api/clubs/:clubId', async (req, res) => {
         clubId: true,
         name: true,
         cardCount: true, // 包含俱樂部房卡數量
+        avatarUrl: true, // 包含俱樂部頭像
         creator: {
           select: {
             id: true,
             userId: true,
             nickname: true,
+            avatarUrl: true, // 包含創建者頭像
           },
         },
         members: {
@@ -4964,6 +4967,7 @@ app.get('/api/clubs/:clubId', async (req, res) => {
               id: true,
               userId: true,
               nickname: true,
+              avatarUrl: true, // 包含創建者頭像
             },
           },
           members: {
@@ -5182,11 +5186,13 @@ app.get('/api/players/:playerId/clubs', async (req, res) => {
             clubId: true,
             name: true,
             cardCount: true,
+            avatarUrl: true, // 包含俱樂部頭像
             creator: {
               select: {
                 id: true,
                 userId: true,
                 nickname: true,
+                avatarUrl: true, // 包含創建者頭像
               },
             },
             members: {
