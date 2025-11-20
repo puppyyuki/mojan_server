@@ -29,6 +29,7 @@ export async function GET(
         clubId: true,
         name: true,
         cardCount: true, // 包含俱樂部房卡數量
+        avatarUrl: true, // 包含俱樂部頭像 URL
         creator: {
           select: {
             id: true,
@@ -83,7 +84,7 @@ export async function PATCH(
   try {
     const { id } = await params
     const body = await request.json()
-    const { name, cardCount } = body
+    const { name, cardCount, avatarUrl } = body
 
     const updateData: any = {}
     if (name !== undefined) {
@@ -91,6 +92,9 @@ export async function PATCH(
     }
     if (cardCount !== undefined) {
       updateData.cardCount = parseInt(cardCount)
+    }
+    if (avatarUrl !== undefined) {
+      updateData.avatarUrl = avatarUrl ? avatarUrl.trim() : null
     }
 
     const club = await prisma.club.update({

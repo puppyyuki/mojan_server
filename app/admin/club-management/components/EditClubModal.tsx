@@ -12,8 +12,10 @@ interface Club {
     id: string
     userId: string
     nickname: string
+    avatarUrl?: string
   }
   cardCount: number
+  avatarUrl?: string
   members: Array<{
     player: {
       id: string
@@ -38,12 +40,14 @@ export default function EditClubModal({
 }: EditClubModalProps) {
   const [name, setName] = useState<string>('')
   const [cardCount, setCardCount] = useState<string>('0')
+  const [avatarUrl, setAvatarUrl] = useState<string>('')
   const [loading, setLoading] = useState<boolean>(false)
 
   useEffect(() => {
     if (isOpen && club) {
       setName(club.name)
       setCardCount(club.cardCount.toString())
+      setAvatarUrl(club.avatarUrl || club.creator?.avatarUrl || '')
     }
   }, [isOpen, club])
 
@@ -65,6 +69,7 @@ export default function EditClubModal({
         body: JSON.stringify({
           name: name.trim(),
           cardCount: parseInt(cardCount),
+          avatarUrl: avatarUrl.trim() || null,
         })
       })
 
@@ -143,6 +148,32 @@ export default function EditClubModal({
               min="0"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400"
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              俱樂部頭像 URL
+            </label>
+            <input
+              type="text"
+              value={avatarUrl}
+              onChange={(e) => setAvatarUrl(e.target.value)}
+              placeholder="請輸入頭像 URL（可選）"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400"
+            />
+            {avatarUrl && (
+              <div className="mt-2 flex justify-center">
+                <img
+                  src={avatarUrl}
+                  alt="頭像預覽"
+                  className="w-16 h-16 rounded-full object-cover border-2 border-gray-300"
+                  onError={(e) => {
+                    const target = e.target as HTMLImageElement;
+                    target.style.display = 'none';
+                  }}
+                />
+              </div>
+            )}
           </div>
         </div>
 

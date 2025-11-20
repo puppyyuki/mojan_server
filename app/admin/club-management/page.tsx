@@ -16,8 +16,10 @@ interface Club {
     id: string
     userId: string
     nickname: string
+    avatarUrl?: string
   }
   cardCount: number
+  avatarUrl?: string
   members: Array<{
     id: string
     player: {
@@ -42,15 +44,15 @@ export default function ClubManagementPage() {
   const [loading, setLoading] = useState(false)
   const [selectedItems, setSelectedItems] = useState<string[]>([])
   const [selectAll, setSelectAll] = useState(false)
-  
+
   // 俱樂部資料
   const [clubs, setClubs] = useState<Club[]>([])
   const [players, setPlayers] = useState<Player[]>([])
   const [dataLoaded, setDataLoaded] = useState(false)
-  
+
   // 搜尋狀態
   const [searchKeyword, setSearchKeyword] = useState<string>('')
-  
+
   // Modal 狀態
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [editModalOpen, setEditModalOpen] = useState(false)
@@ -186,12 +188,12 @@ export default function ClubManagementPage() {
     if (!searchKeyword.trim()) {
       return true
     }
-    
+
     const keyword = searchKeyword.toLowerCase().trim()
     const name = (club.name || '').toLowerCase()
     const clubId = club.clubId.toLowerCase()
     const creatorName = (club.creator?.nickname || '').toLowerCase()
-    
+
     return (
       name.includes(keyword) ||
       clubId.includes(keyword) ||
@@ -229,7 +231,7 @@ export default function ClubManagementPage() {
             <Plus className="w-3.5 h-3.5" />
             添加俱樂部
           </button>
-          
+
           <button
             onClick={fetchClubs}
             disabled={loading}
@@ -238,7 +240,7 @@ export default function ClubManagementPage() {
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             刷新
           </button>
-          
+
           <button
             onClick={handleBatchDelete}
             disabled={selectedItems.length === 0}
@@ -279,6 +281,9 @@ export default function ClubManagementPage() {
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 whitespace-nowrap w-[200px]">
                   創建者
                 </th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 whitespace-nowrap w-[120px]">
+                  創建者頭像
+                </th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 whitespace-nowrap w-[150px]">
                   俱樂部房卡數量
                 </th>
@@ -290,7 +295,7 @@ export default function ClubManagementPage() {
             <tbody className="divide-y divide-gray-200">
               {loading && !dataLoaded ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={9} className="px-6 py-12 text-center text-gray-500">
                     <div className="flex items-center justify-center">
                       <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
                       <span className="ml-2">載入中...</span>
@@ -299,7 +304,7 @@ export default function ClubManagementPage() {
                 </tr>
               ) : displayData.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={9} className="px-6 py-12 text-center text-gray-500">
                     暫無數據
                   </td>
                 </tr>
@@ -336,6 +341,27 @@ export default function ClubManagementPage() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200 text-gray-900">
                       {item.creator?.nickname || '-'} ({item.creator?.userId || '-'})
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200">
+                      {(item.avatarUrl || item.creator?.avatarUrl) ? (
+                        <div className="flex justify-center">
+                          <img
+                            src={item.avatarUrl || item.creator?.avatarUrl}
+                            alt="頭像"
+                            className="w-10 h-10 rounded-full object-cover border-2 border-gray-200"
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="40" height="40"%3E%3Crect width="40" height="40" fill="%23ddd"/%3E%3Ctext x="50%25" y="50%25" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="16" fill="%23999"%3E?%3C/text%3E%3C/svg%3E';
+                            }}
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex justify-center">
+                          <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-400 text-xs">
+                            無
+                          </div>
+                        </div>
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200 text-gray-900">
                       {item.cardCount}
