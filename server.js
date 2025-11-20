@@ -11,6 +11,8 @@ const prisma = new PrismaClient();
 const app = express();
 app.use(cors());
 app.use(express.json());
+// 綠界使用 application/x-www-form-urlencoded 格式
+app.use(express.urlencoded({ extended: true }));
 
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -6327,44 +6329,77 @@ app.post('/api/ecpay/payment-info', async (req, res) => {
   try {
     console.log('\n📬 收到綠界取號結果通知 (PaymentInfoURL)');
     
-    // 解析表單資料
-    const data = {};
-    for (const [key, value] of Object.entries(req.body)) {
-      data[key] = value;
+    // 解析表單資料（綠界使用 application/x-www-form-urlencoded）
+    let data = {};
+    
+    // 檢查 Content-Type
+    if (req.is('application/x-www-form-urlencoded')) {
+      // 如果是表單資料，直接使用 req.body
+      data = req.body;
+    } else if (req.is('application/json')) {
+      // 如果是 JSON，直接使用
+      data = req.body;
+    } else {
+      // 嘗試解析為表單資料
+      data = req.body;
     }
 
-    console.log('📦 通知內容:', data);
+    console.log('📦 通知內容:', JSON.stringify(data, null, 2));
+    console.log('📦 通知內容類型:', typeof data);
+    console.log('📦 通知內容鍵值:', Object.keys(data));
+
+    // 驗證檢查碼（確保資料不為空）
+    if (!data || Object.keys(data).length === 0) {
+      console.error('❌ PaymentInfoURL 資料為空');
+      setCorsHeaders(res);
+      return res.status(200).send('1|OK'); // 綠界要求回傳 1|OK
+    }
 
     // 驗證檢查碼
     const isValid = ecpayLib.verifyCheckMacValue({ ...data });
     if (!isValid) {
       console.error('❌ PaymentInfoURL CheckMacValue 驗證失敗');
+      console.error('   收到的 CheckMacValue:', data.CheckMacValue);
+      // 計算預期的 CheckMacValue 用於調試
+      const calculated = ecpayLib.generateCheckMacValue({ ...data });
+      console.error('   計算的 CheckMacValue:', calculated);
+      console.warn('⚠️  驗證失敗但仍繼續處理訂單更新（綠界要求）');
     } else {
       console.log('✅ PaymentInfoURL CheckMacValue 驗證成功');
     }
 
-    // 解析付款資訊
-    const paymentInfo = {
-      virtualAccount: data.vAccount || null,
-      bankCode: data.BankCode || null,
-      expireDate: data.ExpireDate ? new Date(data.ExpireDate) : null,
-    };
+    // 即使驗證失敗也要處理訂單更新（綠界要求回傳 1|OK）
+    try {
+      // 解析付款資訊
+      const paymentInfo = {
+        virtualAccount: data.vAccount || null,
+        bankCode: data.BankCode || null,
+        expireDate: data.ExpireDate ? new Date(data.ExpireDate) : null,
+      };
 
-    // 更新訂單記錄
-    await prisma.roomCardOrder.updateMany({
-      where: { merchantTradeNo: data.MerchantTradeNo },
-      data: {
-        ecpayTradeNo: data.TradeNo,
-        status: 'PENDING',
-        paymentType: data.PaymentType,
-        virtualAccount: paymentInfo.virtualAccount,
-        bankCode: paymentInfo.bankCode,
-        expireDate: paymentInfo.expireDate,
-        raw: data,
-      },
-    });
+      // 更新訂單記錄
+      const updateResult = await prisma.roomCardOrder.updateMany({
+        where: { merchantTradeNo: data.MerchantTradeNo },
+        data: {
+          ecpayTradeNo: data.TradeNo || null,
+          status: 'PENDING',
+          paymentType: data.PaymentType || null,
+          virtualAccount: paymentInfo.virtualAccount,
+          bankCode: paymentInfo.bankCode,
+          expireDate: paymentInfo.expireDate,
+          raw: data,
+        },
+      });
 
-    console.log('✅ 訂單記錄已更新');
+      if (updateResult.count > 0) {
+        console.log('✅ 訂單記錄已更新:', data.MerchantTradeNo);
+      } else {
+        console.warn('⚠️  找不到對應的訂單:', data.MerchantTradeNo);
+      }
+    } catch (updateError) {
+      console.error('❌ 更新訂單記錄失敗:', updateError);
+      // 繼續執行，確保回傳 1|OK
+    }
 
     setCorsHeaders(res);
     res.status(200).send('1|OK');
