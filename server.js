@@ -6356,7 +6356,6 @@ app.post('/api/ecpay/payment-info', async (req, res) => {
     }
 
     // 驗證檢查碼
-    // 注意：verifyCheckMacValue 內部會處理調試輸出
     const isValid = ecpayLib.verifyCheckMacValue({ ...data });
     if (!isValid) {
       console.error('❌ PaymentInfoURL CheckMacValue 驗證失敗');
