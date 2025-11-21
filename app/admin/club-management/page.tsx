@@ -6,6 +6,7 @@ import { apiGet, apiDelete } from '@/lib/api-client'
 import CreateClubModal from './components/CreateClubModal'
 import EditClubModal from './components/EditClubModal'
 import ClubMembersModal from './components/ClubMembersModal'
+import Image from 'next/image'
 
 interface Club {
   id: string
@@ -345,9 +346,11 @@ export default function ClubManagementPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200">
                       {(item.avatarUrl || item.creator?.avatarUrl) ? (
                         <div className="flex justify-center">
-                          <img
+                          <Image
                             src={item.avatarUrl || item.creator?.avatarUrl}
                             alt="頭像"
+                            width={40}
+                            height={40}
                             className="w-10 h-10 rounded-full object-cover border-2 border-gray-200"
                             onError={(e) => {
                               const target = e.target as HTMLImageElement;

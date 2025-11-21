@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { RefreshCw, Search, History, CheckCircle, XCircle, Clock, Edit, Trash2 } from 'lucide-react'
+import { RefreshCw, Search, History, CheckCircle, XCircle, Clock, Edit, Trash2, ShoppingCart } from 'lucide-react'
 import { apiGet, apiDelete } from '@/lib/api-client'
 import AgentReviewModal from './components/AgentReviewModal'
 import AgentRechargeHistoryModal from './components/AgentRechargeHistoryModal'
+import AgentSalesHistoryModal from './components/AgentSalesHistoryModal'
 import EditAgentModal from './components/EditAgentModal'
 
 interface Agent {
@@ -47,6 +48,8 @@ export default function AgentManagementPage() {
   const [reviewingAgent, setReviewingAgent] = useState<Agent | null>(null)
   const [historyModalOpen, setHistoryModalOpen] = useState(false)
   const [viewingAgentId, setViewingAgentId] = useState<string | null>(null)
+  const [salesHistoryModalOpen, setSalesHistoryModalOpen] = useState(false)
+  const [viewingSalesAgentId, setViewingSalesAgentId] = useState<string | null>(null)
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null)
 
@@ -104,6 +107,12 @@ export default function AgentManagementPage() {
   const handleViewHistory = (agent: Agent) => {
     setViewingAgentId(agent.id)
     setHistoryModalOpen(true)
+  }
+
+  // 查看售卡紀錄
+  const handleViewSalesHistory = (agent: Agent) => {
+    setViewingSalesAgentId(agent.id)
+    setSalesHistoryModalOpen(true)
   }
 
   // 審核代理
@@ -282,8 +291,16 @@ export default function AgentManagementPage() {
                         </button>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200 text-gray-500">
-                      -
+                    <td className="px-6 py-4 text-center border-r border-gray-200">
+                      <div className="flex items-center justify-center">
+                        <button
+                          onClick={() => handleViewSalesHistory(item)}
+                          className="flex items-center justify-center gap-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded px-2 py-1 transition-colors"
+                        >
+                          <ShoppingCart className="w-4 h-4" />
+                          <span className="text-sm">查看紀錄</span>
+                        </button>
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200 text-gray-500">
                       {item.averageMonthlySales.toFixed(2)}
@@ -291,12 +308,12 @@ export default function AgentManagementPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200 text-gray-900">
                       {item.lastLoginAt
                         ? new Date(item.lastLoginAt).toLocaleString('zh-TW', {
-                            year: 'numeric',
-                            month: '2-digit',
-                            day: '2-digit',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })
+                          year: 'numeric',
+                          month: '2-digit',
+                          day: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
                         : '尚未登入'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center">
@@ -363,6 +380,16 @@ export default function AgentManagementPage() {
           setViewingAgentId(null)
         }}
         agentId={viewingAgentId || ''}
+      />
+
+      {/* 售卡紀錄 Modal */}
+      <AgentSalesHistoryModal
+        isOpen={salesHistoryModalOpen}
+        onClose={() => {
+          setSalesHistoryModalOpen(false)
+          setViewingSalesAgentId(null)
+        }}
+        agentId={viewingSalesAgentId || ''}
       />
 
       {/* 編輯代理 Modal */}

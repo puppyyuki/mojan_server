@@ -30,12 +30,21 @@ export async function GET(request: NextRequest) {
                 createdAt: 'desc',
               },
             },
+            agentSales: {
+              where: {
+                status: 'COMPLETED',
+              },
+              select: {
+                cardAmount: true,
+                createdAt: true,
+              },
+            },
           },
         },
         reviewer: true,
       },
       orderBy: { createdAt: 'desc' },
-    })
+    }) as any
 
     // 格式化數據
     const agents = applications.map((app) => {
@@ -45,8 +54,27 @@ export async function GET(request: NextRequest) {
         0
       )
 
-      // 計算平均月售卡量（暫時留空，返回 0）
-      const averageMonthlySales = 0
+      // 計算平均月售卡量
+      let averageMonthlySales = 0
+      if (app.status === 'approved' && app.reviewedAt) {
+        // 計算從批准日期到現在的月數
+        const approvedDate = new Date(app.reviewedAt)
+        const now = new Date()
+        const monthsDiff = (now.getFullYear() - approvedDate.getFullYear()) * 12 +
+          (now.getMonth() - approvedDate.getMonth())
+
+        // 至少算1個月
+        const months = Math.max(monthsDiff, 1)
+
+        // 計算總售卡數
+        const totalSales = app.player.agentSales.reduce(
+          (sum, sale) => sum + sale.cardAmount,
+          0
+        )
+
+        // 計算平均月售卡量
+        averageMonthlySales = totalSales / months
+      }
 
       // 獲取最近的補卡紀錄
       const recentRechargeRecords = app.player.cardRechargeRecords.slice(0, 5).map((record) => ({

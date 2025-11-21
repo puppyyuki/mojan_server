@@ -23,16 +23,18 @@ model User {
 }
 
 model Player {
-  id          String    @id @default(cuid())
-  userId      String    @unique // 6位數字，唯一
-  nickname    String    // 允許重複，因為有 id、userId、lineUserId 作為唯一標識
-  cardCount   Int       @default(0)
-  avatarUrl   String? // 頭像URL
-  bio         String? // 備註
-  lineUserId  String?   @unique // LINE 使用者 ID
-  lastLoginAt DateTime? // 最後登入時間
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id               String    @id @default(cuid())
+  userId           String    @unique // 6位數字，唯一
+  nickname         String    // 允許重複，因為有 id、userId、lineUserId 作為唯一標識
+  cardCount        Int       @default(0)
+  avatarUrl        String? // 頭像URL
+  bio              String? // 備註
+  lineUserId       String?   @unique // LINE 使用者 ID
+  lastLoginAt      DateTime? // 最後登入時間
+  isAgent          Boolean   @default(false) // 是否為代理
+  agentCardBalance Int       @default(0) // 代理房卡餘額
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   createdClubs           Club[]                  @relation("ClubCreator")
   clubMembers            ClubMember[]
@@ -41,6 +43,9 @@ model Player {
   cardConsumptionRecords CardConsumptionRecord[]
   agentApplications      AgentApplication[]
   roomCardOrders         RoomCardOrder[]
+  agentSales             AgentRoomCardSale[]     @relation("AgentSales")
+  agentPurchasesAsBuyer  AgentRoomCardSale[]     @relation("BuyerSales")
+  agentPurchases         AgentRoomCardPurchase[]
 
   @@map("players")
 }
@@ -187,4 +192,48 @@ model RoomCardOrder {
   updatedAt         DateTime  @updatedAt
 
   @@map("room_card_orders")
+}
+
+model AgentRoomCardSale {
+  id         String   @id @default(cuid())
+  agentId    String
+  agent      Player   @relation("AgentSales", fields: [agentId], references: [id], onDelete: Cascade)
+  buyerId    String
+  buyer      Player   @relation("BuyerSales", fields: [buyerId], references: [id], onDelete: Cascade)
+  cardAmount Int      // 銷售的房卡數量
+  status     String   @default("COMPLETED") // COMPLETED, CANCELLED
+  createdAt  DateTime @default(now())
+
+  @@map("agent_room_card_sales")
+}
+
+model AgentRoomCardProduct {
+  id         String   @id @default(cuid())
+  cardAmount Int      // 房卡數量
+  price      Int      // 價格（新台幣）
+  isActive   Boolean  @default(true) // 是否啟用
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  purchases AgentRoomCardPurchase[]
+
+  @@map("agent_room_card_products")
+}
+
+model AgentRoomCardPurchase {
+  id           String                @id @default(cuid())
+  agentId      String
+  agent        Player                @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  productId    String
+  product      AgentRoomCardProduct  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  cardAmount   Int                   // 購買的房卡數量
+  price        Int                   // 價格
+  status       String                @default("PENDING") // PENDING, COMPLETED, REJECTED
+  paymentProof String?               // Base64 encoded image
+  reviewedBy   String?               // Admin user ID
+  reviewedAt   DateTime?
+  createdAt    DateTime              @default(now())
+  updatedAt    DateTime              @updatedAt
+
+  @@map("agent_room_card_purchases")
 }

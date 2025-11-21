@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { RefreshCw, Search, Eye, CheckCircle, XCircle, Clock, Filter } from 'lucide-react'
 import { apiGet } from '@/lib/api-client'
+import Image from 'next/image'
 
 interface RoomCardOrder {
   id: string
@@ -248,9 +249,11 @@ export default function PaymentManagementPage() {
                       <td className="px-6 py-4 whitespace-nowrap text-center text-sm border-r border-gray-200">
                         <div className="flex items-center justify-center gap-2">
                           {order.player.avatarUrl && (
-                            <img
+                            <Image
                               src={order.player.avatarUrl}
                               alt={order.player.nickname}
+                              width={32}
+                              height={32}
                               className="w-8 h-8 rounded-full"
                             />
                           )}

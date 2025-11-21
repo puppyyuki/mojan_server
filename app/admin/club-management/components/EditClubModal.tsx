@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { X, Save } from 'lucide-react'
+import Image from 'next/image'
 
 interface Club {
   id: string
@@ -163,9 +164,11 @@ export default function EditClubModal({
             />
             {avatarUrl && (
               <div className="mt-2 flex justify-center">
-                <img
+                <Image
                   src={avatarUrl}
                   alt="頭像預覽"
+                  width={64}
+                  height={64}
                   className="w-16 h-16 rounded-full object-cover border-2 border-gray-300"
                   onError={(e) => {
                     const target = e.target as HTMLImageElement;

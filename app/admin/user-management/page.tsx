@@ -7,6 +7,7 @@ import CreateUserModal from './components/CreateUserModal'
 import EditUserModal from './components/EditUserModal'
 import CardRechargeHistoryModal from './components/CardRechargeHistoryModal'
 import PlayerClubsModal from './components/PlayerClubsModal'
+import Image from 'next/image'
 
 interface Player {
   id: string
@@ -32,14 +33,14 @@ export default function UserManagementPage() {
   const [loading, setLoading] = useState(false)
   const [selectedItems, setSelectedItems] = useState<string[]>([])
   const [selectAll, setSelectAll] = useState(false)
-  
+
   // 玩家資料
   const [players, setPlayers] = useState<Player[]>([])
   const [dataLoaded, setDataLoaded] = useState(false)
-  
+
   // 搜尋狀態
   const [searchKeyword, setSearchKeyword] = useState<string>('')
-  
+
   // Modal 狀態
   const [createModalOpen, setCreateModalOpen] = useState(false)
   const [editModalOpen, setEditModalOpen] = useState(false)
@@ -188,11 +189,11 @@ export default function UserManagementPage() {
     if (!searchKeyword.trim()) {
       return true
     }
-    
+
     const keyword = searchKeyword.toLowerCase().trim()
     const nickname = (player.nickname || '').toLowerCase()
     const userId = player.userId.toLowerCase()
-    
+
     return (
       nickname.includes(keyword) ||
       userId.includes(keyword)
@@ -229,7 +230,7 @@ export default function UserManagementPage() {
             <Plus className="w-3.5 h-3.5" />
             新增使用者
           </button>
-          
+
           <button
             onClick={fetchPlayers}
             disabled={loading}
@@ -238,7 +239,7 @@ export default function UserManagementPage() {
             <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
             刷新
           </button>
-          
+
           <button
             onClick={handleBatchDelete}
             disabled={selectedItems.length === 0}
@@ -334,9 +335,11 @@ export default function UserManagementPage() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200">
                       {item.avatarUrl ? (
-                        <img
+                        <Image
                           src={item.avatarUrl}
                           alt={item.nickname}
+                          width={40}
+                          height={40}
                           className="w-10 h-10 rounded-full mx-auto object-cover"
                           onError={(e) => {
                             (e.target as HTMLImageElement).style.display = 'none'
@@ -386,12 +389,12 @@ export default function UserManagementPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200 text-gray-900">
                       {item.lastLoginAt
                         ? new Date(item.lastLoginAt).toLocaleString('zh-TW', {
-                            year: 'numeric',
-                            month: '2-digit',
-                            day: '2-digit',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })
+                          year: 'numeric',
+                          month: '2-digit',
+                          day: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })
                         : '尚未登入'}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center">

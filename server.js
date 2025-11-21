@@ -5810,6 +5810,10 @@ app.get('/api/agents/home', async (req, res) => {
   }
 });
 
+/*
+// ===== OLD PLACEHOLDER AGENT ROUTES - COMMENTED OUT =====
+// These are replaced by the actual implementations below (around line 6605)
+
 // API: 搜索玩家
 app.post('/api/agents/players/search', async (req, res) => {
   try {
@@ -6044,6 +6048,9 @@ app.get('/api/agents/payment-history', async (req, res) => {
     });
   }
 });
+
+// ===== END OLD PLACEHOLDER ROUTES =====
+*/
 
 // ===== 活動更新 API =====
 
@@ -6598,6 +6605,417 @@ app.get('/api/admin/room-card-orders', async (req, res) => {
 app.get('/', (req, res) => {
   res.send('Mahjong server running!');
 });
+
+// ==================== Agent Management APIs ====================
+
+// POST /api/agents/players/search - Search players for selling room cards
+app.post('/api/agents/players/search', async (req, res) => {
+  try {
+    const { search } = req.body;
+    console.log('[Player Search] Received search request:', { search });
+
+    // For now, we'll search all players. In production, you'd want to verify agent status
+    const players = await prisma.player.findMany({
+      where: search ? {
+        OR: [
+          { userId: { contains: search } },
+          { nickname: { contains: search } },
+        ],
+      } : {},
+      select: {
+        id: true,
+        userId: true,
+        nickname: true,
+        avatarUrl: true,
+        cardCount: true,
+      },
+      take: 50,
+    });
+
+    console.log('[Player Search] Found players:', players.length);
+    console.log('[Player Search] Players:', JSON.stringify(players, null, 2));
+
+    res.json({
+      success: true,
+      data: {
+        players: players.map(p => ({
+          playerId: p.id,
+          userId: p.userId,
+          displayName: p.nickname,
+          avatarUrl: p.avatarUrl,
+          cardCount: p.cardCount,
+        })),
+      },
+    });
+  } catch (error) {
+    console.error('Error searching players:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to search players',
+      message: error.message,
+    });
+  }
+});
+
+// POST /api/agents/sell-room-card - Sell room cards to a player
+app.post('/api/agents/sell-room-card', async (req, res) => {
+  try {
+    const { playerId, cardAmount, agentId } = req.body;
+
+    if (!playerId || !cardAmount || cardAmount <= 0 || !agentId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid request parameters',
+      });
+    }
+
+    console.log(`[Sell Room Card] Agent: ${agentId}, Buyer: ${playerId}, Amount: ${cardAmount}`);
+
+    // Start transaction
+    const result = await prisma.$transaction(async (tx) => {
+      // Get agent
+      const agent = await tx.player.findUnique({
+        where: { id: agentId },
+      });
+
+      if (!agent) {
+        throw new Error('Agent not found');
+      }
+
+      console.log(`[Sell Room Card] Agent balance: ${agent.agentCardBalance}, Requested: ${cardAmount}`);
+
+      // Check agent has sufficient balance
+      // User specified that agent balance IS the cardCount
+      if (agent.cardCount < cardAmount) {
+        throw new Error(`Insufficient card balance. Current: ${agent.cardCount}, Requested: ${cardAmount}`);
+      }
+
+      // Get buyer
+      const buyer = await tx.player.findUnique({
+        where: { id: playerId },
+      });
+
+      if (!buyer) {
+        throw new Error('Player not found');
+      }
+
+      // Deduct from agent and add to buyer
+      await tx.player.update({
+        where: { id: agentId },
+        data: {
+          cardCount: { decrement: cardAmount },
+          // Keep agentCardBalance in sync or ignore it based on user request "no need special agent card balance"
+          // We will just update cardCount as requested.
+        },
+      });
+
+      // Add to player balance
+      await tx.player.update({
+        where: { id: playerId },
+        data: { cardCount: { increment: cardAmount } },
+      });
+
+      // Create sale record
+      const sale = await tx.agentRoomCardSale.create({
+        data: {
+          agentId,
+          buyerId: playerId,
+          cardAmount,
+          status: 'COMPLETED',
+        },
+      });
+
+      return sale;
+    });
+
+    res.json({
+      success: true,
+      data: { sale: result },
+      message: `Successfully sold ${cardAmount} room cards`,
+    });
+  } catch (error) {
+    console.error('Error selling room card:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to sell room card',
+    });
+  }
+});
+
+// GET /api/agents/room-cards/products - Get available room card products
+app.get('/api/agents/room-cards/products', async (req, res) => {
+  try {
+    const products = await prisma.agentRoomCardProduct.findMany({
+      where: { isActive: true },
+      orderBy: { cardAmount: 'asc' },
+    });
+
+    res.json({
+      success: true,
+      data: { products },
+    });
+  } catch (error) {
+    console.error('Error fetching products:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch products',
+    });
+  }
+});
+
+// POST /api/agents/room-cards/buy - Purchase room cards as agent
+app.post('/api/agents/room-cards/buy', async (req, res) => {
+  try {
+    const { productId, paymentProof } = req.body;
+
+    if (!productId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Product ID is required',
+      });
+    }
+
+    // For now, use a hardcoded agent ID. In production, get from auth session
+    const agentId = 'agent-placeholder-id';
+
+    // Get product
+    const product = await prisma.agentRoomCardProduct.findUnique({
+      where: { id: productId },
+    });
+
+    if (!product || !product.isActive) {
+      return res.status(404).json({
+        success: false,
+        error: 'Product not found or inactive',
+      });
+    }
+
+    // Create purchase order
+    const purchase = await prisma.agentRoomCardPurchase.create({
+      data: {
+        agentId,
+        productId,
+        cardAmount: product.cardAmount,
+        price: product.price,
+        status: 'PENDING',
+        paymentProof,
+      },
+    });
+
+    res.json({
+      success: true,
+      data: { purchase },
+      message: 'Purchase order created successfully. Awaiting admin approval.',
+    });
+  } catch (error) {
+    console.error('Error creating purchase:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to create purchase order',
+    });
+  }
+});
+
+// POST /api/agents/sales-record - Get sales history
+app.post('/api/agents/sales-record', async (req, res) => {
+  try {
+    const { search } = req.body;
+
+    // For now, use a hardcoded agent ID. In production, get from auth session
+    const agentId = 'agent-placeholder-id';
+
+    const sales = await prisma.agentRoomCardSale.findMany({
+      where: {
+        agentId,
+        ...(search && {
+          buyer: {
+            OR: [
+              { userId: { contains: search } },
+              { nickname: { contains: search } },
+            ],
+          },
+        }),
+      },
+      include: {
+        buyer: {
+          select: {
+            userId: true,
+            nickname: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+
+    // Group by buyer and calculate statistics
+    const buyerStats = {};
+    sales.forEach(sale => {
+      const buyerId = sale.buyerId;
+      if (!buyerStats[buyerId]) {
+        buyerStats[buyerId] = {
+          displayName: sale.buyer.nickname,
+          userId: sale.buyer.userId,
+          lastCompletedAt: sale.createdAt.toISOString(),
+          lastCardAmount: sale.cardAmount,
+          buyTime: 0,
+          totalCardAmount: 0,
+        };
+      }
+      buyerStats[buyerId].buyTime += 1;
+      buyerStats[buyerId].totalCardAmount += sale.cardAmount;
+    });
+
+    const salesList = Object.values(buyerStats);
+
+    res.json({
+      success: true,
+      data: { sales: salesList },
+    });
+  } catch (error) {
+    console.error('Error fetching sales records:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch sales records',
+    });
+  }
+});
+
+// POST /api/agents/activity - Get player activity records
+app.post('/api/agents/activity', async (req, res) => {
+  try {
+    const { search } = req.body;
+
+    // For now, use a hardcoded agent ID. In production, get from auth session
+    const agentId = 'agent-placeholder-id';
+
+    // Get all players who bought from this agent
+    const sales = await prisma.agentRoomCardSale.findMany({
+      where: {
+        agentId,
+        ...(search && {
+          buyer: {
+            OR: [
+              { userId: { contains: search } },
+              { nickname: { contains: search } },
+            ],
+          },
+        }),
+      },
+      include: {
+        buyer: {
+          select: {
+            id: true,
+            userId: true,
+            nickname: true,
+            lastLoginAt: true,
+          },
+        },
+      },
+      distinct: ['buyerId'],
+    });
+
+    // Calculate activity for each player
+    const activities = sales.map(sale => ({
+      userId: sale.buyer.userId,
+      displayName: sale.buyer.nickname,
+      lastOnline: sale.buyer.lastLoginAt?.toISOString() || null,
+      totalActivityPlayer: 1, // Simplified - in production, calculate actual activity
+    }));
+
+    res.json({
+      success: true,
+      data: { activities },
+    });
+  } catch (error) {
+    console.error('Error fetching activity:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch activity records',
+    });
+  }
+});
+
+// GET /api/agents/payment-history - Get payment transaction history
+app.get('/api/agents/payment-history', async (req, res) => {
+  try {
+    // For now, use a hardcoded agent ID. In production, get from auth session
+    const agentId = 'agent-placeholder-id';
+
+    const payments = await prisma.agentRoomCardPurchase.findMany({
+      where: { agentId },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+
+    res.json({
+      success: true,
+      data: {
+        payments: payments.map(p => ({
+          id: p.id,
+          createdAt: p.createdAt.toISOString(),
+          cardAmount: p.cardAmount,
+          pricePaid: p.price,
+          status: p.status,
+        })),
+      },
+    });
+  } catch (error) {
+    console.error('Error fetching payment history:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch payment history',
+    });
+  }
+});
+
+// GET /api/agents/status - Check agent status
+app.get('/api/agents/status', async (req, res) => {
+  try {
+    const { playerId } = req.query;
+
+    // For now, use a hardcoded agent ID. In production, get from auth session
+    const agentId = playerId || 'agent-placeholder-id';
+
+    const player = await prisma.player.findUnique({
+      where: { id: agentId },
+      select: {
+        id: true,
+        userId: true,
+        nickname: true,
+        isAgent: true,
+        agentCardBalance: true,
+      },
+    });
+
+    if (!player) {
+      return res.status(404).json({
+        success: false,
+        error: 'Player not found',
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        isAgent: player.isAgent,
+        agentCardBalance: player.agentCardBalance,
+        agentDetails: player.isAgent ? {
+          userId: player.userId,
+          nickname: player.nickname,
+        } : null,
+      },
+    });
+  } catch (error) {
+    console.error('Error checking agent status:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to check agent status',
+    });
+  }
+});
+
+// ==================== End Agent Management APIs ====================
 
 // 健康檢查端點（Render 需要）
 app.get('/health', (req, res) => {
