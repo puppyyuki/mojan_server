@@ -14,7 +14,10 @@ function setCorsHeaders(res) {
  */
 router.get('/room-cards/products', async (req, res) => {
     try {
+        console.log('[Agent Room Cards API] GET /room-cards/products called');
         const { prisma } = req.app.locals;
+
+        console.log('[Agent Room Cards API] Prisma client:', !!prisma);
 
         const products = await prisma.roomCardProduct.findMany({
             where: { isActive: true },
@@ -22,6 +25,7 @@ router.get('/room-cards/products', async (req, res) => {
         });
 
         console.log('[Agent Room Cards API] Found products:', products.length);
+        console.log('[Agent Room Cards API] Products:', JSON.stringify(products, null, 2));
 
         setCorsHeaders(res);
         res.status(200).json({
