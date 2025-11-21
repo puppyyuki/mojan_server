@@ -12,7 +12,7 @@ function setCorsHeaders(res) {
  * GET /api/agents/room-cards/products
  * 獲取房卡產品列表（代理商用）
  */
-router.get('/room-cards/products', async (req, res) => {
+router.get('/products', async (req, res) => {
     try {
         console.log('[Agent Room Cards API] GET /room-cards/products called');
         const { prisma } = req.app.locals;
@@ -49,7 +49,7 @@ router.get('/room-cards/products', async (req, res) => {
  * POST /api/agents/room-cards/buy
  * 代理商購買房卡
  */
-router.post('/room-cards/buy', async (req, res) => {
+router.post('/buy', async (req, res) => {
     try {
         const { productId, quantity } = req.body;
 
