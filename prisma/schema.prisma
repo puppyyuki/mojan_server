@@ -238,3 +238,19 @@ model AgentRoomCardPurchase {
 
   @@map("agent_room_card_purchases")
 }
+
+model Purchase {
+  id            String   @id @default(cuid())
+  transactionId String   @unique // Google Play 的 purchaseToken 或 iOS 的 transactionId
+  playerId      String
+  productId     String   // 商品 ID (例如: room_card_10)
+  platform      String   // 'android' 或 'ios'
+  cardAmount    Int      // 發放的房卡數量
+  status        String   @default("completed") // completed, refunded
+  purchaseData  String?  // JSON 格式的購買資料
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@map("purchases")
+}
+
