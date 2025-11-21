@@ -3,7 +3,13 @@ const prisma = new PrismaClient();
 
 async function createRoomCardProducts() {
   try {
-    console.log('開始創建大廳購卡產品...');
+    console.log('開始刪除舊的大廳購卡產品...');
+    
+    // 刪除所有舊的大廳購卡產品
+    const deletedShopProducts = await prisma.roomCardProduct.deleteMany({});
+    console.log(`✅ 已刪除 ${deletedShopProducts.count} 個大廳購卡產品`);
+
+    console.log('\n開始創建大廳購卡產品...');
 
     // 大廳購卡產品
     const shopProducts = [
@@ -25,22 +31,17 @@ async function createRoomCardProducts() {
     ];
 
     for (const product of shopProducts) {
-      const existing = await prisma.roomCardProduct.findFirst({
-        where: {
-          cardAmount: product.cardAmount,
-          price: product.price,
-        },
+      const created = await prisma.roomCardProduct.create({
+        data: product,
       });
-
-      if (!existing) {
-        const created = await prisma.roomCardProduct.create({
-          data: product,
-        });
-        console.log(`✅ 已創建大廳購卡產品: ${created.cardAmount}張 - NT$ ${created.price} (ID: ${created.id})`);
-      } else {
-        console.log(`ℹ️  大廳購卡產品已存在: ${existing.cardAmount}張 - NT$ ${existing.price}`);
-      }
+      console.log(`✅ 已創建大廳購卡產品: ${created.cardAmount}張 - NT$ ${created.price} (ID: ${created.id})`);
     }
+
+    console.log('\n開始刪除舊的代理購卡產品...');
+    
+    // 刪除所有舊的代理購卡產品
+    const deletedAgentProducts = await prisma.agentRoomCardProduct.deleteMany({});
+    console.log(`✅ 已刪除 ${deletedAgentProducts.count} 個代理購卡產品`);
 
     console.log('\n開始創建代理購卡產品...');
 
@@ -64,21 +65,10 @@ async function createRoomCardProducts() {
     ];
 
     for (const product of agentProducts) {
-      const existing = await prisma.agentRoomCardProduct.findFirst({
-        where: {
-          cardAmount: product.cardAmount,
-          price: product.price,
-        },
+      const created = await prisma.agentRoomCardProduct.create({
+        data: product,
       });
-
-      if (!existing) {
-        const created = await prisma.agentRoomCardProduct.create({
-          data: product,
-        });
-        console.log(`✅ 已創建代理購卡產品: ${created.cardAmount}張 - NT$ ${created.price} (ID: ${created.id})`);
-      } else {
-        console.log(`ℹ️  代理購卡產品已存在: ${existing.cardAmount}張 - NT$ ${existing.price}`);
-      }
+      console.log(`✅ 已創建代理購卡產品: ${created.cardAmount}張 - NT$ ${created.price} (ID: ${created.id})`);
     }
 
     console.log('\n✅ 所有房卡產品創建完成！');
