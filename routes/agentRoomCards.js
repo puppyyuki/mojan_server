@@ -101,7 +101,8 @@ router.post('/buy', async (req, res) => {
 
         // 建立臨時訂單記錄（使用 RoomCardOrder，但標記為代理購買）
         const merchantTradeNo = ecpayLib.generateMerchantTradeNo();
-        const finalPaymentType = paymentType || 'ALL';
+        // 代理購買限制只能使用 ATM 轉帳
+        const finalPaymentType = 'ATM';
 
         // 建立綠界付款資料
         const paymentData = ecpayLib.createEcpayPaymentData(
