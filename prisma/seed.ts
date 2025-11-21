@@ -26,6 +26,35 @@ async function main() {
   } else {
     console.log('預設帳號已存在')
   }
+
+  // 建立房卡產品
+  const products = [
+    { cardAmount: 3000, price: 9000 },
+    { cardAmount: 5000, price: 12500 },
+    { cardAmount: 10000, price: 20000 },
+  ]
+
+  for (const product of products) {
+    const existing = await prisma.roomCardProduct.findFirst({
+      where: {
+        cardAmount: product.cardAmount,
+        price: product.price
+      }
+    })
+
+    if (!existing) {
+      await prisma.roomCardProduct.create({
+        data: {
+          cardAmount: product.cardAmount,
+          price: product.price,
+          isActive: true,
+        }
+      })
+      console.log(`房卡產品已建立：${product.cardAmount}張 - ${product.price}元`)
+    } else {
+      console.log(`房卡產品已存在：${product.cardAmount}張`)
+    }
+  }
 }
 
 main()
@@ -36,4 +65,3 @@ main()
   .finally(async () => {
     await prisma.$disconnect()
   })
-
