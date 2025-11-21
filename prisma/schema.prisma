@@ -136,6 +136,7 @@ model AgentApplication {
   phoneOtpCode String
   emailOtpCode String
   status       String    @default("pending") // pending, approved, rejected
+  agentLevel   String    @default("normal") // normal (一般代理), vip (公關代理)
   reviewedAt   DateTime?
   reviewedBy   String? // 審核者 ID (User ID)
   reviewer     User?     @relation(fields: [reviewedBy], references: [id], onDelete: SetNull)

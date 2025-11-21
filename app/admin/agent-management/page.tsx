@@ -32,6 +32,7 @@ interface Agent {
     createdAt: string
   }>
   lastLoginAt: string | null
+  agentLevel: 'normal' | 'vip' // 代理層級：normal (一般代理), vip (公關代理)
   createdAt: string
   reviewedAt: string | null
   reviewedBy: string | null
@@ -238,6 +239,9 @@ export default function AgentManagementPage() {
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 whitespace-nowrap w-[150px]">
                   平均月售卡量
                 </th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 whitespace-nowrap w-[150px]">
+                  代理層級
+                </th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 whitespace-nowrap w-[180px]">
                   最後登入時間
                 </th>
@@ -249,7 +253,7 @@ export default function AgentManagementPage() {
             <tbody className="divide-y divide-gray-200">
               {loading && !dataLoaded ? (
                 <tr>
-                  <td colSpan={9} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={10} className="px-6 py-12 text-center text-gray-500">
                     <div className="flex items-center justify-center">
                       <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
                       <span className="ml-2">載入中...</span>
@@ -258,7 +262,7 @@ export default function AgentManagementPage() {
                 </tr>
               ) : displayData.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={10} className="px-6 py-12 text-center text-gray-500">
                     暫無數據
                   </td>
                 </tr>
@@ -304,6 +308,19 @@ export default function AgentManagementPage() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200 text-gray-500">
                       {item.averageMonthlySales.toFixed(2)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200">
+                      {item.status === 'approved' ? (
+                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                          item.agentLevel === 'vip' 
+                            ? 'bg-purple-100 text-purple-800' 
+                            : 'bg-gray-100 text-gray-800'
+                        }`}>
+                          {item.agentLevel === 'vip' ? '公關代理' : '一般代理'}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400 text-xs">-</span>
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200 text-gray-900">
                       {item.lastLoginAt

@@ -405,7 +405,7 @@ router.post('/sell-room-card', async (req, res) => {
                 throw new Error('Player not found');
             }
 
-            // Check if buyer is also an agent - prevent agent-to-agent sales
+            // Check if buyer is also an agent - prevent agent-to-agent sales for normal agents
             const buyerAgentApplication = await tx.agentApplication.findFirst({
                 where: {
                     playerId: playerId,
@@ -413,8 +413,17 @@ router.post('/sell-room-card', async (req, res) => {
                 },
             });
 
-            if (buyerAgentApplication) {
-                throw new Error('代理不能向其他代理出售房卡');
+            // Check if seller is a VIP agent (公關代理)
+            const sellerAgentApplication = await tx.agentApplication.findFirst({
+                where: {
+                    playerId: agentId,
+                    status: 'approved',
+                },
+            });
+
+            // If buyer is an agent and seller is not a VIP agent, prevent the sale
+            if (buyerAgentApplication && (!sellerAgentApplication || sellerAgentApplication.agentLevel !== 'vip')) {
+                throw new Error('一般代理不能向其他代理出售房卡，只有公關代理可以售卡給代理');
             }
 
             // Deduct from agent and add to buyer

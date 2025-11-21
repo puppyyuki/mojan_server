@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { getCurrentUserId } from '@/lib/auth'
 
 // CORS headers helper
 function corsHeaders() {
@@ -16,67 +15,72 @@ export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders() })
 }
 
-// 批准代理申請
-export async function POST(
+// 更新代理層級
+export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const { id } = await params
+    const body = await request.json()
+    const { agentLevel } = body
 
-    // 從 session 或 token 獲取當前管理員 ID
-    const adminUserId = await getCurrentUserId(request)
+    if (!agentLevel || !['normal', 'vip'].includes(agentLevel)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: '無效的代理層級',
+        },
+        { status: 400, headers: corsHeaders() }
+      )
+    }
 
     // 查找申請
     const application = await prisma.agentApplication.findUnique({
       where: { id },
-      include: { player: true },
     })
 
     if (!application) {
       return NextResponse.json(
         {
           success: false,
-          error: '申請不存在',
+          error: '代理申請不存在',
         },
         { status: 404, headers: corsHeaders() }
       )
     }
 
-    if (application.status !== 'pending') {
+    if (application.status !== 'approved') {
       return NextResponse.json(
         {
           success: false,
-          error: '申請狀態不正確',
+          error: '只能修改已批准代理的層級',
         },
         { status: 400, headers: corsHeaders() }
       )
     }
 
-    // 更新申請狀態，設置默認層級為一般代理
+    // 更新代理層級
     await prisma.agentApplication.update({
       where: { id },
       data: {
-        status: 'approved',
-        agentLevel: 'normal', // 初始審核通過都是一般代理
-        reviewedAt: new Date(),
-        reviewedBy: adminUserId || null, // 如果無法獲取管理員 ID，設置為 null
+        agentLevel: agentLevel,
       },
     })
 
     return NextResponse.json(
       {
         success: true,
-        message: '批准成功',
+        message: '更新代理層級成功',
       },
       { headers: corsHeaders() }
     )
   } catch (error: any) {
-    console.error('批准代理申請失敗:', error)
+    console.error('更新代理層級失敗:', error)
     return NextResponse.json(
       {
         success: false,
-        error: '批准失敗',
+        error: '更新代理層級失敗',
         message: error.message || '未知錯誤',
       },
       { status: 500, headers: corsHeaders() }

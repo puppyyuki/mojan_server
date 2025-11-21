@@ -98,6 +98,7 @@ export async function GET(request: NextRequest) {
         phone: app.phone,
         note: app.note,
         status: app.status,
+        agentLevel: app.agentLevel || 'normal', // 代理層級
         roomCardBalance: app.player.cardCount,
         totalRechargeAmount,
         averageMonthlySales,
