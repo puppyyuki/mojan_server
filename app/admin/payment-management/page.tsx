@@ -170,13 +170,13 @@ export default function PaymentManagementPage() {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="px-4 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900 bg-white"
           >
-            <option value="ALL">全部狀態</option>
-            <option value="PENDING">待付款</option>
-            <option value="PAID">已付款</option>
-            <option value="FAILED">失敗</option>
-            <option value="CANCELLED">已取消</option>
+            <option value="ALL" className="text-gray-900">全部狀態</option>
+            <option value="PENDING" className="text-gray-900">待付款</option>
+            <option value="PAID" className="text-gray-900">已付款</option>
+            <option value="FAILED" className="text-gray-900">失敗</option>
+            <option value="CANCELLED" className="text-gray-900">已取消</option>
           </select>
         </div>
 
