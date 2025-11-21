@@ -3,35 +3,82 @@ const prisma = new PrismaClient();
 
 async function createRoomCardProducts() {
   try {
-    console.log('開始創建房卡產品...');
+    console.log('開始創建大廳購卡產品...');
 
-    // 先刪除現有的產品（可選，如果需要重置）
-    // await prisma.roomCardProduct.deleteMany({});
-
-    // 創建產品
-    const products = [
+    // 大廳購卡產品
+    const shopProducts = [
       {
         cardAmount: 20,
         price: 100,
         isActive: true,
       },
       {
-        cardAmount: 76,
-        price: 380,
+        cardAmount: 50,
+        price: 250,
         isActive: true,
       },
       {
-        cardAmount: 190,
-        price: 950,
+        cardAmount: 200,
+        price: 1000,
         isActive: true,
       },
     ];
 
-    for (const product of products) {
-      const created = await prisma.roomCardProduct.create({
-        data: product,
+    for (const product of shopProducts) {
+      const existing = await prisma.roomCardProduct.findFirst({
+        where: {
+          cardAmount: product.cardAmount,
+          price: product.price,
+        },
       });
-      console.log(`✅ 已創建產品: ${created.cardAmount}張 - NT$ ${created.price} (ID: ${created.id})`);
+
+      if (!existing) {
+        const created = await prisma.roomCardProduct.create({
+          data: product,
+        });
+        console.log(`✅ 已創建大廳購卡產品: ${created.cardAmount}張 - NT$ ${created.price} (ID: ${created.id})`);
+      } else {
+        console.log(`ℹ️  大廳購卡產品已存在: ${existing.cardAmount}張 - NT$ ${existing.price}`);
+      }
+    }
+
+    console.log('\n開始創建代理購卡產品...');
+
+    // 代理購卡產品
+    const agentProducts = [
+      {
+        cardAmount: 3000,
+        price: 9000,
+        isActive: true,
+      },
+      {
+        cardAmount: 5000,
+        price: 12500,
+        isActive: true,
+      },
+      {
+        cardAmount: 10000,
+        price: 20000,
+        isActive: true,
+      },
+    ];
+
+    for (const product of agentProducts) {
+      const existing = await prisma.agentRoomCardProduct.findFirst({
+        where: {
+          cardAmount: product.cardAmount,
+          price: product.price,
+        },
+      });
+
+      if (!existing) {
+        const created = await prisma.agentRoomCardProduct.create({
+          data: product,
+        });
+        console.log(`✅ 已創建代理購卡產品: ${created.cardAmount}張 - NT$ ${created.price} (ID: ${created.id})`);
+      } else {
+        console.log(`ℹ️  代理購卡產品已存在: ${existing.cardAmount}張 - NT$ ${existing.price}`);
+      }
     }
 
     console.log('\n✅ 所有房卡產品創建完成！');
@@ -43,4 +90,3 @@ async function createRoomCardProducts() {
 }
 
 createRoomCardProducts();
-

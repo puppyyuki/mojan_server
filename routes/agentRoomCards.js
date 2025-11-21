@@ -22,7 +22,8 @@ router.get('/products', async (req, res) => {
 
         console.log('[Agent Room Cards API] Prisma client:', !!prisma);
 
-        const products = await prisma.roomCardProduct.findMany({
+        // 代理購卡使用 AgentRoomCardProduct，與大廳購卡分開
+        const products = await prisma.agentRoomCardProduct.findMany({
             where: { isActive: true },
             orderBy: { cardAmount: 'asc' },
         });
@@ -81,8 +82,8 @@ router.post('/buy', async (req, res) => {
             });
         }
 
-        // 驗證產品是否存在（使用 RoomCardProduct，與大廳購買一致）
-        const product = await prisma.roomCardProduct.findUnique({
+        // 驗證產品是否存在（使用 AgentRoomCardProduct，與大廳購買分開）
+        const product = await prisma.agentRoomCardProduct.findUnique({
             where: { id: productId },
         });
 
@@ -121,10 +122,41 @@ router.post('/buy', async (req, res) => {
         );
 
         // 建立訂單記錄（使用 RoomCardOrder，在 raw 中標記為代理購買）
+        // 注意：RoomCardOrder 的 productId 必須是 RoomCardProduct 的 ID
+        // 但我們使用 AgentRoomCardProduct，所以需要創建一個對應的 RoomCardProduct 記錄
+        // 或者使用一個虛擬的 productId
+        
+        // 方案：為每個 AgentRoomCardProduct 創建一個對應的 RoomCardProduct 記錄
+        // 使用相同的 cardAmount 和 price，但標記為代理專用
+        // 或者使用一個特殊的標記產品 ID
+        
+        // 查找或創建對應的 RoomCardProduct（用於訂單記錄）
+        // 使用 agentProductId 作為標記，確保不會與大廳購卡產品混淆
+        let roomCardProduct = await prisma.roomCardProduct.findFirst({
+            where: {
+                cardAmount: cardAmount,
+                price: price,
+                // 可以添加一個標記來區分，但為了簡單，我們直接使用相同的 cardAmount 和 price
+                // 因為代理購卡的價格和數量與大廳購卡不同，所以不會衝突
+            },
+        });
+        
+        // 如果沒有對應的 RoomCardProduct，創建一個（用於訂單記錄的外鍵約束）
+        // 注意：這只是為了滿足外鍵約束，實際產品信息在 raw 中保存
+        if (!roomCardProduct) {
+            roomCardProduct = await prisma.roomCardProduct.create({
+                data: {
+                    cardAmount: cardAmount,
+                    price: price,
+                    isActive: false, // 標記為不活躍，因為這是代理專用產品
+                },
+            });
+        }
+        
         await prisma.roomCardOrder.create({
             data: {
                 playerId: agentId, // 使用 agentId 作為 playerId
-                productId,
+                productId: roomCardProduct.id, // 使用對應的 RoomCardProduct ID（滿足外鍵約束）
                 merchantTradeNo,
                 cardAmount,
                 price,
@@ -134,6 +166,7 @@ router.post('/buy', async (req, res) => {
                     ...paymentData,
                     isAgentPurchase: true, // 標記為代理購買
                     agentId: agentId,
+                    agentProductId: productId, // 保存真實的 AgentRoomCardProduct ID
                 },
             },
         });
