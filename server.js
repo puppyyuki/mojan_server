@@ -7022,6 +7022,10 @@ app.get('/api/agents/status', async (req, res) => {
 app.locals.prisma = prisma;
 const roomCardsRoutes = require('./routes/roomCards');
 app.use('/api/room-cards', roomCardsRoutes);
+const agentRoomCardsRoutes = require('./routes/agentRoomCards');
+app.use('/api/agents', agentRoomCardsRoutes);
+console.log('[Server] Agent room cards routes mounted at /api/agents/room-cards');
+
 console.log('[Server] Room cards routes mounted at /api/room-cards');
 
 // 健康檢查端點（Render 需要）
