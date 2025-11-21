@@ -55,11 +55,26 @@ router.post('/verify', async (req, res) => {
     try {
         const { platform, playerId, productId, purchaseToken, receiptData, transactionId } = req.body;
 
+        console.log('📥 收到驗證請求:', {
+            platform,
+            playerId,
+            productId,
+            hasPurchaseToken: !!purchaseToken,
+            hasReceiptData: !!receiptData,
+            hasTransactionId: !!transactionId
+        });
+
         // 驗證必要參數
         if (!platform || !playerId || !productId) {
+            console.log('❌ 缺少必要參數:', { platform, playerId, productId });
             return res.status(400).json({
                 success: false,
                 error: '缺少必要參數',
+                details: {
+                    platform: !!platform,
+                    playerId: !!playerId,
+                    productId: !!productId
+                }
             });
         }
 
