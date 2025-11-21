@@ -405,6 +405,18 @@ router.post('/sell-room-card', async (req, res) => {
                 throw new Error('Player not found');
             }
 
+            // Check if buyer is also an agent - prevent agent-to-agent sales
+            const buyerAgentApplication = await tx.agentApplication.findFirst({
+                where: {
+                    playerId: playerId,
+                    status: 'approved', // Only check approved agents
+                },
+            });
+
+            if (buyerAgentApplication) {
+                throw new Error('代理不能向其他代理出售房卡');
+            }
+
             // Deduct from agent and add to buyer
             await tx.player.update({
                 where: { id: agentId },
