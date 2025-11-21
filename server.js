@@ -6057,11 +6057,11 @@ app.post('/api/ecpay/notify', async (req, res) => {
       if (order && order.status !== 'PAID') {
         // 檢查是否為代理購買
         const isAgentPurchase = order.raw && typeof order.raw === 'object' && order.raw.isAgentPurchase === true;
-        
+
         if (isAgentPurchase) {
           // 代理購買：更新代理的房卡數量
           console.log(`[代理購買] 為代理 ${order.playerId} 增加 ${order.cardAmount} 張房卡`);
-          
+
           await prisma.player.update({
             where: { id: order.playerId },
             data: {
@@ -6162,6 +6162,7 @@ app.get('/', (req, res) => {
   res.send('Mahjong server running!');
 });
 
+
 // ===== 代理管理路由（已移至 routes/agents.js）=====
 
 
@@ -6183,6 +6184,11 @@ const agentRoomCardsRoutes = require('./routes/agentRoomCards');
 app.use('/api/agents/room-cards', agentRoomCardsRoutes);
 console.log('[Server] Agent room cards routes mounted at /api/agents/room-cards');
 
+// IAP 內購路由
+const iapRoutes = require('./routes/iap');
+app.use('/api/iap', iapRoutes);
+console.log('[Server] IAP routes mounted at /api/iap');
+
 // 健康檢查端點（Render 需要）
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -6201,4 +6207,4 @@ module.exports = {
   startTurnTimer,
   startClaimTimer,
   startTingTimer
-}; 
+};
