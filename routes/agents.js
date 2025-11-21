@@ -582,7 +582,7 @@ router.post('/activity', async (req, res) => {
 
 /**
  * GET /api/agents/payment-history
- * 獲取付款交易歷史
+ * 獲取付款交易歷史（代理購買房卡的記錄）
  */
 router.get('/payment-history', async (req, res) => {
     try {
@@ -592,22 +592,52 @@ router.get('/payment-history', async (req, res) => {
         // For now, use agentId from query. In production, get from auth session
         const queryAgentId = agentId || 'agent-placeholder-id';
 
-        const payments = await prisma.agentRoomCardPurchase.findMany({
-            where: { agentId: queryAgentId },
+        // 查詢代理購買的訂單（使用 RoomCardOrder，過濾 isAgentPurchase: true）
+        // 注意：Prisma 的 JSON 查詢需要使用不同的方法
+        const allOrders = await prisma.roomCardOrder.findMany({
+            where: {
+                playerId: queryAgentId,
+            },
+            include: {
+                product: {
+                    select: {
+                        id: true,
+                        cardAmount: true,
+                        price: true,
+                    },
+                },
+            },
             orderBy: { createdAt: 'desc' },
-            take: 100,
+            take: 200, // 先取多一點，然後過濾
         });
+
+        // 過濾出代理購買的訂單（raw.isAgentPurchase === true）
+        const orders = allOrders.filter(order => {
+            try {
+                const raw = order.raw;
+                return raw && typeof raw === 'object' && raw.isAgentPurchase === true;
+            } catch (e) {
+                return false;
+            }
+        }).slice(0, 100); // 限制為 100 筆
 
         setCorsHeaders(res);
         res.json({
             success: true,
             data: {
-                payments: payments.map(p => ({
-                    id: p.id,
-                    createdAt: p.createdAt.toISOString(),
-                    cardAmount: p.cardAmount,
-                    pricePaid: p.price,
-                    status: p.status,
+                payments: orders.map(order => ({
+                    id: order.id,
+                    merchantTradeNo: order.merchantTradeNo,
+                    ecpayTradeNo: order.ecpayTradeNo,
+                    createdAt: order.createdAt.toISOString(),
+                    cardAmount: order.cardAmount,
+                    pricePaid: order.price,
+                    status: order.status === 'PAID' ? 'COMPLETED' : order.status,
+                    paymentType: order.paymentType,
+                    virtualAccount: order.virtualAccount,
+                    bankCode: order.bankCode,
+                    expireDate: order.expireDate?.toISOString() || null,
+                    paidAt: order.paidAt?.toISOString() || null,
                 })),
             },
         });
@@ -617,6 +647,7 @@ router.get('/payment-history', async (req, res) => {
         res.status(500).json({
             success: false,
             error: 'Failed to fetch payment history',
+            message: error.message || '未知錯誤',
         });
     }
 });

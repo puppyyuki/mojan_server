@@ -6048,24 +6048,43 @@ app.post('/api/ecpay/notify', async (req, res) => {
       newStatus = 'PAID';
       console.log('✅ 付款成功，更新狀態為 PAID');
 
-      // 更新玩家房卡數量
+      // 查找訂單
       const order = await prisma.roomCardOrder.findUnique({
         where: { merchantTradeNo: paymentResult.MerchantTradeNo },
         include: { player: true },
       });
 
       if (order && order.status !== 'PAID') {
-        // 更新玩家房卡數量
-        await prisma.player.update({
-          where: { id: order.playerId },
-          data: {
-            cardCount: {
-              increment: order.cardAmount,
+        // 檢查是否為代理購買
+        const isAgentPurchase = order.raw && typeof order.raw === 'object' && order.raw.isAgentPurchase === true;
+        
+        if (isAgentPurchase) {
+          // 代理購買：更新代理的房卡數量
+          console.log(`[代理購買] 為代理 ${order.playerId} 增加 ${order.cardAmount} 張房卡`);
+          
+          await prisma.player.update({
+            where: { id: order.playerId },
+            data: {
+              cardCount: {
+                increment: order.cardAmount,
+              },
             },
-          },
-        });
+          });
 
-        console.log(`✅ 已為玩家 ${order.playerId} 增加 ${order.cardAmount} 張房卡`);
+          console.log(`✅ 已為代理 ${order.playerId} 增加 ${order.cardAmount} 張房卡`);
+        } else {
+          // 一般玩家購買：更新玩家房卡數量
+          await prisma.player.update({
+            where: { id: order.playerId },
+            data: {
+              cardCount: {
+                increment: order.cardAmount,
+              },
+            },
+          });
+
+          console.log(`✅ 已為玩家 ${order.playerId} 增加 ${order.cardAmount} 張房卡`);
+        }
       }
     } else if (rtnCode === '10100073') {
       // 取號成功但未付款（ATM/超商等）
