@@ -7017,6 +7017,13 @@ app.get('/api/agents/status', async (req, res) => {
 
 // ==================== End Agent Management APIs ====================
 
+
+// ===== 房卡產品路由（使用獨立路由文件）=====
+app.locals.prisma = prisma;
+const roomCardsRoutes = require('./routes/roomCards');
+app.use('/api/room-cards', roomCardsRoutes);
+console.log('[Server] Room cards routes mounted at /api/room-cards');
+
 // 健康檢查端點（Render 需要）
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
