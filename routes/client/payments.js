@@ -144,6 +144,22 @@ router.post('/ecpay/payment-info', async (req, res) => {
         expireDate: data.ExpireDate ? new Date(data.ExpireDate) : null,
       };
 
+      // 先獲取現有訂單以保留原始 raw 中的標記
+      const existingOrder = await prisma.roomCardOrder.findUnique({
+        where: { merchantTradeNo: data.MerchantTradeNo },
+      });
+
+      // 保留原有的 raw 中的標記（如 isAgentPurchase）
+      const existingRaw = existingOrder?.raw || {};
+      const mergedRaw = {
+        ...existingRaw,
+        ...data, // 用新的綠界數據覆蓋，但保留原有標記
+        // 確保保留 isAgentPurchase 標記
+        isAgentPurchase: existingRaw.isAgentPurchase || false,
+        agentId: existingRaw.agentId || null,
+        agentProductId: existingRaw.agentProductId || null,
+      };
+
       // 更新訂單記錄
       const updateResult = await prisma.roomCardOrder.updateMany({
         where: { merchantTradeNo: data.MerchantTradeNo },
@@ -154,7 +170,7 @@ router.post('/ecpay/payment-info', async (req, res) => {
           virtualAccount: paymentInfo.virtualAccount,
           bankCode: paymentInfo.bankCode,
           expireDate: paymentInfo.expireDate,
-          raw: data,
+          raw: mergedRaw,
         },
       });
 
@@ -258,6 +274,22 @@ router.post('/ecpay/notify', async (req, res) => {
       console.log('❌ 付款失敗，更新狀態為 FAILED:', { rtnCode, rtnMsg });
     }
 
+    // 先獲取現有訂單以保留原始 raw 中的標記
+    const existingOrder = await prisma.roomCardOrder.findUnique({
+      where: { merchantTradeNo: paymentResult.MerchantTradeNo },
+    });
+
+    // 保留原有的 raw 中的標記（如 isAgentPurchase）
+    const existingRaw = existingOrder?.raw || {};
+    const mergedRaw = {
+      ...existingRaw,
+      ...paymentResult, // 用新的綠界數據覆蓋，但保留原有標記
+      // 確保保留 isAgentPurchase 標記
+      isAgentPurchase: existingRaw.isAgentPurchase || false,
+      agentId: existingRaw.agentId || null,
+      agentProductId: existingRaw.agentProductId || null,
+    };
+
     // 更新訂單狀態
     await prisma.roomCardOrder.updateMany({
       where: { merchantTradeNo: paymentResult.MerchantTradeNo },
@@ -266,7 +298,7 @@ router.post('/ecpay/notify', async (req, res) => {
         status: newStatus,
         paymentType: paymentResult.PaymentType,
         paidAt: newStatus === 'PAID' ? new Date() : null,
-        raw: paymentResult,
+        raw: mergedRaw,
       },
     });
 
