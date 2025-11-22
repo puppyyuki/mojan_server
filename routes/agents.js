@@ -650,10 +650,19 @@ router.get('/payment-history', async (req, res) => {
 
         console.log('[Agents API] payment-history: Found', allOrders.length, 'total orders for playerId:', agentId);
 
-        // 調試：打印前 3 個訂單的 raw 內容（用於排查）
+        // 調試：打印前 3 個訂單的詳細信息（用於排查）
         if (allOrders.length > 0) {
-            console.log('[Agents API] payment-history: Sample raw data from first order:', 
-                JSON.stringify(allOrders[0].raw, null, 2));
+            console.log('[Agents API] payment-history: Sample order details:');
+            allOrders.slice(0, 3).forEach((order, index) => {
+                console.log(`  Order ${index + 1}:`, {
+                    merchantTradeNo: order.merchantTradeNo,
+                    paymentType: order.paymentType,
+                    productIsActive: order.product?.isActive,
+                    hasRaw: !!order.raw,
+                    rawIsAgentPurchase: order.raw?.isAgentPurchase,
+                    rawAgentId: order.raw?.agentId,
+                });
+            });
         }
 
         // 過濾出代理購買的訂單
@@ -678,8 +687,8 @@ router.get('/payment-history', async (req, res) => {
                 // 備用檢查 1：product.isActive === false（代理購買會創建 isActive: false 的產品）
                 const hasInactiveProduct = order.product && order.product.isActive === false;
                 
-                // 備用檢查 2：paymentType === 'ATM'（代理購買只能使用 ATM）
-                const hasAtmPayment = order.paymentType === 'ATM' || order.paymentType === 'ATM_LAND';
+                // 備用檢查 2：paymentType 以 'ATM' 開頭（代理購買只能使用 ATM，包括 ATM_LAND, ATM_PANHSIN, ATM_CATHAY 等）
+                const hasAtmPayment = order.paymentType && order.paymentType.startsWith('ATM');
                 
                 // 如果訂單有 inactive product 或 ATM 付款，且屬於該代理，很可能是代理購買
                 const likelyAgentPurchase = (hasInactiveProduct || hasAtmPayment) && order.playerId === agentId;
