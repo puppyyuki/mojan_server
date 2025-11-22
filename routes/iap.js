@@ -9,7 +9,7 @@ const prisma = new PrismaClient();
 const PRODUCT_CARD_AMOUNTS = {
     'room_card_20': 20,    // 20 張房卡 - NT$ 100
     'room_card_50': 50,    // 50 張房卡 - NT$ 250
-    'room_card_200': 200,  // 200 張房卡 - NT$ 1000
+    'room_card_200': 200,  // 200 張房卡 - NT$ 990
 };
 
 /**
@@ -141,15 +141,30 @@ router.post('/verify', async (req, res) => {
             });
         }
 
-        // 驗證收據
-        const verificationResult = await iapVerification.verifyPurchase(platform, purchaseData);
+        // 🧪 測試模式：跳過 Apple 收據驗證（設定環境變數 IAP_TEST_MODE=true 啟用）
+        const testMode = process.env.IAP_TEST_MODE === 'true';
+        let verificationResult;
 
-        if (!verificationResult.valid) {
-            return res.status(400).json({
-                success: false,
-                error: '收據驗證失敗',
-                details: verificationResult.error,
-            });
+        if (testMode) {
+            console.log('⚠️ IAP 測試模式：跳過收據驗證');
+            // 測試模式：直接通過驗證
+            verificationResult = {
+                valid: true,
+                productId: productId,
+                transactionId: uniqueId,
+                testMode: true,
+            };
+        } else {
+            // 正式模式：驗證收據
+            verificationResult = await iapVerification.verifyPurchase(platform, purchaseData);
+
+            if (!verificationResult.valid) {
+                return res.status(400).json({
+                    success: false,
+                    error: '收據驗證失敗',
+                    details: verificationResult.error,
+                });
+            }
         }
 
         // 開始交易：發放房卡並記錄購買

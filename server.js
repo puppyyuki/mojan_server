@@ -6189,6 +6189,11 @@ const iapRoutes = require('./routes/iap');
 app.use('/api/iap', iapRoutes);
 console.log('[Server] IAP routes mounted at /api/iap');
 
+// 後台金流管理路由（整合 IAP + 綠界）
+const adminPaymentsRoutes = require('./routes/adminPayments');
+app.use('/api/admin', adminPaymentsRoutes);
+console.log('[Server] Admin payments routes mounted at /api/admin');
+
 // 健康檢查端點（Render 需要）
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() });
