@@ -610,16 +610,32 @@ router.get('/payment-history', async (req, res) => {
         const { prisma } = req.app.locals;
         const { agentId } = req.query;
 
-        // For now, use agentId from query. In production, get from auth session
-        const queryAgentId = agentId || 'agent-placeholder-id';
+        // 驗證 agentId 是否提供
+        if (!agentId) {
+            console.error('[Agents API] payment-history: Missing agentId parameter');
+            return res.status(400).json({
+                success: false,
+                error: '缺少 agentId 參數',
+            });
+        }
 
-        // 查詢代理購買的訂單（使用 RoomCardOrder，過濾 isAgentPurchase: true）
-        // 注意：Prisma 的 JSON 查詢需要使用不同的方法
+        console.log('[Agents API] payment-history: Fetching orders for agentId:', agentId);
+
+        // 查詢所有訂單，然後過濾出代理購買的訂單
+        // 因為 Prisma 的 JSON 查詢限制，我們需要先查詢所有訂單，然後在應用層過濾
         const allOrders = await prisma.roomCardOrder.findMany({
             where: {
-                playerId: queryAgentId,
+                playerId: agentId, // 先過濾 playerId
             },
             include: {
+                player: {
+                    select: {
+                        id: true,
+                        userId: true,
+                        nickname: true,
+                        avatarUrl: true,
+                    },
+                },
                 product: {
                     select: {
                         id: true,
@@ -629,20 +645,28 @@ router.get('/payment-history', async (req, res) => {
                 },
             },
             orderBy: { createdAt: 'desc' },
-            take: 200, // 先取多一點，然後過濾
+            take: 500, // 先取多一點，然後過濾
         });
+
+        console.log('[Agents API] payment-history: Found', allOrders.length, 'total orders for playerId:', agentId);
 
         // 過濾出代理購買的訂單（raw.isAgentPurchase === true）
         const orders = allOrders.filter(order => {
             try {
                 const raw = order.raw;
-                return raw && typeof raw === 'object' && raw.isAgentPurchase === true;
+                const isAgentPurchase = raw && typeof raw === 'object' && raw.isAgentPurchase === true;
+                if (isAgentPurchase) {
+                    console.log('[Agents API] payment-history: Found agent purchase order:', order.merchantTradeNo);
+                }
+                return isAgentPurchase;
             } catch (e) {
+                console.error('[Agents API] payment-history: Error filtering order:', e);
                 return false;
             }
         }).slice(0, 100); // 限制為 100 筆
 
-        setCorsHeaders(res);
+        console.log('[Agents API] payment-history: Filtered to', orders.length, 'agent purchase orders');
+
         res.json({
             success: true,
             data: {
@@ -659,12 +683,22 @@ router.get('/payment-history', async (req, res) => {
                     bankCode: order.bankCode,
                     expireDate: order.expireDate?.toISOString() || null,
                     paidAt: order.paidAt?.toISOString() || null,
+                    player: order.player ? {
+                        id: order.player.id,
+                        userId: order.player.userId,
+                        nickname: order.player.nickname,
+                        avatarUrl: order.player.avatarUrl,
+                    } : null,
+                    product: order.product ? {
+                        id: order.product.id,
+                        cardAmount: order.product.cardAmount,
+                        price: order.product.price,
+                    } : null,
                 })),
             },
         });
     } catch (error) {
         console.error('[Agents API] Error fetching payment history:', error);
-        setCorsHeaders(res);
         res.status(500).json({
             success: false,
             error: 'Failed to fetch payment history',
