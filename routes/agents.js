@@ -657,44 +657,59 @@ router.get('/payment-history', async (req, res) => {
         }
 
         // 過濾出代理購買的訂單
-        // 檢查條件：
+        // 檢查條件（按優先級）：
         // 1. raw.isAgentPurchase === true（主要標記）
-        // 2. 或者 raw.agentId 或 raw.agentProductId 存在（備用判斷，用於修復舊訂單）
+        // 2. raw.agentId 或 raw.agentProductId 存在（備用判斷）
+        // 3. product.isActive === false（代理購買會創建 isActive: false 的產品）
+        // 4. paymentType === 'ATM' 且訂單屬於該代理（代理購買只能使用 ATM）
         const orders = allOrders.filter(order => {
             try {
                 const raw = order.raw;
                 
-                if (!raw || typeof raw !== 'object') {
-                    return false;
+                // 主要檢查：isAgentPurchase 標記
+                let hasIsAgentPurchase = false;
+                let hasAgentMarkers = false;
+                
+                if (raw && typeof raw === 'object') {
+                    hasIsAgentPurchase = raw.isAgentPurchase === true;
+                    hasAgentMarkers = raw.agentId || raw.agentProductId;
                 }
                 
-                // 主要檢查：isAgentPurchase 標記
-                const hasIsAgentPurchase = raw.isAgentPurchase === true;
+                // 備用檢查 1：product.isActive === false（代理購買會創建 isActive: false 的產品）
+                const hasInactiveProduct = order.product && order.product.isActive === false;
                 
-                // 備用檢查：如果有 agentId 或 agentProductId，也認為是代理購買
-                // 這是為了處理之前被覆蓋的訂單
-                const hasAgentMarkers = raw.agentId || raw.agentProductId;
+                // 備用檢查 2：paymentType === 'ATM'（代理購買只能使用 ATM）
+                const hasAtmPayment = order.paymentType === 'ATM' || order.paymentType === 'ATM_LAND';
                 
-                const isAgentPurchase = hasIsAgentPurchase || hasAgentMarkers;
+                // 如果訂單有 inactive product 或 ATM 付款，且屬於該代理，很可能是代理購買
+                const likelyAgentPurchase = (hasInactiveProduct || hasAtmPayment) && order.playerId === agentId;
+                
+                const isAgentPurchase = hasIsAgentPurchase || hasAgentMarkers || likelyAgentPurchase;
                 
                 if (isAgentPurchase) {
                     console.log(`[Agents API] payment-history: Found agent purchase order: ${order.merchantTradeNo}`, {
                         hasIsAgentPurchase,
                         hasAgentMarkers,
-                        agentId: raw.agentId,
-                        agentProductId: raw.agentProductId
+                        hasInactiveProduct,
+                        hasAtmPayment,
+                        likelyAgentPurchase,
+                        agentId: raw?.agentId,
+                        agentProductId: raw?.agentProductId
                     });
                     
-                    // 如果訂單有代理標記但缺少 isAgentPurchase，自動修復
-                    if (hasAgentMarkers && !hasIsAgentPurchase) {
+                    // 如果訂單被識別為代理購買但缺少標記，自動修復
+                    if (!hasIsAgentPurchase) {
                         console.log(`[Agents API] payment-history: Auto-fixing order ${order.merchantTradeNo} - adding isAgentPurchase flag`);
                         // 異步修復訂單（不阻塞響應）
+                        const currentRaw = raw || {};
                         prisma.roomCardOrder.update({
                             where: { id: order.id },
                             data: {
                                 raw: {
-                                    ...raw,
+                                    ...currentRaw,
                                     isAgentPurchase: true,
+                                    agentId: agentId, // 確保 agentId 存在
+                                    agentProductId: currentRaw.agentProductId || null,
                                 },
                             },
                         }).catch(err => {
