@@ -727,14 +727,17 @@ router.get('/payment-history', async (req, res) => {
                     }
                 }
                 
-                return isAgentPurchase;
+                // 只返回有綠界交易編號的訂單（代表已成功取號，失敗的訂單沒有交易編號）
+                const hasEcpayTradeNo = order.ecpayTradeNo && order.ecpayTradeNo.trim() !== '';
+                
+                return isAgentPurchase && hasEcpayTradeNo;
             } catch (e) {
                 console.error('[Agents API] payment-history: Error filtering order:', e);
                 return false;
             }
         }).slice(0, 100); // 限制為 100 筆
 
-        console.log('[Agents API] payment-history: Filtered to', orders.length, 'agent purchase orders');
+        console.log('[Agents API] payment-history: Filtered to', orders.length, 'agent purchase orders with ecpayTradeNo');
 
         res.json({
             success: true,
