@@ -650,14 +650,59 @@ router.get('/payment-history', async (req, res) => {
 
         console.log('[Agents API] payment-history: Found', allOrders.length, 'total orders for playerId:', agentId);
 
-        // 過濾出代理購買的訂單（raw.isAgentPurchase === true）
+        // 調試：打印前 3 個訂單的 raw 內容（用於排查）
+        if (allOrders.length > 0) {
+            console.log('[Agents API] payment-history: Sample raw data from first order:', 
+                JSON.stringify(allOrders[0].raw, null, 2));
+        }
+
+        // 過濾出代理購買的訂單
+        // 檢查條件：
+        // 1. raw.isAgentPurchase === true（主要標記）
+        // 2. 或者 raw.agentId 或 raw.agentProductId 存在（備用判斷，用於修復舊訂單）
         const orders = allOrders.filter(order => {
             try {
                 const raw = order.raw;
-                const isAgentPurchase = raw && typeof raw === 'object' && raw.isAgentPurchase === true;
-                if (isAgentPurchase) {
-                    console.log('[Agents API] payment-history: Found agent purchase order:', order.merchantTradeNo);
+                
+                if (!raw || typeof raw !== 'object') {
+                    return false;
                 }
+                
+                // 主要檢查：isAgentPurchase 標記
+                const hasIsAgentPurchase = raw.isAgentPurchase === true;
+                
+                // 備用檢查：如果有 agentId 或 agentProductId，也認為是代理購買
+                // 這是為了處理之前被覆蓋的訂單
+                const hasAgentMarkers = raw.agentId || raw.agentProductId;
+                
+                const isAgentPurchase = hasIsAgentPurchase || hasAgentMarkers;
+                
+                if (isAgentPurchase) {
+                    console.log(`[Agents API] payment-history: Found agent purchase order: ${order.merchantTradeNo}`, {
+                        hasIsAgentPurchase,
+                        hasAgentMarkers,
+                        agentId: raw.agentId,
+                        agentProductId: raw.agentProductId
+                    });
+                    
+                    // 如果訂單有代理標記但缺少 isAgentPurchase，自動修復
+                    if (hasAgentMarkers && !hasIsAgentPurchase) {
+                        console.log(`[Agents API] payment-history: Auto-fixing order ${order.merchantTradeNo} - adding isAgentPurchase flag`);
+                        // 異步修復訂單（不阻塞響應）
+                        prisma.roomCardOrder.update({
+                            where: { id: order.id },
+                            data: {
+                                raw: {
+                                    ...raw,
+                                    isAgentPurchase: true,
+                                },
+                            },
+                        }).catch(err => {
+                            console.error(`[Agents API] payment-history: Failed to auto-fix order ${order.merchantTradeNo}:`, err);
+                        });
+                    }
+                }
+                
                 return isAgentPurchase;
             } catch (e) {
                 console.error('[Agents API] payment-history: Error filtering order:', e);
