@@ -57,9 +57,44 @@ router.post('/verify', async (req, res) => {
 
         // 驗證必要參數
         if (!platform || !playerId || !productId) {
+            const missingParams = [];
+            if (!platform) missingParams.push('platform');
+            if (!playerId) missingParams.push('playerId');
+            if (!productId) missingParams.push('productId');
+
             return res.status(400).json({
                 success: false,
                 error: '缺少必要參數',
+                missingParams: missingParams,
+            });
+        }
+
+        // 驗證平台參數
+        if (platform !== 'android' && platform !== 'ios') {
+            return res.status(400).json({
+                success: false,
+                error: '無效的平台參數',
+                details: 'platform 必須是 "android" 或 "ios"',
+            });
+        }
+
+        // 驗證平台特定參數
+        if (platform === 'android' && !purchaseToken) {
+            return res.status(400).json({
+                success: false,
+                error: 'Android 平台缺少 purchaseToken',
+            });
+        }
+
+        if (platform === 'ios' && (!receiptData || !transactionId)) {
+            const missing = [];
+            if (!receiptData) missing.push('receiptData');
+            if (!transactionId) missing.push('transactionId');
+
+            return res.status(400).json({
+                success: false,
+                error: 'iOS 平台缺少必要參數',
+                missingParams: missing,
             });
         }
 
@@ -72,6 +107,7 @@ router.post('/verify', async (req, res) => {
             return res.status(404).json({
                 success: false,
                 error: '玩家不存在',
+                playerId: playerId,
             });
         }
 
@@ -81,6 +117,8 @@ router.post('/verify', async (req, res) => {
             return res.status(400).json({
                 success: false,
                 error: '無效的商品 ID',
+                productId: productId,
+                validProductIds: Object.keys(PRODUCT_CARD_AMOUNTS),
             });
         }
 
