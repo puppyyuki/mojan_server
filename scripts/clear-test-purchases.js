@@ -16,12 +16,12 @@ async function clearTestPurchases() {
     try {
         console.log('🔍 開始查找測試購買記錄...\n');
 
-        // 查找最近的購買記錄（最近 24 小時）
+        // 查找最近的購買記錄（最近 7 天）
         const recentPurchases = await prisma.purchase.findMany({
             where: {
                 platform: 'android',
                 createdAt: {
-                    gte: new Date(Date.now() - 24 * 60 * 60 * 1000),
+                    gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
                 },
             },
             orderBy: {
