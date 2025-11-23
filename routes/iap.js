@@ -197,8 +197,16 @@ router.post('/verify', async (req, res) => {
         });
 
         // 消耗購買（Android 需要，iOS 不需要）
+        // 🔧 重要：必須在交易成功後立即消耗，否則商品會被「卡住」
         if (platform === 'android') {
-            await iapVerification.consumePurchase(platform, purchaseData);
+            const consumed = await iapVerification.consumePurchase(platform, purchaseData);
+            if (!consumed) {
+                console.error('⚠️ 警告：商品消耗失敗，但房卡已發放');
+                // 即使消耗失敗，仍然返回成功（因為房卡已經發放）
+                // Google Play 會在一段時間後自動重試消耗
+            } else {
+                console.log('✅ Google Play 商品已消耗');
+            }
         }
 
         console.log(`成功處理內購: 玩家 ${playerId} 購買 ${productId}，發放 ${cardAmount} 張房卡`);
