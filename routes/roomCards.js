@@ -16,12 +16,28 @@ router.get('/products', async (req, res) => {
     try {
         const { prisma } = req.app.locals;
 
+        // 🔍 詳細診斷：檢查資料庫狀態
+        const allProducts = await prisma.roomCardProduct.findMany({
+            orderBy: { cardAmount: 'asc' },
+        });
+        console.log('[Room Cards API] 資料庫中總商品數（包含停用）:', allProducts.length);
+        
+        if (allProducts.length === 0) {
+            console.log('[Room Cards API] ⚠️ 警告：資料庫中沒有任何 RoomCardProduct 記錄！');
+            console.log('[Room Cards API] 💡 請執行腳本建立商品：node scripts/create-room-card-products.js');
+        } else {
+            console.log('[Room Cards API] 商品詳情：');
+            allProducts.forEach(p => {
+                console.log(`   - ${p.cardAmount} 張房卡, NT$ ${p.price}, isActive: ${p.isActive}`);
+            });
+        }
+
         const products = await prisma.roomCardProduct.findMany({
             where: { isActive: true },
             orderBy: { cardAmount: 'asc' },
         });
 
-        console.log('[Room Cards API] Found products:', products.length);
+        console.log('[Room Cards API] 啟用的商品數:', products.length);
 
         // 為每個商品添加 productCode（用於 IAP 商品 ID）
         // 格式：room_card_{cardAmount}（小寫，符合 App Store Connect 要求）
