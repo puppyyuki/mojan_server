@@ -40,6 +40,8 @@ services:
         sync: false
       - key: CORS_ORIGIN
         value: https://mojan-app.onrender.com
+      - key: NODE_OPTIONS
+        value: --openssl-legacy-provider
     healthCheckPath: /health
 
 databases:
