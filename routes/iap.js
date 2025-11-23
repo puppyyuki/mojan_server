@@ -141,12 +141,23 @@ router.post('/verify', async (req, res) => {
             });
         }
 
-        // 🧪 測試模式：跳過 Apple 收據驗證（設定環境變數 IAP_TEST_MODE=true 啟用）
+        // 🧪 測試模式：跳過 Apple 收據驗證（僅在開發環境使用）
+        // ⚠️ 警告：生產環境必須關閉測試模式以確保安全性
         const testMode = process.env.IAP_TEST_MODE === 'true';
+        const isProduction = process.env.NODE_ENV === 'production';
+        
+        if (testMode && isProduction) {
+            console.error('❌ 錯誤：生產環境不應啟用 IAP_TEST_MODE！');
+            return res.status(500).json({
+                success: false,
+                error: '伺服器配置錯誤：生產環境不應啟用測試模式',
+            });
+        }
+
         let verificationResult;
 
         if (testMode) {
-            console.log('⚠️ IAP 測試模式：跳過收據驗證');
+            console.log('⚠️ IAP 測試模式：跳過收據驗證（僅用於開發測試）');
             // 測試模式：直接通過驗證
             verificationResult = {
                 valid: true,
@@ -156,15 +167,43 @@ router.post('/verify', async (req, res) => {
             };
         } else {
             // 正式模式：驗證收據
+            console.log(`🔍 開始驗證 ${platform.toUpperCase()} 購買收據...`);
             verificationResult = await iapVerification.verifyPurchase(platform, purchaseData);
 
             if (!verificationResult.valid) {
+                console.error(`❌ 收據驗證失敗: ${verificationResult.error}`);
                 return res.status(400).json({
                     success: false,
                     error: '收據驗證失敗',
                     details: verificationResult.error,
+                    status: verificationResult.status,
                 });
             }
+
+            // 🔒 驗證 productId 是否匹配（防止收據偽造）
+            if (verificationResult.productId && verificationResult.productId !== productId) {
+                console.error(`❌ 商品 ID 不匹配：請求 ${productId}，收據中 ${verificationResult.productId}`);
+                return res.status(400).json({
+                    success: false,
+                    error: '商品 ID 不匹配',
+                    details: `請求的商品 ID (${productId}) 與收據中的商品 ID (${verificationResult.productId}) 不一致`,
+                });
+            }
+
+            // 🔒 iOS：驗證 transactionId 是否匹配（防止重複使用收據）
+            if (platform === 'ios' && verificationResult.transactionId) {
+                if (verificationResult.transactionId !== transactionId) {
+                    console.error(`❌ Transaction ID 不匹配：請求 ${transactionId}，收據中 ${verificationResult.transactionId}`);
+                    return res.status(400).json({
+                        success: false,
+                        error: 'Transaction ID 不匹配',
+                        details: `請求的 Transaction ID (${transactionId}) 與收據中的 Transaction ID (${verificationResult.transactionId}) 不一致`,
+                    });
+                }
+                console.log(`✅ Transaction ID 驗證通過: ${transactionId}`);
+            }
+
+            console.log(`✅ 收據驗證成功：商品 ${verificationResult.productId || productId}`);
         }
 
         // 開始交易：發放房卡並記錄購買
