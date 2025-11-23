@@ -8,7 +8,7 @@
  */
 
 const { PrismaClient } = require('@prisma/client');
-const IAPVerification = require('../lib/iap_verification');
+const iapVerification = require('../lib/iap_verification'); // 直接使用實例
 
 const prisma = new PrismaClient();
 
@@ -38,8 +38,6 @@ async function clearTestPurchases() {
         }
 
         console.log(`📦 找到 ${recentPurchases.length} 筆最近的購買記錄：\n`);
-
-        const iapVerification = new IAPVerification();
 
         for (const purchase of recentPurchases) {
             console.log(`\n處理購買記錄：`);
