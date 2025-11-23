@@ -23,11 +23,18 @@ router.get('/products', async (req, res) => {
 
         console.log('[Room Cards API] Found products:', products.length);
 
+        // 為每個商品添加 productCode（用於 IAP 商品 ID）
+        // 格式：room_card_{cardAmount}
+        const productsWithCode = products.map(product => ({
+            ...product,
+            productCode: `room_card_${product.cardAmount}`,
+        }));
+
         setCorsHeaders(res);
         res.status(200).json({
             success: true,
             data: {
-                products: products,
+                products: productsWithCode,
             },
         });
     } catch (error) {
