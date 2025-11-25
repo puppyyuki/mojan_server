@@ -151,14 +151,16 @@ router.post('/verify', async (req, res) => {
         }
 
         // 🧪 測試模式：跳過收據驗證（用於開發測試）
-        // ⚠️ 注意：生產環境中也可以使用測試模式（例如使用 Google Play 測試帳號）
-        // 但建議在正式上線後關閉測試模式以確保安全性
+        // ⚠️ 重要：生產環境中應該關閉測試模式，使用真實驗證
+        // 如果 IAP_TEST_MODE 未設定或為 'false'，則使用真實驗證
         const testMode = process.env.IAP_TEST_MODE === 'true';
         const isProduction = process.env.NODE_ENV === 'production';
         
+        // 在生產環境中，如果啟用了測試模式，記錄警告但不拒絕（允許 Google Play 測試購買）
+        // 但建議在 Render.com 環境變數中將 IAP_TEST_MODE 設為 'false' 或刪除該變數
         if (testMode && isProduction) {
             console.warn('⚠️ 警告：生產環境中啟用了 IAP_TEST_MODE（僅用於測試）');
-            // 不再直接拒絕，允許在生產環境中使用測試模式（例如 Google Play 測試購買）
+            console.warn('   建議在 Render.com 環境變數中將 IAP_TEST_MODE 設為 "false" 或刪除該變數');
         }
 
         let verificationResult;
