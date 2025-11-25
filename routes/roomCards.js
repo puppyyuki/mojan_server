@@ -40,11 +40,24 @@ router.get('/products', async (req, res) => {
         console.log('[Room Cards API] 啟用的商品數:', products.length);
 
         // 為每個商品添加 productCode（用於 IAP 商品 ID）
-        // 格式：room_card_{cardAmount}（小寫，符合 App Store Connect 要求）
-        const productsWithCode = products.map(product => ({
-            ...product,
-            productCode: `room_card_${product.cardAmount}`.toLowerCase(),
-        }));
+        // 注意：這是 Purchase Option ID，不是 Product ID
+        // Google Play Console 中：
+        // - Product ID: room_card_20_v2
+        // - Purchase Option ID: room-card-20-buy (使用連字號，符合 Google Play 要求)
+        const productsWithCode = products.map(product => {
+            let productCode;
+            if (product.cardAmount === 20) {
+                // 20 張房卡使用新的 Purchase Option ID
+                productCode = 'room-card-20-buy';
+            } else {
+                // 其他商品使用連字號格式
+                productCode = `room-card-${product.cardAmount}-buy`.toLowerCase();
+            }
+            return {
+                ...product,
+                productCode: productCode,
+            };
+        });
         
         console.log('[Room Cards API] Products with productCode:', productsWithCode.map(p => ({
             id: p.id,

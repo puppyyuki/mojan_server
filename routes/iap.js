@@ -5,11 +5,15 @@ const iapVerification = require('../lib/iap_verification');
 
 const prisma = new PrismaClient();
 
-// 商品 ID 對應的房卡數量（必須與前端和 Google Play/App Store 一致）
+// Purchase Option ID 對應的房卡數量（必須與前端和 Google Play/App Store 一致）
+// 注意：這是 Purchase Option ID，不是 Product ID
+// Google Play Console 中：
+// - Product ID: room_card_20_v2
+// - Purchase Option ID: room-card-20-buy
 const PRODUCT_CARD_AMOUNTS = {
-    'room_card_20': 20,    // 20 張房卡 - NT$ 100
-    'room_card_50': 50,    // 50 張房卡 - NT$ 250
-    'room_card_200': 200,  // 200 張房卡 - NT$ 990
+    'room-card-20-buy': 20,    // 20 張房卡 - Purchase Option ID
+    'room-card-50-buy': 50,    // 50 張房卡 - Purchase Option ID
+    'room-card-200-buy': 200,  // 200 張房卡 - Purchase Option ID
 };
 
 /**
