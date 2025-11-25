@@ -45,22 +45,25 @@ router.get('/products', async (req, res) => {
         // - Purchase Option ID: room-card-20-buy (定義「如何購買這個商品」，包含價格、地區等)
         // - Offer: 可選的折扣或預購優惠
         // 
+        // 重要：根據測試，Google Play Billing Library 支援使用 Product ID 查詢（向後兼容）
+        // 之前 room_card_50 可以查到，表示可以使用 Product ID 查詢
+        // 
         // 在應用程式中：
-        // - 使用 Product ID 來識別商品（用於顯示、統計等）
-        // - 使用 Purchase Option ID 來查詢和購買商品（Google Play Billing Library 需要）
+        // - 優先使用 Product ID 來查詢和購買（因為可以查到）
+        // - Purchase Option ID 作為備用選項
         const productsWithCode = products.map(product => {
-            let productId;  // Product ID (用於識別商品)
-            let productCode; // Purchase Option ID (用於查詢和購買)
+            let productId;  // Product ID (用於查詢和識別商品)
+            let productCode; // Purchase Option ID (備用，用於新模型)
             
             if (product.cardAmount === 20) {
-                productId = 'room_card_20_v2';
-                productCode = 'room-card-20-buy';
+                productId = 'room_card_20_v2';      // Product ID（優先使用）
+                productCode = 'room-card-20-buy';   // Purchase Option ID（備用）
             } else if (product.cardAmount === 50) {
-                productId = 'room_card_50_v2';
-                productCode = 'room-card-50-buy';
+                productId = 'room_card_50_v2';      // Product ID（優先使用）
+                productCode = 'room-card-50-buy';   // Purchase Option ID（備用）
             } else if (product.cardAmount === 200) {
-                productId = 'room_card_200_v2';
-                productCode = 'room-card-200-buy';
+                productId = 'room_card_200_v2';     // Product ID（優先使用）
+                productCode = 'room-card-200-buy';  // Purchase Option ID（備用）
             } else {
                 // 其他商品使用預設格式
                 productId = `room_card_${product.cardAmount}_v2`.toLowerCase();
@@ -69,8 +72,8 @@ router.get('/products', async (req, res) => {
             
             return {
                 ...product,
-                productId: productId,      // Product ID (用於識別)
-                productCode: productCode,  // Purchase Option ID (用於查詢和購買)
+                productId: productId,      // Product ID (用於查詢和識別，優先使用)
+                productCode: productCode,  // Purchase Option ID (備用)
             };
         });
         

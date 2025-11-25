@@ -5,15 +5,20 @@ const iapVerification = require('../lib/iap_verification');
 
 const prisma = new PrismaClient();
 
-// Purchase Option ID 對應的房卡數量（必須與前端和 Google Play/App Store 一致）
-// 注意：這是 Purchase Option ID，不是 Product ID
+// Product ID 對應的房卡數量（必須與前端和 Google Play/App Store 一致）
+// 重要：根據測試，Google Play Billing Library 支援使用 Product ID 查詢（向後兼容）
+// 之前 room_card_50 可以查到，表示可以使用 Product ID 查詢
 // Google Play Console 中：
-// - Product ID: room_card_20_v2
-// - Purchase Option ID: room-card-20-buy
+// - Product ID: room_card_20_v2 (用於查詢和購買)
+// - Purchase Option ID: room-card-20-buy (備用)
 const PRODUCT_CARD_AMOUNTS = {
-    'room-card-20-buy': 20,    // 20 張房卡 - Purchase Option ID
-    'room-card-50-buy': 50,    // 50 張房卡 - Purchase Option ID
-    'room-card-200-buy': 200,  // 200 張房卡 - Purchase Option ID
+    'room_card_20_v2': 20,    // 20 張房卡 - Product ID（優先使用）
+    'room_card_50_v2': 50,    // 50 張房卡 - Product ID（優先使用）
+    'room_card_200_v2': 200,  // 200 張房卡 - Product ID（優先使用）
+    // 備用：Purchase Option ID（如果 Product ID 查不到）
+    'room-card-20-buy': 20,
+    'room-card-50-buy': 50,
+    'room-card-200-buy': 200,
 };
 
 /**
