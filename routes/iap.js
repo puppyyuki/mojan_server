@@ -150,17 +150,15 @@ router.post('/verify', async (req, res) => {
             });
         }
 
-        // 🧪 測試模式：跳過 Apple 收據驗證（僅在開發環境使用）
-        // ⚠️ 警告：生產環境必須關閉測試模式以確保安全性
+        // 🧪 測試模式：跳過收據驗證（用於開發測試）
+        // ⚠️ 注意：生產環境中也可以使用測試模式（例如使用 Google Play 測試帳號）
+        // 但建議在正式上線後關閉測試模式以確保安全性
         const testMode = process.env.IAP_TEST_MODE === 'true';
         const isProduction = process.env.NODE_ENV === 'production';
         
         if (testMode && isProduction) {
-            console.error('❌ 錯誤：生產環境不應啟用 IAP_TEST_MODE！');
-            return res.status(500).json({
-                success: false,
-                error: '伺服器配置錯誤：生產環境不應啟用測試模式',
-            });
+            console.warn('⚠️ 警告：生產環境中啟用了 IAP_TEST_MODE（僅用於測試）');
+            // 不再直接拒絕，允許在生產環境中使用測試模式（例如 Google Play 測試購買）
         }
 
         let verificationResult;
