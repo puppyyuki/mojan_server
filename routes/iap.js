@@ -277,6 +277,73 @@ router.post('/verify', async (req, res) => {
 });
 
 /**
+ * 只消耗購買（不發放房卡）
+ * 用於處理已完成的購買但未消耗的情況
+ * POST /api/iap/consume
+ * 
+ * Body:
+ * {
+ *   platform: 'android' | 'ios',
+ *   productId: string,
+ *   purchaseToken: string (Android)
+ * }
+ */
+router.post('/consume', async (req, res) => {
+    try {
+        const { platform, productId, purchaseToken } = req.body;
+
+        // 驗證必要參數
+        if (!platform || !productId) {
+            return res.status(400).json({
+                success: false,
+                error: '缺少必要參數',
+            });
+        }
+
+        if (platform === 'android' && !purchaseToken) {
+            return res.status(400).json({
+                success: false,
+                error: 'Android 平台缺少 purchaseToken',
+            });
+        }
+
+        // 只消耗購買，不發放房卡
+        if (platform === 'android') {
+            const purchaseData = {
+                productId: productId,
+                purchaseToken: purchaseToken,
+            };
+            
+            const consumed = await iapVerification.consumePurchase(platform, purchaseData);
+            if (!consumed) {
+                return res.status(400).json({
+                    success: false,
+                    error: '消耗購買失敗',
+                });
+            }
+
+            console.log(`✅ 已消耗購買: ${productId}（不發放房卡）`);
+            res.json({
+                success: true,
+                message: '購買已消耗',
+            });
+        } else {
+            // iOS 不需要消耗
+            res.json({
+                success: true,
+                message: 'iOS 不需要消耗購買',
+            });
+        }
+    } catch (error) {
+        console.error('消耗購買失敗:', error);
+        res.status(500).json({
+            success: false,
+            error: error.message || '消耗購買失敗',
+        });
+    }
+});
+
+/**
  * 獲取玩家的購買記錄
  * GET /api/iap/purchases/:playerId
  */
