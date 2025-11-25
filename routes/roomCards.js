@@ -39,30 +39,46 @@ router.get('/products', async (req, res) => {
 
         console.log('[Room Cards API] 啟用的商品數:', products.length);
 
-        // 為每個商品添加 productCode（用於 IAP 商品 ID）
-        // 注意：這是 Purchase Option ID，不是 Product ID
-        // Google Play Console 中：
-        // - Product ID: room_card_20_v2
-        // - Purchase Option ID: room-card-20-buy (使用連字號，符合 Google Play 要求)
+        // 為每個商品添加 productId（Product ID）和 productCode（Purchase Option ID）
+        // Google Play Console 三層結構：
+        // - Product ID: room_card_20_v2 (定義「這是什麼商品」)
+        // - Purchase Option ID: room-card-20-buy (定義「如何購買這個商品」，包含價格、地區等)
+        // - Offer: 可選的折扣或預購優惠
+        // 
+        // 在應用程式中：
+        // - 使用 Product ID 來識別商品（用於顯示、統計等）
+        // - 使用 Purchase Option ID 來查詢和購買商品（Google Play Billing Library 需要）
         const productsWithCode = products.map(product => {
-            let productCode;
+            let productId;  // Product ID (用於識別商品)
+            let productCode; // Purchase Option ID (用於查詢和購買)
+            
             if (product.cardAmount === 20) {
-                // 20 張房卡使用新的 Purchase Option ID
+                productId = 'room_card_20_v2';
                 productCode = 'room-card-20-buy';
+            } else if (product.cardAmount === 50) {
+                productId = 'room_card_50_v2';
+                productCode = 'room-card-50-buy';
+            } else if (product.cardAmount === 200) {
+                productId = 'room_card_200_v2';
+                productCode = 'room-card-200-buy';
             } else {
-                // 其他商品使用連字號格式
+                // 其他商品使用預設格式
+                productId = `room_card_${product.cardAmount}_v2`.toLowerCase();
                 productCode = `room-card-${product.cardAmount}-buy`.toLowerCase();
             }
+            
             return {
                 ...product,
-                productCode: productCode,
+                productId: productId,      // Product ID (用於識別)
+                productCode: productCode,  // Purchase Option ID (用於查詢和購買)
             };
         });
         
-        console.log('[Room Cards API] Products with productCode:', productsWithCode.map(p => ({
+        console.log('[Room Cards API] Products with IDs:', productsWithCode.map(p => ({
             id: p.id,
             cardAmount: p.cardAmount,
-            productCode: p.productCode
+            productId: p.productId,      // Product ID (用於識別)
+            productCode: p.productCode  // Purchase Option ID (用於查詢和購買)
         })));
 
         setCorsHeaders(res);
