@@ -45,35 +45,50 @@ router.get('/products', async (req, res) => {
         // - Purchase Option ID: room-card-20-buy (定義「如何購買這個商品」，包含價格、地區等)
         // - Offer: 可選的折扣或預購優惠
         // 
+        // App Store Connect：
+        // - Product ID: room_card_20, room_card_50, room_card_200 (用於查詢和購買)
+        // 
         // 重要：根據測試，Google Play Billing Library 支援使用 Product ID 查詢（向後兼容）
         // 之前 room_card_50 可以查到，表示可以使用 Product ID 查詢
         // 
         // 在應用程式中：
-        // - 優先使用 Product ID 來查詢和購買（因為可以查到）
-        // - Purchase Option ID 作為備用選項
+        // - Android: 優先使用 Product ID (room_card_20_v2) 來查詢和購買
+        // - iOS: 使用 Product ID (room_card_20) 來查詢和購買
+        // - Purchase Option ID 作為 Android 的備用選項
         const productsWithCode = products.map(product => {
-            let productId;  // Product ID (用於查詢和識別商品)
-            let productCode; // Purchase Option ID (備用，用於新模型)
+            // Android (Google Play) - Product ID 和 Purchase Option ID
+            let androidProductId;      // Product ID (用於查詢和識別商品)
+            let androidProductCode;    // Purchase Option ID (備用)
+            
+            // iOS (App Store) - Product ID
+            let iosProductId;          // Product ID (用於查詢和購買)
             
             if (product.cardAmount === 20) {
-                productId = 'room_card_20_v2';      // Product ID（優先使用）
-                productCode = 'room-card-20-buy';   // Purchase Option ID（備用）
+                androidProductId = 'room_card_20_v2';      // Android Product ID（優先使用）
+                androidProductCode = 'room-card-20-buy';   // Android Purchase Option ID（備用）
+                iosProductId = 'room_card_20';             // iOS Product ID
             } else if (product.cardAmount === 50) {
-                productId = 'room_card_50_v2';      // Product ID（優先使用）
-                productCode = 'room-card-50-buy';   // Purchase Option ID（備用）
+                androidProductId = 'room_card_50_v2';      // Android Product ID（優先使用）
+                androidProductCode = 'room-card-50-buy';   // Android Purchase Option ID（備用）
+                iosProductId = 'room_card_50';             // iOS Product ID
             } else if (product.cardAmount === 200) {
-                productId = 'room_card_200_v2';     // Product ID（優先使用）
-                productCode = 'room-card-200-buy';  // Purchase Option ID（備用）
+                androidProductId = 'room_card_200_v2';     // Android Product ID（優先使用）
+                androidProductCode = 'room-card-200-buy';  // Android Purchase Option ID（備用）
+                iosProductId = 'room_card_200';            // iOS Product ID
             } else {
                 // 其他商品使用預設格式
-                productId = `room_card_${product.cardAmount}_v2`.toLowerCase();
-                productCode = `room-card-${product.cardAmount}-buy`.toLowerCase();
+                androidProductId = `room_card_${product.cardAmount}_v2`.toLowerCase();
+                androidProductCode = `room-card-${product.cardAmount}-buy`.toLowerCase();
+                iosProductId = `room_card_${product.cardAmount}`.toLowerCase();
             }
             
             return {
                 ...product,
-                productId: productId,      // Product ID (用於查詢和識別，優先使用)
-                productCode: productCode,  // Purchase Option ID (備用)
+                // Android 產品 ID（用於查詢和識別，優先使用）
+                productId: androidProductId,      // Android Product ID (用於查詢和識別，優先使用)
+                productCode: androidProductCode, // Android Purchase Option ID (備用)
+                // iOS 產品 ID（用於查詢和購買）
+                iosProductId: iosProductId,      // iOS Product ID
             };
         });
         
