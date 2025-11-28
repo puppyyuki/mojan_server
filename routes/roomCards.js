@@ -95,8 +95,9 @@ router.get('/products', async (req, res) => {
         console.log('[Room Cards API] Products with IDs:', productsWithCode.map(p => ({
             id: p.id,
             cardAmount: p.cardAmount,
-            productId: p.productId,      // Product ID (用於識別)
-            productCode: p.productCode  // Purchase Option ID (用於查詢和購買)
+            productId: p.productId,      // Android Product ID (用於識別)
+            productCode: p.productCode, // Android Purchase Option ID (備用)
+            iosProductId: p.iosProductId // iOS Product ID (用於查詢和購買)
         })));
 
         setCorsHeaders(res);
