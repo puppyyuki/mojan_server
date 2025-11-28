@@ -66,7 +66,7 @@ router.get('/products', async (req, res) => {
             if (product.cardAmount === 20) {
                 androidProductId = 'room_card_20_v2';      // Android Product ID（優先使用）
                 androidProductCode = 'room-card-20-buy';   // Android Purchase Option ID（備用）
-                iosProductId = 'room_card_20';             // iOS Product ID
+                iosProductId = 'room_card_20_v2';         // iOS Product ID
             } else if (product.cardAmount === 50) {
                 androidProductId = 'room_card_50_v2';      // Android Product ID（優先使用）
                 androidProductCode = 'room-card-50-buy';   // Android Purchase Option ID（備用）
