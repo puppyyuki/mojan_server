@@ -12,20 +12,16 @@ const prisma = new PrismaClient();
 // - Product ID: room_card_20_v2 (用於查詢和購買)
 // - Purchase Option ID: room-card-20-buy (備用)
 // App Store Connect 中：
-// - Product ID: room_card_20_v2 (20 張房卡), room_card_50 (50 張房卡), room_card_200 (200 張房卡) (用於查詢和購買)
+// - Product ID: room_card_20_v2, room_card_50_v2, room_card_200_v2 (所有平台統一使用 _v2)
 const PRODUCT_CARD_AMOUNTS = {
-    // Android (Google Play) - Product ID（優先使用）
-    'room_card_20_v2': 20,    // 20 張房卡 - Product ID（優先使用）
-    'room_card_50_v2': 50,    // 50 張房卡 - Product ID（優先使用）
-    'room_card_200_v2': 200,  // 200 張房卡 - Product ID（優先使用）
+    // 所有平台統一使用 _v2 結尾的 Product ID
+    'room_card_20_v2': 20,    // 20 張房卡 - iOS/Android Product ID
+    'room_card_50_v2': 50,    // 50 張房卡 - iOS/Android Product ID
+    'room_card_200_v2': 200,  // 200 張房卡 - iOS/Android Product ID
     // Android (Google Play) - Purchase Option ID（備用）
     'room-card-20-buy': 20,
     'room-card-50-buy': 50,
     'room-card-200-buy': 200,
-    // iOS (App Store) - Product ID
-    'room_card_20_v2': 20,    // 20 張房卡 - iOS Product ID
-    'room_card_50': 50,       // 50 張房卡 - iOS Product ID
-    'room_card_200': 200,     // 200 張房卡 - iOS Product ID
 };
 
 /**

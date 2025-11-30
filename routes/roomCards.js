@@ -70,11 +70,11 @@ router.get('/products', async (req, res) => {
             } else if (product.cardAmount === 50) {
                 androidProductId = 'room_card_50_v2';      // Android Product ID（優先使用）
                 androidProductCode = 'room-card-50-buy';   // Android Purchase Option ID（備用）
-                iosProductId = 'room_card_50';             // iOS Product ID
+                iosProductId = 'room_card_50_v2';         // iOS Product ID（已統一為 _v2）
             } else if (product.cardAmount === 200) {
                 androidProductId = 'room_card_200_v2';     // Android Product ID（優先使用）
                 androidProductCode = 'room-card-200-buy';  // Android Purchase Option ID（備用）
-                iosProductId = 'room_card_200';            // iOS Product ID
+                iosProductId = 'room_card_200_v2';         // iOS Product ID（已統一為 _v2）
             } else {
                 // 其他商品使用預設格式
                 androidProductId = `room_card_${product.cardAmount}_v2`.toLowerCase();
