@@ -98,16 +98,37 @@ router.post('/verify', async (req, res) => {
             });
         }
 
-        if (platform === 'ios' && (!receiptData || !transactionId)) {
-            const missing = [];
-            if (!receiptData) missing.push('receiptData');
-            if (!transactionId) missing.push('transactionId');
+        // iOS 驗證：新的 App Store Server API 只需要 transactionId
+        // 舊的 Receipt Validation API 需要 receiptData
+        // 如果設定了新的 API 金鑰，只需要 transactionId；否則需要 receiptData
+        if (platform === 'ios') {
+            const useNewAPI = !!(process.env.APP_STORE_CONNECT_ISSUER_ID && 
+                                 process.env.APP_STORE_CONNECT_KEY_ID && 
+                                 process.env.APP_STORE_CONNECT_PRIVATE_KEY);
+            
+            if (useNewAPI) {
+                // 新 API：只需要 transactionId
+                if (!transactionId) {
+                    return res.status(400).json({
+                        success: false,
+                        error: 'iOS 平台缺少必要參數（使用 App Store Server API）',
+                        missingParams: ['transactionId'],
+                    });
+                }
+            } else {
+                // 舊 API：需要 receiptData 和 transactionId
+                if (!receiptData || !transactionId) {
+                    const missing = [];
+                    if (!receiptData) missing.push('receiptData');
+                    if (!transactionId) missing.push('transactionId');
 
-            return res.status(400).json({
-                success: false,
-                error: 'iOS 平台缺少必要參數',
-                missingParams: missing,
-            });
+                    return res.status(400).json({
+                        success: false,
+                        error: 'iOS 平台缺少必要參數（使用舊的 Receipt Validation API）',
+                        missingParams: missing,
+                    });
+                }
+            }
         }
 
         // 檢查玩家是否存在
