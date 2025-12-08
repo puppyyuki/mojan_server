@@ -158,7 +158,8 @@ router.post('/verify', async (req, res) => {
         // 準備購買資料
         const purchaseData = platform === 'android'
             ? { productId, purchaseToken }
-            : { receiptData };
+            // iOS 需要 transactionId（新 API）以及 receiptData（舊 API 備用）
+            : { transactionId, receiptData };
 
         // 檢查是否已處理過此購買（防止重複發放）
         const uniqueId = platform === 'android' ? purchaseToken : transactionId;
