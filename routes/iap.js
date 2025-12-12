@@ -22,6 +22,22 @@ const PRODUCT_CARD_AMOUNTS = {
     'room-card-20-buy': 20,
     'room-card-50-buy': 50,
     'room-card-200-buy': 200,
+    // iOS 舊版商品 ID 別名
+    'room_card_20': 20,
+    'room_card_50': 50,
+    'room_card_200': 200,
+};
+
+const PRODUCT_ALIAS_CANONICAL = {
+    'room_card_20': 'room_card_20_v2',
+    'room_card_50': 'room_card_50_v2',
+    'room_card_200': 'room_card_200_v2',
+    'room_card_20_v2': 'room_card_20_v2',
+    'room_card_50_v2': 'room_card_50_v2',
+    'room_card_200_v2': 'room_card_200_v2',
+    'room-card-20-buy': 'room_card_20_v2',
+    'room-card-50-buy': 'room_card_50_v2',
+    'room-card-200-buy': 'room_card_200_v2',
 };
 
 /**
@@ -215,13 +231,17 @@ router.post('/verify', async (req, res) => {
             }
 
             // 🔒 驗證 productId 是否匹配（防止收據偽造）
-            if (verificationResult.productId && verificationResult.productId !== productId) {
-                console.error(`❌ 商品 ID 不匹配：請求 ${productId}，收據中 ${verificationResult.productId}`);
-                return res.status(400).json({
-                    success: false,
-                    error: '商品 ID 不匹配',
-                    details: `請求的商品 ID (${productId}) 與收據中的商品 ID (${verificationResult.productId}) 不一致`,
-                });
+        if (verificationResult.productId) {
+                const requestedCanonical = PRODUCT_ALIAS_CANONICAL[productId] || productId;
+                const verifiedCanonical = PRODUCT_ALIAS_CANONICAL[verificationResult.productId] || verificationResult.productId;
+                if (requestedCanonical !== verifiedCanonical) {
+                    console.error(`❌ 商品 ID 不匹配：請求 ${productId}，收據中 ${verificationResult.productId}`);
+                    return res.status(400).json({
+                        success: false,
+                        error: '商品 ID 不匹配',
+                        details: `請求的商品 ID (${productId}) 與收據中的商品 ID (${verificationResult.productId}) 不一致`,
+                    });
+                }
             }
 
             // 🔒 iOS：驗證 transactionId 是否匹配（防止重複使用收據）
