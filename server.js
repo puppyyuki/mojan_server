@@ -3692,11 +3692,19 @@ async function updateRoomCurrentPlayers(roomId, currentPlayers) {
     });
 
     if (room) {
-      await prisma.room.update({
-        where: { roomId: roomId },
-        data: { currentPlayers: currentPlayers },
-      });
-      console.log(`已更新房間 ${roomId} 的 currentPlayers 為 ${currentPlayers}`);
+      try {
+        await prisma.room.update({
+          where: { roomId: roomId },
+          data: { currentPlayers: currentPlayers },
+        });
+        console.log(`已更新房間 ${roomId} 的 currentPlayers 為 ${currentPlayers}`);
+      } catch (err) {
+        if (err && err.code === 'P2025') {
+          console.warn(`房間 ${roomId} 在更新時已不存在，忽略 P2025`);
+        } else {
+          throw err;
+        }
+      }
     }
   } catch (error) {
     console.error(`更新房間 ${roomId} 的 currentPlayers 失敗:`, error);
@@ -4506,6 +4514,10 @@ const clubsRoutes = require('./routes/client/clubs');
 app.use('/api/client/clubs', clubsRoutes);
 console.log('[Server] Client clubs routes mounted at /api/client/clubs');
 
+const roomsRoutes = require('./routes/client/rooms');
+app.use('/api/client/rooms', roomsRoutes);
+console.log('[Server] Client rooms routes mounted at /api/client/rooms');
+
 const announcementsRoutes = require('./routes/client/announcements');
 app.use('/api/client/announcements', announcementsRoutes);
 console.log('[Server] Client announcements routes mounted at /api/client/announcements');
@@ -4524,6 +4536,7 @@ console.log('[Server] Admin room card orders routes mounted at /api/admin');
 app.use('/api/players', playersRoutes);
 app.use('/api/clubs', clubsRoutes);
 app.use('/api/announcements', announcementsRoutes);
+app.use('/api/rooms', roomsRoutes);
 
 // 特殊路由：/api/players/:playerId/clubs
 // 這個路由在 clubs.js 中定義為 /players/:playerId/clubs
