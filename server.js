@@ -117,14 +117,14 @@ function startGameCountdown(tableId) {
 
       // 延遲1秒後開始遊戲
       setTimeout(() => {
-        startGame(tableId);
+        startGame(tableId).catch(err => console.error('開始遊戲失敗:', err));
       }, 1000);
     }
   }, 1000);
 }
 
 // 開始遊戲
-function startGame(tableId) {
+async function startGame(tableId) {
   const table = tables[tableId];
   if (!table || table.players.length !== 4 || table.started) return;
 
@@ -139,10 +139,49 @@ function startGame(tableId) {
   table.dealerIndex = selectRandomDealer();
   table.windStart = table.dealerIndex;
   table.turn = table.dealerIndex;
+  
+  console.log(`>>> [遊戲開始] 隨機選擇莊家：玩家${table.dealerIndex + 1}`);
+  
+  // 初始化圈數和分數
+  table.round = 1;
+  table.roundHistory = [];
+  
+  // 確保 maxRounds 正確設置（從房間設定讀取）
+  if (!table.maxRounds || table.maxRounds < 1) {
+    try {
+      const roomRecord = await prisma.room.findUnique({
+        where: { roomId: tableId },
+        select: { gameSettings: true }
+      });
+      table.maxRounds = roomRecord?.gameSettings?.rounds || 1;
+      console.log(`>>> [遊戲開始] 從資料庫讀取圈數設定: ${table.maxRounds} 圈`);
+    } catch (err) {
+      console.error(`>>> [遊戲開始] 查詢房間設定失敗: ${err.message}`);
+      table.maxRounds = table.maxRounds || 1;
+    }
+  }
+  
+  // 確保所有玩家分數為 0，並初始化統計資料
+  table.players.forEach(player => {
+    player.score = 0;
+    if (!player.roundScores) player.roundScores = [];
+    if (!player.statistics) {
+      player.statistics = {
+        selfDraws: 0,
+        discards: 0,
+        claimedDiscards: 0
+      };
+    }
+  });
+  
+  console.log(`>>> [遊戲開始] 圈數設定: ${table.maxRounds} 圈，當前圈數: ${table.round}`);
 
   // 設置莊家標記
   table.players.forEach((player, index) => {
     player.isDealer = (index === table.dealerIndex);
+    if (player.isDealer) {
+      console.log(`>>> [遊戲開始] 玩家${index + 1} (${player.name}) 是莊家`);
+    }
   });
 
   // 洗牌並發牌（台灣麻將每人16張）
@@ -692,6 +731,144 @@ function startGame(tableId) {
     windStart: table.windStart,
     turn: table.turn,
     gamePhase: table.gamePhase
+  });
+
+  // 同步最新桌狀態（確保有玩家漏掉 startGame 事件時仍能收到 started 狀態）
+  const cleanTableData = getCleanTableData(table);
+  io.to(tableId).emit('tableUpdate', cleanTableData);
+
+  // 廣播所有玩家的手牌數量更新（讓所有玩家知道手牌數量）
+  const handCounts = {};
+  table.players.forEach(p => {
+    handCounts[p.id] = table.hiddenHands[p.id].length;
+  });
+  console.log(`>>> [遊戲開始] 廣播手牌數量更新: ${JSON.stringify(handCounts)}`);
+  io.to(tableId).emit('handCountsUpdate', {
+    handCounts: handCounts
+  });
+
+  // 開始開局補花流程
+  setTimeout(() => {
+    startInitialFlowerReplacement(tableId);
+  }, 2000);
+}
+
+// 開始下一圈（中間結算後）
+function startNextRound(tableId) {
+  const table = tables[tableId];
+  if (!table || table.players.length !== 4) return;
+
+  console.log(`>>> [下一圈] 開始第 ${table.round} 圈 - 房間: ${tableId}`);
+
+  // 找到獲勝者（上一圈的獲勝者）
+  const winnerId = table.nextRoundWinnerId;
+  if (!winnerId) {
+    console.error(`>>> [下一圈] 錯誤：找不到獲勝者ID`);
+    return;
+  }
+
+  // 找到獲勝者的索引
+  const winnerIndex = table.players.findIndex(p => p.id === winnerId);
+  if (winnerIndex === -1) {
+    console.error(`>>> [下一圈] 錯誤：找不到獲勝者 ${winnerId}`);
+    return;
+  }
+
+  console.log(`>>> [下一圈] 獲勝者：玩家${winnerIndex + 1} (${table.players[winnerIndex].name})，將成為新莊家`);
+
+  // 重置遊戲狀態
+  table.gamePhase = GamePhase.DEALING;
+  table.dealerIndex = winnerIndex; // 獲勝者成為新莊家
+  table.windStart = winnerIndex;
+  table.turn = winnerIndex;
+
+  // 清除所有玩家的手牌、明牌、打出牌、花牌、聽牌狀態
+  table.players.forEach(player => {
+    table.hiddenHands[player.id] = [];
+    table.hands[player.id] = [];
+    table.discards[player.id] = [];
+    table.flowers[player.id] = [];
+    table.melds[player.id] = [];
+    player.isDealer = (player.id === winnerId);
+    // 清除聽牌相關狀態
+    player.isTing = false;
+    player.isTianTing = false;
+    player.isDiTing = false;
+    player.initialTingHand = null;
+    player.initialTingMelds = null;
+  });
+
+  // 重置遊戲標記
+  table.lastDiscard = null;
+  table.claimingState = null;
+  table.tingState = null;
+  table.initialTingState = null;
+  table.timer = 0;
+  if (table.turnTimer) {
+    clearInterval(table.turnTimer);
+    table.turnTimer = null;
+  }
+  if (table.tingTimer) {
+    clearInterval(table.tingTimer);
+    table.tingTimer = null;
+  }
+  table.isFirstDealerDiscard = true;
+  table.isFirstRound = true;
+  table.hasFirstRoundClaim = false;
+  table.firstRoundPlayersDiscarded = new Set();
+  table.isFirstDraw = true;
+
+  // 洗牌並發牌（台灣麻將每人16張）
+  let shuffledTiles = shuffle(allTiles);
+  table.deck = shuffledTiles.slice(64); // 剩餘牌組（144-64=80張）
+
+  // 發牌給每位玩家
+  table.players.forEach((player, playerIndex) => {
+    const startIndex = playerIndex * 16;
+    const playerTiles = shuffledTiles.slice(startIndex, startIndex + 16);
+    table.hiddenHands[player.id] = playerTiles;
+    table.hands[player.id] = []; // 明牌初始為空
+
+    console.log(`玩家${playerIndex + 1}（${player.name}）手牌：${playerTiles.join(', ')}`);
+  });
+
+  console.log(`>>> [下一圈] 新莊家: 玩家${table.dealerIndex + 1}, 東風起始位置: ${table.windStart}`);
+
+  // 清除繼續確認狀態
+  table.roundContinueReady = null;
+  table.nextRoundWinnerId = null;
+
+  // 廣播下一圈開始
+  safeEmit(tableId, 'startGame', {
+    id: tableId,
+    players: table.players.map(p => ({
+      id: p.id,
+      name: p.name,
+      seat: p.seat,
+      isDealer: p.isDealer,
+      score: p.score,
+      isReady: p.isReady
+    })),
+    dealerIndex: table.dealerIndex,
+    windStart: table.windStart,
+    turn: table.turn,
+    gamePhase: table.gamePhase,
+    round: table.round,
+    maxRounds: table.maxRounds
+  });
+
+  // 同步最新桌狀態
+  const cleanTableData = getCleanTableData(table);
+  io.to(tableId).emit('tableUpdate', cleanTableData);
+
+  // 廣播所有玩家的手牌數量更新（讓所有玩家知道手牌數量）
+  const handCounts = {};
+  table.players.forEach(p => {
+    handCounts[p.id] = table.hiddenHands[p.id].length;
+  });
+  console.log(`>>> [下一圈] 廣播手牌數量更新: ${JSON.stringify(handCounts)}`);
+  io.to(tableId).emit('handCountsUpdate', {
+    handCounts: handCounts
   });
 
   // 開始開局補花流程
@@ -1696,12 +1873,12 @@ async function endGame(tableId, reason, scores = null) {
   table.tingState = null;
   table.initialTingState = null;
 
-  // 更新玩家分數（如果有提供）
+  // 更新玩家分數（如果有提供，但通常分數已經在 declareHu 中累加）
   if (scores) {
     Object.keys(scores).forEach(playerId => {
       const player = table.players.find(p => p.id === playerId);
       if (player) {
-        player.score += scores[playerId];
+        player.score = (player.score || 0) + scores[playerId];
       }
     });
   }
@@ -1971,10 +2148,39 @@ async function endGame(tableId, reason, scores = null) {
     console.log(`>>> [結算] 玩家${index + 1} (ID: ${p.id}): isTianTing = ${p.isTianTing}, isDiTing = ${p.isDiTing}, isSelfDrawnHu = ${p.isSelfDrawnHu}, 明牌數量 = ${melds.length}, 描述 = "${p.huDescription}"`);
   });
 
+  // 準備最終結算資料
+  const finalScores = table.players.map(p => ({ 
+    id: p.id, 
+    score: p.score || 0 
+  }));
+
+  // 準備每圈分數變化記錄
+  const roundHistory = (table.roundHistory || []).map(roundData => ({
+    round: roundData.round,
+    scores: roundData.scores,
+    winnerId: roundData.winnerId
+  }));
+
+  // 準備玩家統計資料
+  const playersWithStats = playersWithDescription.map((p, index) => {
+    const player = table.players[index];
+    return {
+      ...p,
+      statistics: player.statistics || {
+        selfDraws: 0,
+        discards: 0,
+        claimedDiscards: 0
+      }
+    };
+  });
+
   safeEmit(tableId, 'gameEnd', {
-    reason: reason,
-    players: playersWithDescription,
-    finalScores: table.players.map(p => ({ id: p.id, score: p.score }))
+    reason: reason === 'completed' ? 'completed' : reason,
+    players: playersWithStats,
+    finalScores: finalScores,
+    roundHistory: roundHistory,
+    maxRounds: table.maxRounds || 1,
+    currentRound: table.round || 1
   });
 
   // 扣除房間創建者的卡片（流局或胡牌時都扣除）
@@ -3593,15 +3799,46 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
   // 保存胡牌類型到玩家對象，用於結算時顯示
   player.lastHuType = huType; // 'selfDrawnHu' 或 'hu'
 
-  // 計算分數（簡化版，實際應該根據台數計算）
-  const scores = {};
+  // 更新統計資料
+  if (huType === 'selfDrawnHu') {
+    player.statistics = player.statistics || { selfDraws: 0, discards: 0, claimedDiscards: 0 };
+    player.statistics.selfDraws = (player.statistics.selfDraws || 0) + 1;
+  } else {
+    player.statistics = player.statistics || { selfDraws: 0, discards: 0, claimedDiscards: 0 };
+    player.statistics.claimedDiscards = (player.statistics.claimedDiscards || 0) + 1;
+  }
+
+  // 計算該圈的分數變化（簡化版，實際應該根據台數計算）
+  const roundScores = {};
   table.players.forEach(p => {
     if (p.id === playerId) {
-      scores[p.id] = 100; // 獲勝者得分
+      roundScores[p.id] = 100; // 獲勝者得分
     } else {
-      scores[p.id] = -30; // 其他玩家失分
+      roundScores[p.id] = -30; // 其他玩家失分
     }
   });
+
+  // 累加分數到玩家總分
+  table.players.forEach(p => {
+    p.score = (p.score || 0) + roundScores[p.id];
+    // 記錄該圈分數變化
+    if (!p.roundScores) p.roundScores = [];
+    p.roundScores.push({
+      round: table.round,
+      scoreChange: roundScores[p.id]
+    });
+  });
+
+  // 記錄該圈分數變化到 roundHistory
+  if (!table.roundHistory) table.roundHistory = [];
+  table.roundHistory.push({
+    round: table.round,
+    scores: { ...roundScores },
+    winnerId: playerId
+  });
+
+  console.log(`>>> [圈數管理] 第 ${table.round} 圈結束，分數變化:`, roundScores);
+  console.log(`>>> [圈數管理] 當前總分:`, table.players.map(p => ({ id: p.id, score: p.score })));
 
   // 廣播胡牌
   io.to(tableId).emit('huDeclared', {
@@ -3610,13 +3847,61 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
     huType: huType, // 'selfDrawnHu' 或 'hu'
     targetTile: targetTile,
     targetPlayer: targetPlayer,
-    scores: scores,
+    scores: roundScores, // 該圈分數變化
     isTianTing: isTianTing, // 是否為天聽
     isDiTing: isDiTing // 是否為地聽
   });
 
-  // 結束遊戲（傳入分數）
-  endGame(tableId, 'hu', scores).catch(err => console.error('結束遊戲失敗:', err));
+  // 判斷是否需要中間結算或最終結算
+  const maxRounds = table.maxRounds || 1;
+  const currentRound = table.round;
+  const nextRound = currentRound + 1;
+  const isLastRound = (nextRound > maxRounds) || (maxRounds === 1 && currentRound === 1);
+
+  console.log(`>>> [圈數管理] 當前圈數: ${currentRound}, 下一圈: ${nextRound}, 總圈數: ${maxRounds}, 是否最後一圈: ${isLastRound}`);
+
+  if (isLastRound && maxRounds > 1) {
+    // 已達到總圈數（多圈遊戲），顯示最終結算
+    console.log(`>>> [圈數管理] 已達到總圈數 ${maxRounds}，觸發最終結算`);
+    endGame(tableId, 'completed', null).catch(err => console.error('結束遊戲失敗:', err));
+  } else {
+    // 顯示中間結算（包括1圈的情況）
+    console.log(`>>> [圈數管理] 觸發中間結算（當前圈數: ${currentRound}/${maxRounds}）`);
+    
+    // 準備中間結算資料
+    const totalScores = {};
+    table.players.forEach(p => {
+      totalScores[p.id] = p.score || 0;
+    });
+
+    // 保存獲勝者ID（用於下一圈換莊家，如果是1圈則不會用到）
+    table.nextRoundWinnerId = playerId;
+    
+    // 廣播中間結算事件
+    io.to(tableId).emit('roundEnd', {
+      round: currentRound,
+      maxRounds: maxRounds,
+      roundScores: roundScores, // 該圈分數變化
+      totalScores: totalScores, // 累積總分
+      isLastRound: isLastRound, // 標記是否為最後一圈
+      players: table.players.map(p => ({
+        id: p.id,
+        name: p.name,
+        score: p.score || 0,
+        seat: p.seat,
+        isDealer: p.isDealer,
+        statistics: p.statistics || { selfDraws: 0, discards: 0, claimedDiscards: 0 }
+      }))
+    });
+
+    // 如果不是最後一圈，增加圈數，準備下一圈
+    if (!isLastRound) {
+      table.round = nextRound;
+    }
+    table.roundContinueReady = new Set(); // 追蹤哪些玩家已確認繼續
+    table.isLastRound = isLastRound; // 標記是否為最後一圈
+    console.log(`>>> [圈數管理] 等待玩家確認繼續，是否最後一圈: ${isLastRound}`);
+  }
 }
 
 // 清理資料，確保可序列化（移除函數、循環引用等）
@@ -3654,6 +3939,7 @@ function getCleanTableData(table) {
       started: table.started,
       countdownStarted: table.countdownStarted,
       round: table.round,
+      maxRounds: table.maxRounds || 1,
       wind: table.wind
     };
 
@@ -3992,6 +4278,22 @@ io.on('connection', (socket) => {
       name: nickname
     };
 
+    // 取得房間設定（特別是是否手動開始）
+    let manualStart = false;
+    let maxRounds = 1; // 預設1圈
+    try {
+      const roomRecord = await prisma.room.findUnique({
+        where: { roomId: tableId },
+        select: { gameSettings: true }
+      });
+      manualStart = roomRecord?.gameSettings?.manual_start === true;
+      // 讀取圈數設定（1/2/4圈）
+      maxRounds = roomRecord?.gameSettings?.rounds || 1;
+      console.log(`>>> [房間設定] 房間 ${tableId} 的圈數設定: ${maxRounds} 圈`);
+    } catch (err) {
+      console.error(`查詢房間設定失敗（${tableId}）:`, err.message);
+    }
+
     if (!tables[tableId]) {
       tables[tableId] = {
         id: tableId,
@@ -4011,9 +4313,15 @@ io.on('connection', (socket) => {
         timer: 0, // 倒計時秒數
         started: false,
         countdownStarted: false, // 倒數計時是否已開始
-        round: 1, // 局數
-        wind: 0 // 風圈 (0:東風, 1:南風, 2:西風, 3:北風)
+        round: 1, // 當前圈數
+        maxRounds: maxRounds, // 總圈數（從 gameSettings.rounds 讀取）
+        wind: 0, // 風圈 (0:東風, 1:南風, 2:西風, 3:北風)
+        manualStart, // 是否手動開始（需房主觸發）
+        roundHistory: [], // 每圈分數變化記錄
       };
+    } else {
+      // 如果 table 已存在，更新 maxRounds（以防房間設定變更）
+      tables[tableId].maxRounds = maxRounds;
     }
 
     // 檢查玩家是否已經在房間中（使用服務器端生成的ID）
@@ -4025,11 +4333,17 @@ io.on('connection', (socket) => {
         ...serverPlayer,
         seat,
         isDealer: false,
-        score: 0,
+        score: 0, // 初始分數為 0
         isReady: false,
         isTing: false,
         isTianTing: false,
-        isDiTing: false
+        isDiTing: false,
+        roundScores: [], // 每圈分數變化記錄
+        statistics: { // 統計資料
+          selfDraws: 0,
+          discards: 0,
+          claimedDiscards: 0
+        }
       });
 
       // 初始化玩家狀態
@@ -4064,14 +4378,36 @@ io.on('connection', (socket) => {
       userId: userId // 添加 userId（6位數字）
     });
 
-    // 四人到齊自動開始（添加倒數計時）
-    if (tables[tableId].players.length === 4 && !tables[tableId].started) {
+    // 四人到齊自動開始（僅非手動開始房間）
+    if (
+      tables[tableId].players.length === 4 &&
+      !tables[tableId].started &&
+      !tables[tableId].manualStart
+    ) {
       startGameCountdown(tableId);
     }
 
     // 發送資料前清理，確保可序列化
     const cleanTableData = getCleanTableData(tables[tableId]);
     io.to(tableId).emit('tableUpdate', cleanTableData);
+  });
+
+  // 手動開始遊戲（房間設定 manual_start = true 時使用）
+  socket.on('manualStartGame', ({ tableId }) => {
+    const table = tables[tableId];
+    if (!table) return;
+    if (!table.manualStart) return; // 只允許手動開始房間呼叫
+    if (table.started) return;
+
+    if (table.players.length === 4) {
+      console.log(`手動開始遊戲 - 房間: ${tableId}`);
+      startGame(tableId).catch(err => console.error('開始遊戲失敗:', err));
+    } else {
+      socket.emit('gameCountdown', {
+        countdown: null,
+        message: '玩家人數不足，無法開始'
+      });
+    }
   });
 
   // 摸牌事件
@@ -4457,6 +4793,34 @@ io.on('connection', (socket) => {
     }
 
     declareHu(tableId, playerId, finalHuType, targetTile, targetPlayer);
+  });
+
+  // 繼續下一圈事件
+  socket.on('roundContinue', ({ tableId, playerId }) => {
+    const table = tables[tableId];
+    if (!table) return;
+
+    // 檢查是否正在等待玩家確認繼續
+    if (!table.roundContinueReady) {
+      console.log(`>>> [繼續下一圈] 玩家 ${playerId} 發送繼續請求，但不在等待狀態`);
+      return;
+    }
+
+    // 記錄玩家已確認
+    table.roundContinueReady.add(playerId);
+    console.log(`>>> [繼續下一圈] 玩家 ${playerId} 已確認繼續，已確認人數: ${table.roundContinueReady.size}/${table.players.length}`);
+
+    // 如果所有玩家都已確認
+    if (table.roundContinueReady.size >= table.players.length) {
+      // 檢查是否為最後一圈（1圈遊戲或已達到總圈數）
+      if (table.isLastRound) {
+        console.log(`>>> [繼續下一圈] 所有玩家已確認，這是最後一圈，觸發最終結算`);
+        endGame(tableId, 'completed', null).catch(err => console.error('結束遊戲失敗:', err));
+      } else {
+        console.log(`>>> [繼續下一圈] 所有玩家已確認，開始第 ${table.round} 圈`);
+        startNextRound(tableId);
+      }
+    }
   });
 
   // 獲取自己的手牌
