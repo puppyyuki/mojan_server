@@ -76,8 +76,8 @@ function startTurnTimer(tableId, playerId) {
     if (currentTable.timer <= 0) {
       clearInterval(timerInterval);
       currentTable.turnTimer = null;
-      // 時間到，自動打牌（打第一張牌）
-      getServerFunctions().autoDiscardTile(tableId, playerId);
+      // 倒數結束後不再自動執行任何動作，遊戲將停住並等待玩家自行出牌
+      console.log(`>>> 倒數結束，等待玩家${playerId}自行出牌`);
     }
   }, 1000);
   

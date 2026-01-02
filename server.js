@@ -3,6 +3,9 @@ const http = require('http');
 const { Server } = require('socket.io');
 const mahjongLogic = require('./mahjong_logic');
 const { PrismaClient } = require('@prisma/client');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 
 // 引入配置和中間件
 const corsMiddleware = require('./middleware/cors');
@@ -19,6 +22,40 @@ app.use(corsMiddleware);
 app.use(express.json());
 // 綠界使用 application/x-www-form-urlencoded 格式
 app.use(express.urlencoded({ extended: true }));
+
+// 設置靜態文件服務（用於提供語音文件）
+const uploadsDir = path.join(__dirname, 'uploads', 'voices');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+app.use('/uploads/voices', express.static(uploadsDir));
+
+// 配置 multer 用於文件上傳
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadsDir);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'voice-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 限制 5MB
+  },
+  fileFilter: function (req, file, cb) {
+    // 只接受音頻文件
+    const allowedMimes = ['audio/mp4', 'audio/m4a', 'audio/mpeg', 'audio/wav', 'audio/x-m4a'];
+    if (allowedMimes.includes(file.mimetype) || file.originalname.match(/\.(m4a|mp3|wav)$/)) {
+      cb(null, true);
+    } else {
+      cb(new Error('只支持音頻文件格式'));
+    }
+  }
+});
 
 const server = http.createServer(app);
 const io = new Server(server, socketConfig);
@@ -68,6 +105,31 @@ function shuffle(arr) {
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
+}
+
+/**
+ * 使用Haversine公式計算兩點間距離（地球表面）
+ * @param {number} lat1 第一個點的緯度
+ * @param {number} lon1 第一個點的經度
+ * @param {number} lat2 第二個點的緯度
+ * @param {number} lon2 第二個點的經度
+ * @returns {number} 距離（公尺）
+ */
+function calculateDistance(lat1, lon1, lat2, lon2) {
+  const R = 6371000; // 地球半徑（公尺）
+  const toRad = (deg) => (deg * Math.PI) / 180;
+
+  const dLat = toRad(lat2 - lat1);
+  const dLon = toRad(lon2 - lon1);
+
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+  return R * c;
 }
 
 // 檢查是否為花牌
@@ -137,13 +199,15 @@ async function startGame(tableId) {
   table.started = true;
   table.gamePhase = GamePhase.DEALING;
   
-  // 開局第一圈固定由東風位（座位0）玩家擔任莊家
-  table.dealerIndex = 0; // 東風位固定為莊家
-  // windStart 固定為 0，代表座位 0=東風、1=南風、2=西風、3=北風（整場遊戲不變）
-  table.windStart = 0;
+  // 隨機選擇一個玩家作為東風位（windStart）
+  // 第一圈時，東風位玩家就是莊家
+  table.windStart = Math.floor(Math.random() * 4); // 隨機選擇 0-3 其中一個座位作為東風位
+  table.dealerIndex = table.windStart; // 第一圈東風位玩家為莊家
   table.turn = table.dealerIndex;
   
-  console.log(`>>> [遊戲開始] 東風位玩家（玩家${table.dealerIndex + 1}）擔任莊家`);
+  const windNames = ['東', '南', '西', '北'];
+  console.log(`>>> [遊戲開始] 隨機選擇玩家${table.windStart + 1}為東風位，並擔任莊家`);
+  console.log(`>>> [遊戲開始] 風位分配：座位${table.windStart}=${windNames[0]}風，座位${(table.windStart + 1) % 4}=${windNames[1]}風，座位${(table.windStart + 2) % 4}=${windNames[2]}風，座位${(table.windStart + 3) % 4}=${windNames[3]}風`);
   
   // 初始化圈數和分數
   table.round = 1;
@@ -764,6 +828,27 @@ async function startGame(tableId) {
     handCounts: handCounts
   });
 
+  // 開局發牌後，立即發送所有玩家的手牌給前端，確保手牌狀態一致
+  console.log(`>>> [遊戲開始] 同步所有玩家的手牌給前端`);
+  table.players.forEach(player => {
+    const hand = table.hiddenHands[player.id] || [];
+    // 發送給對應玩家的 socket
+    const playerSockets = Array.from(io.sockets.adapter.rooms.get(tableId) || []);
+    playerSockets.forEach(socketId => {
+      const mapping = socketToPlayer[socketId];
+      if (mapping && mapping.playerId === player.id) {
+        const socket = io.sockets.sockets.get(socketId);
+        if (socket) {
+          socket.emit('myHand', {
+            hand: hand
+          });
+          const playerIndex = table.players.findIndex(p => p.id === player.id);
+          console.log(`>>> [遊戲開始] 發送玩家${playerIndex + 1}的手牌給前端，手牌數量：${hand.length}`);
+        }
+      }
+    });
+  });
+
   // 開始開局補花流程
   setTimeout(() => {
     startInitialFlowerReplacement(tableId);
@@ -791,23 +876,48 @@ function startNextRound(tableId) {
     return;
   }
 
-  console.log(`>>> [下一圈] 獲勝者：玩家${winnerIndex + 1} (${table.players[winnerIndex].name})，將成為新莊家`);
+  // 保存上一圈的莊家索引
+  const previousDealerIndex = table.dealerIndex;
+  
+  // 判斷獲勝者是否是莊家
+  const isDealerWin = (winnerIndex === previousDealerIndex);
+  
+  // 決定新莊家：
+  // - 如果莊家獲勝：下一輪還是該玩家當莊家（dealerIndex 不變）
+  // - 如果其他家獲勝：依序輪換到下一個風位（東->南->西->北）
+  let newDealerIndex;
+  if (isDealerWin) {
+    // 莊家獲勝，保持莊家不變
+    newDealerIndex = previousDealerIndex;
+    console.log(`>>> [下一圈] 獲勝者：玩家${winnerIndex + 1} (${table.players[winnerIndex].name})，莊家獲勝，繼續當莊家`);
+  } else {
+    // 其他家獲勝，輪換到下一個風位（相對於 windStart 的風位順序）
+    // 計算當前莊家相對於 windStart 的風位偏移
+    const currentWindOffset = (previousDealerIndex - table.windStart + 4) % 4;
+    // 輪換到下一個風位（東->南->西->北->東）
+    const nextWindOffset = (currentWindOffset + 1) % 4;
+    // 計算新的座位索引
+    newDealerIndex = (table.windStart + nextWindOffset) % 4;
+    const windNames = ['東', '南', '西', '北'];
+    console.log(`>>> [下一圈] 獲勝者：玩家${winnerIndex + 1} (${table.players[winnerIndex].name})，非莊家獲勝，輪換到${windNames[nextWindOffset]}風位（座位${newDealerIndex}）當莊家`);
+  }
 
   // 重置遊戲狀態
   table.gamePhase = GamePhase.DEALING;
-  table.dealerIndex = winnerIndex; // 獲勝者成為新莊家
-  // windStart 固定為 0，代表東風位永遠是座位 0，風位不隨莊家輪替而改變
-  // table.windStart = winnerIndex; // 移除這行，風位應該固定
-  table.turn = winnerIndex;
+  table.dealerIndex = newDealerIndex;
+  // windStart 在遊戲開始時已隨機設定，代表東風位的起始座位，整場遊戲不變
+  // 風位不隨莊家輪替而改變，只會按照風位順序輪換莊家
+  table.turn = newDealerIndex;
 
   // 清除所有玩家的手牌、明牌、打出牌、花牌、聽牌狀態
-  table.players.forEach(player => {
+  table.players.forEach((player, index) => {
     table.hiddenHands[player.id] = [];
     table.hands[player.id] = [];
     table.discards[player.id] = [];
     table.flowers[player.id] = [];
     table.melds[player.id] = [];
-    player.isDealer = (player.id === winnerId);
+    // 根據新的 dealerIndex 設置莊家標記
+    player.isDealer = (index === newDealerIndex);
     // 清除聽牌相關狀態
     player.isTing = false;
     player.isTianTing = false;
@@ -889,6 +999,27 @@ function startNextRound(tableId) {
     handCounts: handCounts
   });
 
+  // 下一圈發牌後，立即發送所有玩家的手牌給前端，確保手牌狀態一致
+  console.log(`>>> [下一圈] 同步所有玩家的手牌給前端`);
+  table.players.forEach(player => {
+    const hand = table.hiddenHands[player.id] || [];
+    // 發送給對應玩家的 socket
+    const playerSockets = Array.from(io.sockets.adapter.rooms.get(tableId) || []);
+    playerSockets.forEach(socketId => {
+      const mapping = socketToPlayer[socketId];
+      if (mapping && mapping.playerId === player.id) {
+        const socket = io.sockets.sockets.get(socketId);
+        if (socket) {
+          socket.emit('myHand', {
+            hand: hand
+          });
+          const playerIndex = table.players.findIndex(p => p.id === player.id);
+          console.log(`>>> [下一圈] 發送玩家${playerIndex + 1}的手牌給前端，手牌數量：${hand.length}`);
+        }
+      }
+    });
+  });
+
   // 開始開局補花流程
   setTimeout(() => {
     startInitialFlowerReplacement(tableId);
@@ -919,12 +1050,37 @@ function processPlayerFlowerReplacement(tableId, playerIndex) {
       // 設置遊戲階段為 PLAYING（重要：必須先設置才能讓 drawTile 執行）
       table.gamePhase = GamePhase.PLAYING;
 
-      // 廣播遊戲狀態更新
-      io.to(tableId).emit('gameStateUpdate', {
-        gamePhase: GamePhase.PLAYING,
-        turn: table.turn,
-        message: '遊戲開始！'
-      });
+      // 延遲廣播遊戲狀態更新，確保最後一位玩家的補花事件已完全處理
+      // 這樣可以避免前端在補花狀態更新完成前就收到 gameStateUpdate
+      setTimeout(() => {
+        // 廣播遊戲狀態更新
+        io.to(tableId).emit('gameStateUpdate', {
+          gamePhase: GamePhase.PLAYING,
+          turn: table.turn,
+          message: '遊戲開始！'
+        });
+
+        // 補花完成後，再次同步所有玩家的手牌給前端，確保補花後的手牌狀態一致
+        console.log(`>>> [補花完成] 同步所有玩家的手牌給前端`);
+        table.players.forEach(player => {
+          const hand = table.hiddenHands[player.id] || [];
+          // 發送給對應玩家的 socket
+          const playerSockets = Array.from(io.sockets.adapter.rooms.get(tableId) || []);
+          playerSockets.forEach(socketId => {
+            const mapping = socketToPlayer[socketId];
+            if (mapping && mapping.playerId === player.id) {
+              const socket = io.sockets.sockets.get(socketId);
+              if (socket) {
+                socket.emit('myHand', {
+                  hand: hand
+                });
+                const playerIndex = table.players.findIndex(p => p.id === player.id);
+                console.log(`>>> [補花完成] 發送玩家${playerIndex + 1}的手牌給前端，手牌數量：${hand.length}`);
+              }
+            }
+          });
+        });
+      }, 300);
 
       // 不再檢測開局聽牌（天聽），改為莊家第一次打牌後檢測
       // 設置遊戲開始標記，用於判斷是否為莊家第一次打牌
@@ -1145,6 +1301,8 @@ function processPlayerFlowerReplacement(tableId, playerIndex) {
 
       // 廣播補花事件
       console.log(`>>> 廣播補花事件：玩家${playerIndex + 1}，花牌：${flower}，新牌：${newTile}`);
+      // 廣播開局補花給所有玩家（確保所有玩家都能聽到音效）
+      console.log(`>>> [音效廣播] 廣播開局補花事件給房間 ${tableId} 的所有玩家`);
       io.to(tableId).emit('flowerReplacement', {
         playerId: player.id,
         playerIndex: playerIndex,
@@ -1157,7 +1315,7 @@ function processPlayerFlowerReplacement(tableId, playerIndex) {
       if (isFlowerTile(newTile)) {
         setTimeout(() => {
           processPlayerFlowerReplacement(tableId, playerIndex);
-        }, 1500);
+        }, 2000); // 等待前端補花動畫（約1.8秒）完成再繼續
       } else {
         // 補摸的不是花牌，檢查是否還有其他花牌需要處理
         // 重新檢查手牌中的花牌（因為補摸的牌已經加入手牌）
@@ -1166,12 +1324,12 @@ function processPlayerFlowerReplacement(tableId, playerIndex) {
           // 還有其他花牌，繼續補花
           setTimeout(() => {
             processPlayerFlowerReplacement(tableId, playerIndex);
-          }, 1500);
+          }, 2000); // 等待前端補花動畫完成再繼續
         } else {
           // 沒有其他花牌了，處理下一位玩家
           setTimeout(() => {
             processPlayerFlowerReplacement(tableId, playerIndex + 1);
-          }, 500);
+          }, 2000); // 確保上一位玩家的補花動畫完全播放完畢
         }
       }
     } else {
@@ -1309,6 +1467,13 @@ function drawTile(tableId, playerId) {
 
       // 設置自摸胡牌等待狀態
       table.gamePhase = GamePhase.CLAIMING;
+      // 初始化玩家決策追蹤
+      const playerDecisions = {};
+      playerDecisions[playerId] = {
+        hasDecided: false,
+        decision: null
+      };
+      
       table.claimingState = {
         discardPlayerId: playerId, // 自摸時，打出牌的玩家是自己
         discardedTile: drawnTile, // 自摸時，目標牌是剛摸到的牌
@@ -1319,7 +1484,8 @@ function drawTile(tableId, playerId) {
           claimType: ClaimType.HU,
           priority: 1
         }],
-        timer: 30
+        timer: 30,
+        playerDecisions: playerDecisions
       };
 
       // 廣播自摸胡牌機會（使用與放槍胡牌相同的格式）
@@ -1480,6 +1646,9 @@ function handleFlowerTile(tableId, playerId, flower) {
   if (!table) return;
 
   const playerIndex = table.players.findIndex(p => p.id === playerId);
+  if (playerIndex === -1) return;
+  const player = table.players[playerIndex];
+  if (!player) return;
 
   // 將花牌加入收集
   table.flowers[playerId].push(flower);
@@ -1556,6 +1725,8 @@ function handleFlowerTile(tableId, playerId, flower) {
     console.log(`玩家${playerIndex + 1}補花: ${flower} -> ${newTile}`);
 
     // 廣播補花事件
+    // 廣播遊戲中補花給所有玩家（確保所有玩家都能聽到音效）
+    console.log(`>>> [音效廣播] 廣播遊戲中補花事件給房間 ${tableId} 的所有玩家`);
     io.to(tableId).emit('flowerReplacement', {
       playerId: playerId,
       playerIndex: playerIndex,
@@ -1565,7 +1736,6 @@ function handleFlowerTile(tableId, playerId, flower) {
     });
 
     // 標記玩家最近進行了補花（用於槓上開花判斷）
-    const player = table.players[playerIndex];
     player.lastFlowerAction = true; // 標記為補花
 
     // 如果補摸的仍是花牌，繼續補花（延遲讓玩家看到新補的花牌）
@@ -1608,6 +1778,13 @@ function handleFlowerTile(tableId, playerId, flower) {
 
         // 設置自摸胡牌等待狀態
         table.gamePhase = GamePhase.CLAIMING;
+        // 初始化玩家決策追蹤
+        const playerDecisions2 = {};
+        playerDecisions2[playerId] = {
+          hasDecided: false,
+          decision: null
+        };
+        
         table.claimingState = {
           discardPlayerId: playerId, // 自摸時，打出牌的玩家是自己
           discardedTile: newTile, // 自摸時，目標牌是補花後摸到的牌
@@ -1618,7 +1795,8 @@ function handleFlowerTile(tableId, playerId, flower) {
             claimType: ClaimType.HU,
             priority: 1
           }],
-          timer: 30
+          timer: 30,
+          playerDecisions: playerDecisions2
         };
 
         // 廣播自摸胡牌機會（使用與放槍胡牌相同的格式）
@@ -1833,8 +2011,8 @@ function startTurnTimer(tableId, playerId) {
     if (currentTable.timer <= 0) {
       clearInterval(timerInterval);
       currentTable.turnTimer = null;
-      // 時間到，自動打牌（打第一張牌）
-      autoDiscardTile(tableId, playerId);
+      // 倒數結束後不再自動執行任何動作，遊戲將停住並等待玩家自行出牌
+      console.log(`>>> 倒數結束，等待玩家${playerId}自行出牌`);
     }
   }, 1000);
 
@@ -2162,6 +2340,8 @@ async function endGame(tableId, reason, scores = null) {
 
     return {
       id: p.id,
+      name: p.name, // 添加玩家名稱
+      avatarUrl: p.avatarUrl || null, // 添加頭像URL
       score: p.score,
       isTianTing: isTianTing,
       isDiTing: isDiTing,
@@ -2375,6 +2555,8 @@ function discardTile(tableId, playerId, tile) {
   console.log(`玩家${playerIndex + 1}打出: ${tile}`);
 
   // 廣播打牌事件
+  // 廣播打牌事件給所有玩家（確保所有玩家都能聽到打牌音效）
+  console.log(`>>> [音效廣播] 廣播打牌事件給房間 ${tableId} 的所有玩家，玩家${playerIndex + 1}打出：${tile}`);
   io.to(tableId).emit('playerDiscard', {
     playerId: playerId,
     playerIndex: playerIndex,
@@ -2582,11 +2764,22 @@ function checkClaims(tableId, discardPlayerId, discardedTile) {
 
     // 設置吃碰槓胡等待狀態
     table.gamePhase = GamePhase.CLAIMING;
+    // 初始化玩家決策追蹤：記錄每個有決策權的玩家ID
+    const playersWithOptions = [...new Set(claimOptions.map(opt => opt.playerId))];
+    const playerDecisions = {};
+    playersWithOptions.forEach(playerId => {
+      playerDecisions[playerId] = {
+        hasDecided: false,
+        decision: null // 'claim' 或 'pass'
+      };
+    });
+    
     table.claimingState = {
       discardPlayerId: discardPlayerId,
       discardedTile: discardedTile,
       options: claimOptions,
-      timer: 30 // 30秒等待時間（給客戶端足夠的時間）
+      timer: 30, // 30秒等待時間（給客戶端足夠的時間）
+      playerDecisions: playerDecisions // 追蹤每個玩家的決策狀態
     };
 
     console.log(`檢測到吃碰槓胡機會: ${claimOptions.map(opt => `玩家${opt.playerIndex + 1}(${opt.claimType})`).join(', ')}`);
@@ -2924,13 +3117,16 @@ function handleClaimRequest(tableId, playerId, claimType, tiles) {
     return;
   }
 
-  // 清除計時器
-  if (table.claimingTimer) {
-    clearInterval(table.claimingTimer);
-    table.claimingTimer = null;
+  // 記錄玩家決策
+  if (table.claimingState.playerDecisions && table.claimingState.playerDecisions[playerId]) {
+    table.claimingState.playerDecisions[playerId].hasDecided = true;
+    table.claimingState.playerDecisions[playerId].decision = 'claim';
+    table.claimingState.playerDecisions[playerId].claimType = claimType;
+    table.claimingState.playerDecisions[playerId].tiles = tiles;
+    console.log(`>>> [決策追蹤] 玩家${playerId}選擇${claimType}`);
   }
 
-  // 如果是胡牌，直接宣告胡牌
+  // 如果是胡牌，直接宣告胡牌（胡牌優先級最高，不需要等待其他玩家）
   if (claimType === ClaimType.HU || claimType === 'hu') {
     const targetTile = table.claimingState.discardedTile || null;
     const targetPlayer = table.claimingState.discardPlayerId
@@ -2941,8 +3137,8 @@ function handleClaimRequest(tableId, playerId, claimType, tiles) {
     return;
   }
 
-  // 執行吃碰槓
-  executeClaim(tableId, playerId, claimType, tiles);
+  // 檢查是否所有有決策權的玩家都已完成選擇
+  checkAllPlayersDecided(tableId);
 }
 
 // 執行吃碰槓
@@ -3035,6 +3231,8 @@ function executeClaim(tableId, playerId, claimType, tiles) {
   }
 
   // 廣播吃碰槓執行
+  // 廣播吃碰槓執行給所有玩家（確保所有玩家都能聽到音效）
+  console.log(`>>> [音效廣播] 廣播 ${claimType} 執行事件給房間 ${tableId} 的所有玩家`);
   io.to(tableId).emit('claimExecuted', {
     playerId: playerId,
     playerIndex: playerIndex,
@@ -3099,6 +3297,13 @@ function passClaim(tableId, playerId) {
     return;
   }
 
+  // 記錄玩家決策（選擇「過」）
+  if (table.claimingState.playerDecisions && table.claimingState.playerDecisions[playerId]) {
+    table.claimingState.playerDecisions[playerId].hasDecided = true;
+    table.claimingState.playerDecisions[playerId].decision = 'pass';
+    console.log(`>>> [決策追蹤] 玩家${playerId}選擇「過」`);
+  }
+
   // 保存 claimingState 信息（在清除前）
   const claimingState = table.claimingState;
   const claimPlayerId = claimingState.discardPlayerId || playerId;
@@ -3107,107 +3312,150 @@ function passClaim(tableId, playerId) {
   const isSelfDrawnHu = claimingState.claimType === 'selfDrawnHu';
   const discardedTile = claimingState.discardedTile;
 
-  // 清除計時器
+  // 清除計時器（但保留 claimingState，等待其他玩家決策）
   if (table.claimingTimer) {
     clearInterval(table.claimingTimer);
     table.claimingTimer = null;
   }
 
-  // 檢查是否是搶槓，且所有玩家都選擇了「過」（在清除 claimingState 之前檢查）
-  const isQiangGang = claimingState.isQiangGang || false;
-  if (isQiangGang) {
-    // 檢查是否還有其他玩家可以搶槓
-    const remainingOptions = claimingState.options.filter(opt => {
-      // 檢查該玩家是否已經選擇了「過」（通過檢查是否還在 options 中）
-      // 如果玩家選擇了胡牌，會直接宣告胡牌，不會進入這裡
-      // 所以這裡只需要檢查是否還有選項
-      return opt.playerId !== playerId;
-    });
+  // 檢查是否所有有決策權的玩家都已完成選擇
+  checkAllPlayersDecided(tableId);
+}
 
-    // 如果所有玩家都選擇了「過」（沒有剩餘選項），恢復補槓流程
-    if (remainingOptions.length === 0) {
+// 檢查所有玩家是否都已完成決策，並依權重順序決定最終行為
+function checkAllPlayersDecided(tableId) {
+  const table = tables[tableId];
+  if (!table || !table.claimingState || !table.claimingState.playerDecisions) return;
+
+  const claimingState = table.claimingState;
+  const playerDecisions = claimingState.playerDecisions;
+
+  // 檢查是否所有有決策權的玩家都已完成選擇
+  const allPlayersDecided = Object.keys(playerDecisions).every(playerId => {
+    return playerDecisions[playerId].hasDecided === true;
+  });
+
+  if (!allPlayersDecided) {
+    console.log(`>>> [決策追蹤] 還有玩家未完成選擇，繼續等待...`);
+    return; // 還有玩家未完成選擇，繼續等待
+  }
+
+  console.log(`>>> [決策追蹤] 所有玩家都已完成選擇，開始依權重順序決定最終行為`);
+
+  // 收集所有選擇「claim」的決策，並按優先級排序
+  const claimDecisions = [];
+  Object.keys(playerDecisions).forEach(playerId => {
+    const decision = playerDecisions[playerId];
+    if (decision.decision === 'claim') {
+      // 找到該玩家的選項以獲取優先級
+      const option = claimingState.options.find(opt => 
+        opt.playerId === playerId && opt.claimType === decision.claimType
+      );
+      if (option) {
+        claimDecisions.push({
+          playerId: playerId,
+          claimType: decision.claimType,
+          tiles: decision.tiles,
+          priority: option.priority
+        });
+      }
+    }
+  });
+
+  // 如果沒有任何玩家選擇「claim」，所有玩家都選擇「過」
+  if (claimDecisions.length === 0) {
+    console.log(`>>> [決策追蹤] 所有玩家都選擇「過」，輪到下一家`);
+    
+    // 處理搶槓的特殊情況
+    const isQiangGang = claimingState.isQiangGang || false;
+    if (isQiangGang) {
       console.log(`>>> [搶槓檢測] 所有玩家都選擇了「過」，恢復補槓流程`);
-
+      const kongPlayerId = claimingState.discardPlayerId;
+      const kongPlayerIndex = table.players.findIndex(p => p.id === kongPlayerId);
+      
       // 清除吃碰槓狀態
       table.claimingState = null;
       table.gamePhase = GamePhase.PLAYING;
-
-      // 補槓的玩家是 discardPlayerId
-      const kongPlayerId = claimingState.discardPlayerId;
-      const kongPlayerIndex = table.players.findIndex(p => p.id === kongPlayerId);
-
+      
       if (kongPlayerIndex !== -1) {
         console.log(`>>> [搶槓檢測] 恢復補槓流程：玩家${kongPlayerIndex + 1}補摸一張牌`);
-        // 補摸一張牌（補槓後的正常流程）
         setTimeout(() => {
           drawTile(tableId, kongPlayerId);
         }, 800);
         return;
       }
-    } else {
-      console.log(`>>> [搶槓檢測] 還有其他玩家可以搶槓，等待他們的決策`);
-      // 還有其他玩家可以搶槓，不清除 claimingState，等待他們的決策
-      // 但需要從 options 中移除已經選擇「過」的玩家
-      claimingState.options = remainingOptions;
-      return;
     }
+
+    // 處理自摸胡牌放棄的情況
+    const isSelfDrawnHu = claimingState.claimType === 'selfDrawnHu';
+    const claimPlayerId = claimingState.discardPlayerId;
+    const claimPlayerIndex = table.players.findIndex(p => p.id === claimPlayerId);
+    const claimPlayer = claimPlayerIndex !== -1 ? table.players[claimPlayerIndex] : null;
+    const discardedTile = claimingState.discardedTile;
+
+    // 清除吃碰槓狀態
+    table.claimingState = null;
+    table.gamePhase = GamePhase.PLAYING;
+
+    if (isSelfDrawnHu && claimPlayer) {
+      // 如果是天聽/地聽玩家放棄自摸胡牌，自動打出摸到的牌（延遲1.5秒）
+      if (claimPlayer.isTianTing || claimPlayer.isDiTing) {
+        const tingType = claimPlayer.isTianTing ? '天聽' : '地聽';
+        console.log(`>>> [${tingType}自動打牌] 玩家${claimPlayerIndex + 1}${tingType}且放棄自摸胡牌，將自動打出摸到的牌：${discardedTile}`);
+        setTimeout(() => {
+          const currentTable = tables[tableId];
+          if (!currentTable) return;
+          const currentPlayer = currentTable.players[claimPlayerIndex];
+          if (!currentPlayer || (!currentPlayer.isTianTing && !currentPlayer.isDiTing)) {
+            const tingType = currentPlayer && currentPlayer.isTianTing ? '天聽' : (currentPlayer && currentPlayer.isDiTing ? '地聽' : '聽牌');
+            console.log(`>>> [${tingType}自動打牌] 玩家${claimPlayerIndex + 1}已不再${tingType}，進入正常打牌流程`);
+            table.turn = claimPlayerIndex;
+            startTurnTimer(tableId, claimPlayerId);
+            return;
+          }
+          const currentHand = currentTable.hiddenHands[claimPlayerId];
+          const tingType = currentPlayer.isTianTing ? '天聽' : '地聽';
+          if (currentHand && currentHand.includes(discardedTile)) {
+            console.log(`>>> [${tingType}自動打牌] 玩家${claimPlayerIndex + 1}自動打出：${discardedTile}`);
+            discardTile(tableId, claimPlayerId, discardedTile);
+          } else {
+            if (currentHand && currentHand.length > 0) {
+              console.log(`>>> [${tingType}自動打牌] 玩家${claimPlayerIndex + 1}手牌中沒有摸到的牌，自動打出第一張牌：${currentHand[0]}`);
+              discardTile(tableId, claimPlayerId, currentHand[0]);
+            } else {
+              table.turn = claimPlayerIndex;
+              startTurnTimer(tableId, claimPlayerId);
+            }
+          }
+        }, 1500);
+        return;
+      } else {
+        // 普通玩家放棄自摸胡牌，需要打出一張牌
+        console.log(`>>> [放棄自摸胡牌] 玩家${claimPlayerIndex + 1}放棄自摸胡牌，需要打出一張牌`);
+        table.turn = claimPlayerIndex;
+        startTurnTimer(tableId, claimPlayerId);
+        return;
+      }
+    }
+
+    // 一般情況：輪到下一家
+    nextTurn(tableId);
+    return;
   }
+
+  // 依權重順序排序（優先級數字越小，優先級越高）
+  claimDecisions.sort((a, b) => a.priority - b.priority);
+
+  // 執行最高優先級的決策
+  const finalDecision = claimDecisions[0];
+  console.log(`>>> [決策追蹤] 依權重順序決定執行：玩家${finalDecision.playerId}的${finalDecision.claimType}（優先級：${finalDecision.priority}）`);
 
   // 清除吃碰槓狀態
   table.claimingState = null;
   table.gamePhase = GamePhase.PLAYING;
 
-  // 如果是自摸胡牌，放棄後需要打出一張牌
-  if (isSelfDrawnHu && claimPlayerId === playerId) {
-    // 如果是天聽/地聽玩家放棄自摸胡牌，自動打出摸到的牌（延遲1.5秒）
-    if (claimPlayer && (claimPlayer.isTianTing || claimPlayer.isDiTing)) {
-      const tingType = claimPlayer.isTianTing ? '天聽' : '地聽';
-      console.log(`>>> [${tingType}自動打牌] 玩家${claimPlayerIndex + 1}${tingType}且放棄自摸胡牌，將自動打出摸到的牌：${discardedTile}`);
-      setTimeout(() => {
-        // 再次檢查玩家是否仍然天聽且手牌中包含這張牌
-        const currentTable = tables[tableId];
-        if (!currentTable) return;
-        const currentPlayer = currentTable.players[claimPlayerIndex];
-        if (!currentPlayer || (!currentPlayer.isTianTing && !currentPlayer.isDiTing)) {
-          const tingType = currentPlayer && currentPlayer.isTianTing ? '天聽' : (currentPlayer && currentPlayer.isDiTing ? '地聽' : '聽牌');
-          console.log(`>>> [${tingType}自動打牌] 玩家${claimPlayerIndex + 1}已不再${tingType}，進入正常打牌流程`);
-          // 設置輪次為當前玩家，啟動打牌計時器
-          table.turn = claimPlayerIndex;
-          startTurnTimer(tableId, claimPlayerId);
-          return;
-        }
-        const currentHand = currentTable.hiddenHands[claimPlayerId];
-        const tingType = currentPlayer.isTianTing ? '天聽' : '地聽';
-        if (currentHand && currentHand.includes(discardedTile)) {
-          console.log(`>>> [${tingType}自動打牌] 玩家${claimPlayerIndex + 1}自動打出：${discardedTile}`);
-          discardTile(tableId, claimPlayerId, discardedTile);
-        } else {
-          // 如果手牌中沒有這張牌（可能是補花後換了牌），打出第一張牌
-          if (currentHand && currentHand.length > 0) {
-            console.log(`>>> [${tingType}自動打牌] 玩家${claimPlayerIndex + 1}手牌中沒有摸到的牌，自動打出第一張牌：${currentHand[0]}`);
-            discardTile(tableId, claimPlayerId, currentHand[0]);
-          } else {
-            // 設置輪次為當前玩家，啟動打牌計時器
-            table.turn = claimPlayerIndex;
-            startTurnTimer(tableId, claimPlayerId);
-          }
-        }
-      }, 1500);
-      return;
-    } else {
-      // 普通玩家放棄自摸胡牌，需要打出一張牌
-      console.log(`>>> [放棄自摸胡牌] 玩家${claimPlayerIndex + 1}放棄自摸胡牌，需要打出一張牌`);
-      // 設置輪次為當前玩家，啟動打牌計時器
-      table.turn = claimPlayerIndex;
-      startTurnTimer(tableId, claimPlayerId);
-      return;
-    }
-  }
-
-  console.log(`放棄吃碰槓胡，輪到下一家`);
-
-  // 輪到下一家
-  nextTurn(tableId);
+  // 執行決策
+  executeClaim(tableId, finalDecision.playerId, finalDecision.claimType, finalDecision.tiles);
 }
 
 // 放棄聽牌
@@ -4241,6 +4489,8 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
   console.log(`>>> [圈數管理] 當前總分:`, table.players.map(p => ({ id: p.id, score: p.score })));
 
   // 廣播胡牌
+  // 廣播胡牌宣告給所有玩家（確保所有玩家都能聽到音效）
+  console.log(`>>> [音效廣播] 廣播胡牌宣告事件給房間 ${tableId} 的所有玩家，類型：${huType}`);
   io.to(tableId).emit('huDeclared', {
     winnerPlayerId: playerId,
     winnerPlayerIndex: playerIndex,
@@ -4287,7 +4537,9 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
       seat: p.seat,
       isDealer: p.isDealer,
       statistics: p.statistics || { selfDraws: 0, discards: 0, claimedDiscards: 0 },
-      winPatterns: p.id === playerId ? winPatterns : [] // 只有獲勝者才有牌型
+      winPatterns: p.id === playerId ? winPatterns : [], // 只有獲勝者才有牌型
+      hand: p.id === playerId ? table.hiddenHands[p.id] || [] : [], // 只有獲勝者才顯示手牌
+      melds: p.id === playerId ? table.melds[p.id] || [] : [] // 只有獲勝者才顯示明牌
     }))
   });
 
@@ -4336,7 +4588,8 @@ function getCleanTableData(table) {
       countdownStarted: table.countdownStarted,
       round: table.round,
       maxRounds: table.maxRounds || 1,
-      wind: table.wind
+      wind: table.wind,
+      manualStart: table.manualStart || false
     };
 
     return cleanData;
@@ -4444,6 +4697,14 @@ async function handlePlayerDisconnect(tableId, playerId, socketId) {
   if (table.turn === playerIndex && table.turnTimer) {
     clearInterval(table.turnTimer);
     table.turnTimer = null;
+  }
+
+  // 如果是手動開始房間，重置所有玩家的準備狀態
+  if (table.manualStart) {
+    table.players.forEach(p => {
+      p.isReady = false;
+    });
+    console.log(`玩家 ${playerId} 離開，重置所有玩家準備狀態`);
   }
 
   // 從玩家列表中移除
@@ -4738,6 +4999,7 @@ io.on('connection', (socket) => {
         wind: 0, // 風圈 (0:東風, 1:南風, 2:西風, 3:北風)
         manualStart, // 是否手動開始（需房主觸發）
         roundHistory: [], // 每圈分數變化記錄
+        chatMessages: [], // 聊天訊息陣列
         gameSettings: gameSettings || { // 保存遊戲設定供計分使用
           base_points: 100,
           scoring_unit: 20,
@@ -4767,10 +5029,56 @@ io.on('connection', (socket) => {
       return;
     }
     
+    // GPS距離檢查（僅在新玩家加入時檢查）
+    if (!existingPlayer && gameSettings?.location_check === true) {
+      const newPlayerLat = player.latitude;
+      const newPlayerLon = player.longitude;
+      
+      // 檢查新玩家是否提供了GPS位置
+      if (newPlayerLat == null || newPlayerLon == null) {
+        console.log(`玩家 ${playerId} 嘗試加入房間 ${tableId}，但未提供GPS位置（房間已開啟GPS檢查）`);
+        socket.emit('joinTableError', {
+          success: false,
+          error: 'LOCATION_REQUIRED',
+          message: '此房間需要GPS位置資訊，請開啟定位服務'
+        });
+        return;
+      }
+      
+      // 檢查與房間內所有現有玩家的距離
+      const existingPlayers = tables[tableId].players;
+      const MIN_DISTANCE = 500; // 最小距離500公尺
+      
+      for (const existingPlayer of existingPlayers) {
+        if (existingPlayer.latitude != null && existingPlayer.longitude != null) {
+          const distance = calculateDistance(
+            newPlayerLat,
+            newPlayerLon,
+            existingPlayer.latitude,
+            existingPlayer.longitude
+          );
+          
+          if (distance < MIN_DISTANCE) {
+            console.log(`玩家 ${playerId} 與房間內玩家 ${existingPlayer.id} 距離過近: ${distance.toFixed(2)} 公尺`);
+            socket.emit('joinTableError', {
+              success: false,
+              error: 'LOCATION_TOO_CLOSE',
+              message: '您與房內玩家位置過於相近'
+            });
+            return;
+          }
+        }
+      }
+      
+      // GPS檢查通過，將GPS位置添加到serverPlayer
+      serverPlayer.latitude = newPlayerLat;
+      serverPlayer.longitude = newPlayerLon;
+    }
+    
     if (!existingPlayer) {
       // 分配座位（0:東、1:南、2:西、3:北）
       const seat = tables[tableId].players.length;
-      tables[tableId].players.push({
+      const playerData = {
         ...serverPlayer,
         seat,
         isDealer: false,
@@ -4785,7 +5093,15 @@ io.on('connection', (socket) => {
           discards: 0,
           claimedDiscards: 0
         }
-      });
+      };
+      
+      // 如果有GPS位置，添加到玩家資料中
+      if (serverPlayer.latitude != null && serverPlayer.longitude != null) {
+        playerData.latitude = serverPlayer.latitude;
+        playerData.longitude = serverPlayer.longitude;
+      }
+      
+      tables[tableId].players.push(playerData);
 
       // 初始化玩家狀態
       tables[tableId].hands[playerId] = [];
@@ -4834,6 +5150,31 @@ io.on('connection', (socket) => {
     io.to(tableId).emit('tableUpdate', cleanTableData);
   });
 
+  // 切換玩家準備狀態（用於手動開始房間）
+  socket.on('toggleReady', ({ tableId, playerId }) => {
+    const table = tables[tableId];
+    if (!table) return;
+    if (!table.manualStart) return; // 只允許手動開始房間呼叫
+    if (table.started) return;
+
+    const player = table.players.find(p => p.id === playerId);
+    if (!player) return;
+
+    // 房主（第一個玩家，seat 0）不需要準備
+    if (player.seat === 0) {
+      console.log(`房主不需要準備`);
+      return;
+    }
+
+    // 切換準備狀態
+    player.isReady = !player.isReady;
+    console.log(`玩家 ${playerId} 準備狀態: ${player.isReady}`);
+
+    // 廣播更新
+    const cleanTableData = getCleanTableData(table);
+    io.to(tableId).emit('tableUpdate', cleanTableData);
+  });
+
   // 手動開始遊戲（房間設定 manual_start = true 時使用）
   socket.on('manualStartGame', ({ tableId }) => {
     const table = tables[tableId];
@@ -4841,15 +5182,28 @@ io.on('connection', (socket) => {
     if (!table.manualStart) return; // 只允許手動開始房間呼叫
     if (table.started) return;
 
-    if (table.players.length === 4) {
-      console.log(`手動開始遊戲 - 房間: ${tableId}`);
-      startGame(tableId).catch(err => console.error('開始遊戲失敗:', err));
-    } else {
+    if (table.players.length !== 4) {
       socket.emit('gameCountdown', {
         countdown: null,
         message: '玩家人數不足，無法開始'
       });
+      return;
     }
+
+    // 檢查所有非房主玩家是否已準備
+    const nonHostPlayers = table.players.filter(p => p.seat !== 0);
+    const allReady = nonHostPlayers.every(p => p.isReady === true);
+
+    if (!allReady) {
+      socket.emit('gameCountdown', {
+        countdown: null,
+        message: '還有玩家未準備，無法開始'
+      });
+      return;
+    }
+
+    console.log(`手動開始遊戲 - 房間: ${tableId}`);
+    startGame(tableId).catch(err => console.error('開始遊戲失敗:', err));
   });
 
   // 摸牌事件
@@ -4867,8 +5221,18 @@ io.on('connection', (socket) => {
     handleClaimRequest(tableId, playerId, claimType, tiles);
   });
 
-  // 執行吃碰槓事件（新增）
+  // 執行吃碰槓事件（僅由服務器端調用，客戶端不應直接調用）
+  // 客戶端應該使用 claimTile 來記錄決策，等待所有玩家決策完畢後由服務器依權重執行
   socket.on('executeClaim', ({ tableId, playerId, claimType, tiles, targetPlayer }) => {
+    // 檢查是否在決策等待狀態中
+    const table = tables[tableId];
+    if (table && table.claimingState && table.claimingState.playerDecisions) {
+      // 如果在決策等待狀態中，將 executeClaim 視為 claimTile（記錄決策）
+      console.log(`>>> [警告] 客戶端直接發送 executeClaim，轉換為 claimTile 記錄決策`);
+      handleClaimRequest(tableId, playerId, claimType, tiles);
+      return;
+    }
+    // 如果不在決策等待狀態中，直接執行（用於特殊情況，如服務器端調用）
     executeClaim(tableId, playerId, claimType, tiles);
   });
 
@@ -5036,12 +5400,23 @@ io.on('connection', (socket) => {
 
         // 設置搶槓等待狀態
         table.gamePhase = GamePhase.CLAIMING;
+        // 初始化玩家決策追蹤：記錄每個有決策權的玩家ID
+        const playersWithOptions3 = [...new Set(claimOptions.map(opt => opt.playerId))];
+        const playerDecisions3 = {};
+        playersWithOptions3.forEach(playerId => {
+          playerDecisions3[playerId] = {
+            hasDecided: false,
+            decision: null
+          };
+        });
+        
         table.claimingState = {
           discardPlayerId: playerId, // 補槓的玩家
           discardedTile: tile, // 補槓的牌
           options: claimOptions,
           timer: 30,
-          isQiangGang: true // 標記為搶槓
+          isQiangGang: true, // 標記為搶槓
+          playerDecisions: playerDecisions3
         };
 
         // 廣播搶槓胡牌等待
@@ -5179,6 +5554,8 @@ io.on('connection', (socket) => {
     table.tingState = null;
 
     // 廣播聽牌宣告
+    // 廣播聽牌宣告給所有玩家（確保所有玩家都能聽到音效）
+    console.log(`>>> [音效廣播] 廣播聽牌宣告事件給房間 ${tableId} 的所有玩家`);
     io.to(tableId).emit('tingDeclared', {
       playerId: playerId,
       playerIndex: playerIndex,
@@ -5276,6 +5653,86 @@ io.on('connection', (socket) => {
     });
   });
 
+  // 發送聊天訊息
+  socket.on('sendChatMessage', ({ tableId, playerId, message, displayName }) => {
+    const table = tables[tableId];
+    if (!table) return;
+
+    // 初始化聊天訊息陣列（如果不存在）
+    if (!table.chatMessages) {
+      table.chatMessages = [];
+    }
+
+    // 創建聊天訊息物件
+    const chatMessage = {
+      id: `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      roomId: tableId,
+      playerId: playerId,
+      displayName: displayName || '玩家',
+      message: message,
+      createdAt: new Date().toISOString()
+    };
+
+    // 添加到聊天訊息陣列
+    table.chatMessages.push(chatMessage);
+
+    // 限制聊天訊息數量（保留最近100條）
+    if (table.chatMessages.length > 100) {
+      table.chatMessages = table.chatMessages.slice(-100);
+    }
+
+    // 廣播給房間內所有玩家
+    io.to(tableId).emit('chatMessage', chatMessage);
+  });
+
+  // 發送快速聊天語音
+  socket.on('sendQuickChatAudio', ({ tableId, playerId, audioIndex }) => {
+    const table = tables[tableId];
+    if (!table) return;
+
+    // 獲取玩家資訊
+    const player = table.players.find(p => p.id === playerId);
+    if (!player) return;
+
+    // 廣播給房間內所有玩家（除了發送者）
+    io.to(tableId).emit('quickChatAudio', {
+      from: playerId,
+      audioIndex: audioIndex,
+      displayName: player.name || '玩家'
+    });
+  });
+
+  // 發送語音訊息
+  socket.on('voiceMessage', ({ tableId, playerId, displayName, voiceUrl, timestamp }) => {
+    const table = tables[tableId];
+    if (!table) return;
+
+    // 創建語音訊息物件
+    const voiceMessage = {
+      id: `voice_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+      roomId: tableId,
+      playerId: playerId,
+      displayName: displayName || '玩家',
+      voiceUrl: voiceUrl,
+      type: 'voice',
+      createdAt: timestamp || new Date().toISOString()
+    };
+
+    // 添加到聊天訊息陣列
+    if (!table.chatMessages) {
+      table.chatMessages = [];
+    }
+    table.chatMessages.push(voiceMessage);
+
+    // 限制訊息數量
+    if (table.chatMessages.length > 100) {
+      table.chatMessages = table.chatMessages.slice(-100);
+    }
+
+    // 廣播給房間內所有玩家
+    io.to(tableId).emit('voiceMessage', voiceMessage);
+  });
+
   socket.on('leaveTable', ({ tableId, playerId }) => {
     // 清除映射
     if (socketToPlayer[socket.id]) {
@@ -5343,6 +5800,29 @@ app.use('/api/players', playersRoutes);
 app.use('/api/clubs', clubsRoutes);
 app.use('/api/announcements', announcementsRoutes);
 app.use('/api/rooms', roomsRoutes);
+
+// 語音上傳API
+app.post('/api/upload-voice', upload.single('voice'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: '沒有上傳文件' });
+    }
+
+    // 構建文件URL
+    const fileUrl = `/uploads/voices/${req.file.filename}`;
+    const fullUrl = `${req.protocol}://${req.get('host')}${fileUrl}`;
+
+    res.json({
+      success: true,
+      url: fullUrl,
+      filename: req.file.filename,
+      size: req.file.size
+    });
+  } catch (error) {
+    console.error('語音上傳錯誤:', error);
+    res.status(500).json({ error: '上傳失敗' });
+  }
+});
 
 // 特殊路由：/api/players/:playerId/clubs
 // 這個路由在 clubs.js 中定義為 /players/:playerId/clubs
