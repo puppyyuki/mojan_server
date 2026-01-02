@@ -803,6 +803,8 @@ async function startGame(tableId) {
     players: table.players.map(p => ({
       id: p.id,
       name: p.name,
+      userId: p.userId || null,
+      avatarUrl: p.avatarUrl || null,
       seat: p.seat,
       isDealer: p.isDealer,
       score: p.score,
@@ -972,6 +974,8 @@ function startNextRound(tableId) {
     players: table.players.map(p => ({
       id: p.id,
       name: p.name,
+      userId: p.userId || null,
+      avatarUrl: p.avatarUrl || null,
       seat: p.seat,
       isDealer: p.isDealer,
       score: p.score,
@@ -4533,6 +4537,7 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
       id: p.id,
       name: p.name,
       userId: p.userId || null, // 添加6位數userId
+      avatarUrl: p.avatarUrl || null, // 添加頭像URL
       score: p.score || 0,
       seat: p.seat,
       isDealer: p.isDealer,
@@ -4563,6 +4568,8 @@ function getCleanTableData(table) {
       players: table.players ? table.players.map(p => ({
         id: p.id,
         name: p.name,
+        userId: p.userId || null,
+        avatarUrl: p.avatarUrl || null,
         seat: p.seat,
         isDealer: p.isDealer,
         score: p.score,
@@ -4897,18 +4904,23 @@ io.on('connection', (socket) => {
     const nickname = player.name || player.nickname || '玩家';
     let playerId;
     let userId = null;
+    let avatarUrl = player.avatarUrl || null; // 從客戶端獲取頭像URL
 
     // 嘗試從數據庫中查找玩家（使用 findFirst 因為現在允許暱稱重複）
     try {
       const dbPlayer = await prisma.player.findFirst({
         where: { nickname: nickname.trim() },
-        select: { id: true, userId: true }
+        select: { id: true, userId: true, avatarUrl: true }
       });
 
       if (dbPlayer) {
         // 使用數據庫中的ID
         playerId = dbPlayer.id;
         userId = dbPlayer.userId;
+        // 如果客戶端沒有提供頭像URL，使用數據庫中的
+        if (!avatarUrl && dbPlayer.avatarUrl) {
+          avatarUrl = dbPlayer.avatarUrl;
+        }
         // 保存暱稱到ID的映射
         nicknameToPlayerId[nickname] = playerId;
         // 只在第一次查詢時輸出日誌，避免重複日誌
@@ -4950,7 +4962,8 @@ io.on('connection', (socket) => {
     const serverPlayer = {
       id: playerId,
       name: nickname,
-      userId: userId || null // 添加6位數userId
+      userId: userId || null, // 添加6位數userId
+      avatarUrl: avatarUrl || null // 添加頭像URL
     };
 
     // 取得房間設定（特別是是否手動開始）
