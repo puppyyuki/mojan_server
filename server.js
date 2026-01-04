@@ -5274,7 +5274,37 @@ io.on('connection', (socket) => {
     }
 
     // 檢查玩家是否已經在房間中（使用服務器端生成的ID）
-    const existingPlayer = tables[tableId].players.find(p => p.id === playerId);
+    let existingPlayer = tables[tableId].players.find(p => p.id === playerId);
+    
+    // 如果找不到相同playerId的玩家，檢查是否有相同暱稱的斷線玩家（可能是重新加入但socket.id不同）
+    if (!existingPlayer) {
+      const disconnectedPlayer = tables[tableId].players.find(
+        p => p.name === nickname && p.isDisconnected
+      );
+      if (disconnectedPlayer) {
+        console.log(`發現相同暱稱 "${nickname}" 的斷線玩家 ${disconnectedPlayer.id}，重用該玩家記錄`);
+        // 重用斷線玩家的記錄，但更新playerId為新的（因為socket.id不同）
+        // 實際上，我們應該更新斷線玩家的socket映射，而不是創建新玩家
+        // 但為了保持playerId的唯一性，我們需要替換舊的playerId
+        existingPlayer = disconnectedPlayer;
+        // 更新playerId為新的（包含新的socket.id）
+        const oldPlayerId = existingPlayer.id;
+        existingPlayer.id = playerId; // 更新為新的playerId
+        // 更新所有相關的映射
+        tables[tableId].hands[playerId] = tables[tableId].hands[oldPlayerId] || [];
+        tables[tableId].hiddenHands[playerId] = tables[tableId].hiddenHands[oldPlayerId] || [];
+        tables[tableId].melds[playerId] = tables[tableId].melds[oldPlayerId] || [];
+        tables[tableId].discards[playerId] = tables[tableId].discards[oldPlayerId] || [];
+        tables[tableId].flowers[playerId] = tables[tableId].flowers[oldPlayerId] || [];
+        // 清理舊的映射
+        delete tables[tableId].hands[oldPlayerId];
+        delete tables[tableId].hiddenHands[oldPlayerId];
+        delete tables[tableId].melds[oldPlayerId];
+        delete tables[tableId].discards[oldPlayerId];
+        delete tables[tableId].flowers[oldPlayerId];
+        console.log(`已將斷線玩家 ${oldPlayerId} 更新為 ${playerId}`);
+      }
+    }
     
     // 檢查該 socket 是否已經在同一個房間中
     const isSameRoom = existingMapping && existingMapping.tableId === tableId && existingMapping.playerId === playerId;
@@ -5566,13 +5596,26 @@ io.on('connection', (socket) => {
 
       console.log('新玩家加入:', tableId, serverPlayer);
 
-      // 更新數據庫中的 currentPlayers
-      updateRoomCurrentPlayers(tableId, tables[tableId].players.length).catch(err => {
+      // 更新數據庫中的 currentPlayers（只計算在線玩家，不包括斷線玩家）
+      const onlinePlayersCount = tables[tableId].players.filter(p => !p.isDisconnected).length;
+      updateRoomCurrentPlayers(tableId, onlinePlayersCount).catch(err => {
         console.error(`更新房間 ${tableId} 的 currentPlayers 失敗:`, err);
       });
     } else {
       // 玩家已存在於房間中，但可能是不同的 socket 連接
-      console.log('玩家已存在於房間中，更新 socket 映射:', tableId, playerId);
+      // 如果玩家是斷線狀態，應該恢復連接
+      if (existingPlayer && existingPlayer.isDisconnected) {
+        console.log(`玩家 ${playerId} 已存在但斷線，恢復連接`);
+        existingPlayer.isDisconnected = false;
+        existingPlayer.disconnectedAt = null;
+        // 更新數據庫中的 currentPlayers
+        const onlinePlayersCount = tables[tableId].players.filter(p => !p.isDisconnected).length;
+        updateRoomCurrentPlayers(tableId, onlinePlayersCount).catch(err => {
+          console.error(`更新房間 ${tableId} 的 currentPlayers 失敗:`, err);
+        });
+      } else {
+        console.log('玩家已存在於房間中，更新 socket 映射:', tableId, playerId);
+      }
     }
 
     socket.join(tableId);
