@@ -17,10 +17,6 @@ const prisma = new PrismaClient();
 
 const app = express();
 
-// 信任代理（如果服務器在代理後面，如 Render.com、Nginx 等）
-// 這樣可以正確獲取客戶端的真實 IP
-app.set('trust proxy', true);
-
 // 使用統一的 CORS 中間件
 app.use(corsMiddleware);
 app.use(express.json());
@@ -939,12 +935,8 @@ async function startGame(tableId) {
   console.log(`>>> [遊戲開始] 同步所有玩家的手牌給前端`);
   table.players.forEach(player => {
     const hand = table.hiddenHands[player.id] || [];
-    const playerIndex = table.players.findIndex(p => p.id === player.id);
-    
     // 發送給對應玩家的 socket
     const playerSockets = Array.from(io.sockets.adapter.rooms.get(tableId) || []);
-    let socketFound = false;
-    
     playerSockets.forEach(socketId => {
       const mapping = socketToPlayer[socketId];
       if (mapping && mapping.playerId === player.id) {
@@ -953,17 +945,11 @@ async function startGame(tableId) {
           socket.emit('myHand', {
             hand: hand
           });
-          socketFound = true;
-          console.log(`>>> [遊戲開始] 發送玩家${playerIndex + 1} (${player.name}) 的手牌給前端，手牌數量：${hand.length}`);
+          const playerIndex = table.players.findIndex(p => p.id === player.id);
+          console.log(`>>> [遊戲開始] 發送玩家${playerIndex + 1}的手牌給前端，手牌數量：${hand.length}`);
         }
       }
     });
-    
-    // 如果找不到對應的 socket，記錄警告（可能是網路波動導致暫時斷線）
-    if (!socketFound) {
-      console.log(`⚠️ [遊戲開始] 警告：找不到玩家${playerIndex + 1} (${player.name}, ID: ${player.id}) 的 socket 連接，手牌將在重連時發送`);
-      // 不標記為斷線，因為可能是短暫的網路波動，玩家會很快重連
-    }
   });
 
   // 開始開局補花流程
@@ -1186,12 +1172,8 @@ function processPlayerFlowerReplacement(tableId, playerIndex) {
         console.log(`>>> [補花完成] 同步所有玩家的手牌給前端`);
         table.players.forEach(player => {
           const hand = table.hiddenHands[player.id] || [];
-          const playerIndex = table.players.findIndex(p => p.id === player.id);
-          
           // 發送給對應玩家的 socket
           const playerSockets = Array.from(io.sockets.adapter.rooms.get(tableId) || []);
-          let socketFound = false;
-          
           playerSockets.forEach(socketId => {
             const mapping = socketToPlayer[socketId];
             if (mapping && mapping.playerId === player.id) {
@@ -1200,16 +1182,11 @@ function processPlayerFlowerReplacement(tableId, playerIndex) {
                 socket.emit('myHand', {
                   hand: hand
                 });
-                socketFound = true;
-                console.log(`>>> [補花完成] 發送玩家${playerIndex + 1} (${player.name}) 的手牌給前端，手牌數量：${hand.length}`);
+                const playerIndex = table.players.findIndex(p => p.id === player.id);
+                console.log(`>>> [補花完成] 發送玩家${playerIndex + 1}的手牌給前端，手牌數量：${hand.length}`);
               }
             }
           });
-          
-          // 如果找不到對應的 socket，記錄警告
-          if (!socketFound) {
-            console.log(`⚠️ [補花完成] 警告：找不到玩家${playerIndex + 1} (${player.name}, ID: ${player.id}) 的 socket 連接，手牌將在重連時發送`);
-          }
         });
       }, 300);
 
@@ -5123,31 +5100,8 @@ io.on('connection', (socket) => {
         }
         // 從數據庫獲取備註（使用 bio 字段）
         remark = dbPlayer.bio || null;
-        
-        // 檢查房間中是否已經有玩家使用這個 playerId（防止兩個不同玩家被分配相同ID）
-        if (tables[tableId]) {
-          const playerInRoom = tables[tableId].players.find(p => p.id === playerId);
-          // 檢查是否有其他 socket 已經使用這個 playerId
-          let socketUsingThisId = null;
-          for (const [socketId, mapping] of Object.entries(socketToPlayer)) {
-            if (mapping.tableId === tableId && mapping.playerId === playerId && socketId !== socket.id) {
-              socketUsingThisId = socketId;
-              break;
-            }
-          }
-          
-          // 如果房間中已經有玩家使用這個 ID，且不是當前 socket，生成新的 playerId
-          if (playerInRoom && socketUsingThisId) {
-            console.log(`⚠️ 檢測到 playerId 衝突：房間 ${tableId} 中已有玩家使用 playerId ${playerId}，為新玩家生成新的 playerId`);
-            playerId = `player_${Date.now()}_${socket.id.substring(0, 8)}_${Math.random().toString(36).substr(2, 9)}`;
-            console.log(`✅ 已為新玩家生成新的 playerId: ${playerId}`);
-          }
-        }
-        
-        // 保存暱稱到ID的映射（但不要覆蓋，如果已經有映射且不同，則不更新）
-        if (!nicknameToPlayerId[nickname] || nicknameToPlayerId[nickname] === playerId) {
-          nicknameToPlayerId[nickname] = playerId;
-        }
+        // 保存暱稱到ID的映射
+        nicknameToPlayerId[nickname] = playerId;
         // 只在第一次查詢時輸出日誌，避免重複日誌
         if (!existingMapping || existingMapping.tableId !== tableId) {
           console.log(`暱稱 "${nickname}" 已存在於數據庫，使用ID: ${playerId}, userId: ${userId}, remark: ${remark || '無'}`);
@@ -5156,33 +5110,13 @@ io.on('connection', (socket) => {
         // 如果數據庫中不存在，檢查內存映射
         if (nicknameToPlayerId[nickname]) {
           playerId = nicknameToPlayerId[nickname];
-          
-          // 檢查房間中是否已經有玩家使用這個 playerId
-          if (tables[tableId]) {
-            const playerInRoom = tables[tableId].players.find(p => p.id === playerId);
-            let socketUsingThisId = null;
-            for (const [socketId, mapping] of Object.entries(socketToPlayer)) {
-              if (mapping.tableId === tableId && mapping.playerId === playerId && socketId !== socket.id) {
-                socketUsingThisId = socketId;
-                break;
-              }
-            }
-            
-            // 如果房間中已經有玩家使用這個 ID，且不是當前 socket，生成新的 playerId
-            if (playerInRoom && socketUsingThisId) {
-              console.log(`⚠️ 檢測到 playerId 衝突：房間 ${tableId} 中已有玩家使用 playerId ${playerId}，為新玩家生成新的 playerId`);
-              playerId = `player_${Date.now()}_${socket.id.substring(0, 8)}_${Math.random().toString(36).substr(2, 9)}`;
-              console.log(`✅ 已為新玩家生成新的 playerId: ${playerId}`);
-            }
-          }
-          
           if (!existingMapping || existingMapping.tableId !== tableId) {
             console.log(`暱稱 "${nickname}" 已存在於內存映射，使用ID: ${playerId}`);
           }
         } else {
           // 生成新的ID（使用簡單的哈希算法或時間戳）
-          // 這裡使用時間戳 + socket.id 前綴 + 隨機數生成唯一ID，確保唯一性
-          playerId = `player_${Date.now()}_${socket.id.substring(0, 8)}_${Math.random().toString(36).substr(2, 9)}`;
+          // 這裡使用時間戳 + 隨機數生成唯一ID
+          playerId = `player_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
           // 保存暱稱到ID的映射
           nicknameToPlayerId[nickname] = playerId;
           console.log(`新暱稱 "${nickname}"，生成新ID: ${playerId}`);
@@ -5193,32 +5127,11 @@ io.on('connection', (socket) => {
       // 如果數據庫查詢失敗，使用內存映射或生成新ID
       if (nicknameToPlayerId[nickname]) {
         playerId = nicknameToPlayerId[nickname];
-        
-        // 檢查房間中是否已經有玩家使用這個 playerId
-        if (tables[tableId]) {
-          const playerInRoom = tables[tableId].players.find(p => p.id === playerId);
-          let socketUsingThisId = null;
-          for (const [socketId, mapping] of Object.entries(socketToPlayer)) {
-            if (mapping.tableId === tableId && mapping.playerId === playerId && socketId !== socket.id) {
-              socketUsingThisId = socketId;
-              break;
-            }
-          }
-          
-          // 如果房間中已經有玩家使用這個 ID，且不是當前 socket，生成新的 playerId
-          if (playerInRoom && socketUsingThisId) {
-            console.log(`⚠️ 檢測到 playerId 衝突：房間 ${tableId} 中已有玩家使用 playerId ${playerId}，為新玩家生成新的 playerId`);
-            playerId = `player_${Date.now()}_${socket.id.substring(0, 8)}_${Math.random().toString(36).substr(2, 9)}`;
-            console.log(`✅ 已為新玩家生成新的 playerId: ${playerId}`);
-          }
-        }
-        
         if (!existingMapping || existingMapping.tableId !== tableId) {
           console.log(`暱稱 "${nickname}" 已存在於內存映射，使用ID: ${playerId}`);
         }
       } else {
-        // 生成新的ID（包含 socket.id 前綴以確保唯一性）
-        playerId = `player_${Date.now()}_${socket.id.substring(0, 8)}_${Math.random().toString(36).substr(2, 9)}`;
+        playerId = `player_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         nicknameToPlayerId[nickname] = playerId;
         console.log(`新暱稱 "${nickname}"，生成新ID: ${playerId}`);
       }
@@ -5303,47 +5216,11 @@ io.on('connection', (socket) => {
       }
     }
 
+    // 檢查玩家是否已經在房間中（使用服務器端生成的ID）
+    const existingPlayer = tables[tableId].players.find(p => p.id === playerId);
+    
     // 檢查該 socket 是否已經在同一個房間中
     const isSameRoom = existingMapping && existingMapping.tableId === tableId && existingMapping.playerId === playerId;
-    
-    // 檢查是否有其他 socket 已經使用這個 playerId（防止兩個不同玩家被分配相同ID）
-    let conflictingSocket = null;
-    for (const [socketId, mapping] of Object.entries(socketToPlayer)) {
-      if (mapping.tableId === tableId && mapping.playerId === playerId && socketId !== socket.id) {
-        conflictingSocket = socketId;
-        break;
-      }
-    }
-    
-    // 如果發現衝突（相同的 playerId 但不同的 socket），生成新的 playerId
-    if (conflictingSocket) {
-      console.log(`⚠️ 檢測到 playerId 衝突：socket ${socket.id} 和 socket ${conflictingSocket} 都使用 playerId ${playerId}，為新玩家生成新的 playerId`);
-      // 生成新的唯一 playerId（包含 socket.id 以確保唯一性）
-      playerId = `player_${Date.now()}_${socket.id.substring(0, 8)}_${Math.random().toString(36).substr(2, 9)}`;
-      // 更新 serverPlayer 的 ID
-      serverPlayer.id = playerId;
-      console.log(`✅ 已為新玩家生成新的 playerId: ${playerId}`);
-    }
-    
-    // 檢查玩家是否已經在房間中（使用服務器端生成的ID）
-    let existingPlayer = tables[tableId].players.find(p => p.id === playerId);
-    
-    // 如果沒有找到相同 playerId 的玩家，檢查是否有相同暱稱的斷線玩家（重用斷線玩家記錄）
-    if (!existingPlayer && tables[tableId]) {
-      const disconnectedPlayerWithSameNickname = tables[tableId].players.find(
-        p => p.name === nickname && p.isDisconnected
-      );
-      
-      if (disconnectedPlayerWithSameNickname) {
-        console.log(`發現相同暱稱 "${nickname}" 的斷線玩家 ${disconnectedPlayerWithSameNickname.id}，重用該玩家記錄`);
-        // 重用斷線玩家的 playerId
-        playerId = disconnectedPlayerWithSameNickname.id;
-        serverPlayer.id = playerId;
-        existingPlayer = disconnectedPlayerWithSameNickname;
-        // 更新 socket 映射中的 playerId
-        console.log(`已將斷線玩家 ${disconnectedPlayerWithSameNickname.id} 更新為 ${playerId}`);
-      }
-    }
     
     if (isSameRoom && existingPlayer && !existingPlayer.isDisconnected) {
       // 如果 socket 已經在同一個房間中，且玩家已存在且未斷線，直接返回，避免重複處理
@@ -5525,32 +5402,12 @@ io.on('connection', (socket) => {
     // 不管IP檢查是否啟用，都要保存IP地址用於UI顯示
     // 但只有IP檢查啟用時，才會限制相同IP的玩家加入
     if (!existingPlayer) {
-      // 獲取客戶端真實IP地址
-      // 優先檢查代理頭部（x-forwarded-for, x-real-ip），這些是代理服務器設置的客戶端真實IP
-      // 如果服務器在代理後面（如 Render.com），socket.handshake.address 會是代理的IP，不是客戶端的真實IP
-      let clientIP = 'unknown';
-      
-      // 1. 優先檢查 x-forwarded-for（代理轉發的真實IP，可能有多個，取第一個）
-      if (socket.handshake?.headers?.['x-forwarded-for']) {
-        const forwardedIPs = socket.handshake.headers['x-forwarded-for'].split(',').map(ip => ip.trim());
-        clientIP = forwardedIPs[0]; // 取第一個IP（最原始的客戶端IP）
-        console.log(`[IP獲取] 從 x-forwarded-for 獲取IP: ${clientIP} (總共 ${forwardedIPs.length} 個IP)`);
-      }
-      // 2. 檢查 x-real-ip（Nginx 等代理設置的真實IP）
-      else if (socket.handshake?.headers?.['x-real-ip']) {
-        clientIP = socket.handshake.headers['x-real-ip'];
-        console.log(`[IP獲取] 從 x-real-ip 獲取IP: ${clientIP}`);
-      }
-      // 3. 檢查 socket.handshake.address（Socket.io 的握手地址）
-      else if (socket.handshake.address) {
-        clientIP = socket.handshake.address;
-        console.log(`[IP獲取] 從 socket.handshake.address 獲取IP: ${clientIP}`);
-      }
-      // 4. 檢查 socket.request.connection.remoteAddress（直接連接的遠程地址）
-      else if (socket.request?.connection?.remoteAddress) {
-        clientIP = socket.request.connection.remoteAddress;
-        console.log(`[IP獲取] 從 socket.request.connection.remoteAddress 獲取IP: ${clientIP}`);
-      }
+      // 獲取客戶端IP地址
+      const clientIP = socket.handshake.address || 
+                      socket.request?.connection?.remoteAddress || 
+                      socket.handshake?.headers?.['x-forwarded-for']?.split(',')[0]?.trim() ||
+                      socket.handshake?.headers?.['x-real-ip'] ||
+                      'unknown';
       
       // 處理IPv6映射的IPv4地址 (::ffff:192.168.1.1 -> 192.168.1.1)
       const cleanIP = clientIP.replace(/^::ffff:/, '');
@@ -5595,8 +5452,50 @@ io.on('connection', (socket) => {
     }
     
     if (!existingPlayer) {
+      // 再次檢查玩家是否已存在（防止競態條件）
+      // 在分配座位之前，再次檢查，因為兩個玩家可能幾乎同時進入
+      const doubleCheckPlayer = tables[tableId].players.find(p => p.id === playerId);
+      if (doubleCheckPlayer) {
+        console.log(`玩家 ${playerId} 在雙重檢查時發現已存在，跳過重複加入`);
+        // 更新 socket 映射
+        socketToPlayer[socket.id] = { tableId, playerId };
+        socket.join(tableId);
+        
+        // 發送玩家ID分配事件
+        socket.emit('playerIdAssigned', {
+          playerId: playerId,
+          nickname: doubleCheckPlayer.name,
+          userId: doubleCheckPlayer.userId || null
+        });
+        
+        // 發送房間更新
+        const cleanTableData = getCleanTableData(tables[tableId]);
+        socket.emit('tableUpdate', cleanTableData);
+        return;
+      }
+      
       // 分配座位（0:東、1:南、2:西、3:北）
-      const seat = tables[tableId].players.length;
+      // 使用已使用的座位列表來確保不會分配重複的座位
+      const usedSeats = new Set(tables[tableId].players.map(p => p.seat));
+      let seat = -1;
+      // 找到第一個未使用的座位（0-3）
+      for (let i = 0; i < 4; i++) {
+        if (!usedSeats.has(i)) {
+          seat = i;
+          break;
+        }
+      }
+      // 如果所有座位都被使用（理論上不應該發生，因為最多4個玩家），拒絕加入
+      if (seat === -1) {
+        console.error(`房間 ${tableId} 已滿，無法分配座位給玩家 ${playerId}`);
+        socket.emit('joinTableError', {
+          success: false,
+          error: 'ROOM_FULL',
+          message: '房間已滿，無法加入'
+        });
+        return;
+      }
+      
       const playerData = {
         ...serverPlayer,
         seat,
@@ -5627,6 +5526,7 @@ io.on('connection', (socket) => {
       }
       
       tables[tableId].players.push(playerData);
+      console.log(`>>> [座位分配] 玩家 ${playerId} (${nickname}) 被分配到座位 ${seat}，已使用座位: [${Array.from(usedSeats).join(', ')}]`);
 
       // 初始化玩家狀態
       tables[tableId].hands[playerId] = [];
@@ -6278,44 +6178,11 @@ io.on('connection', (socket) => {
 
     if (playerInfo) {
       const { tableId, playerId } = playerInfo;
-      
-      // 保存玩家資訊用於延遲檢查
-      const savedPlayerInfo = { tableId, playerId, disconnectedAt: Date.now() };
 
-      // 延遲處理斷線，給玩家時間重連（避免因短暫網絡波動誤判）
-      // 如果玩家在 3 秒內重連，則不會被標記為斷線
-      setTimeout(() => {
-        // 檢查玩家是否已經重連（通過檢查房間中是否有相同 playerId 的在線 socket）
-        const table = tables[savedPlayerInfo.tableId];
-        if (!table) {
-          // 房間已不存在，不需要處理
-          return;
-        }
-        
-        const player = table.players.find(p => p.id === savedPlayerInfo.playerId);
-        if (!player) {
-          // 玩家已不在房間中，不需要處理
-          return;
-        }
-        
-        // 檢查是否有其他 socket 連接到這個 playerId
-        let playerReconnected = false;
-        for (const [socketId, mapping] of Object.entries(socketToPlayer)) {
-          if (mapping.tableId === savedPlayerInfo.tableId && mapping.playerId === savedPlayerInfo.playerId) {
-            playerReconnected = true;
-            console.log(`玩家 ${savedPlayerInfo.playerId} 已重連（socket ${socketId}），取消斷線標記`);
-            break;
-          }
-        }
-        
-        // 如果玩家沒有重連，且玩家狀態不是已斷線，才標記為斷線
-        if (!playerReconnected && !player.isDisconnected) {
-          // 處理玩家離開
-          handlePlayerDisconnect(savedPlayerInfo.tableId, savedPlayerInfo.playerId, socket.id);
-        }
-      }, 3000); // 3 秒延遲，給玩家時間重連
+      // 處理玩家離開
+      handlePlayerDisconnect(tableId, playerId, socket.id);
 
-      // 立即清除映射（但延遲標記斷線）
+      // 清除映射
       delete socketToPlayer[socket.id];
     } else {
       console.log(`警告：找不到 socket ${socket.id} 對應的玩家資訊`);
