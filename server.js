@@ -98,6 +98,40 @@ let tables = {}; // 完整的遊戲狀態
 const socketToPlayer = {}; // socket.id 到 {tableId, playerId} 的映射
 const nicknameToPlayerId = {}; // 暱稱到玩家ID的映射（用於綁定暱稱和ID）
 
+/**
+ * 從新的playerId格式中提取原始的數據庫ID
+ * 新格式：{dbId}_{socketId前8位} 或 player_{timestamp}_{random}_{socketId前8位}
+ * @param {string} playerId - 新的playerId格式
+ * @returns {string|null} - 原始的數據庫ID，如果不存在則返回null
+ */
+function extractDatabasePlayerId(playerId) {
+  if (!playerId) return null;
+  
+  // socketId前8位是固定的長度
+  const socketIdLength = 8;
+  
+  // 如果包含下劃線，可能是 {dbId}_{socketId} 格式
+  if (playerId.includes('_')) {
+    const lastUnderscoreIndex = playerId.lastIndexOf('_');
+    if (lastUnderscoreIndex > 0) {
+      const possibleSocketId = playerId.substring(lastUnderscoreIndex + 1);
+      // 如果最後一部分是8位字符，則前面部分是數據庫ID
+      if (possibleSocketId.length === socketIdLength) {
+        const possibleDbId = playerId.substring(0, lastUnderscoreIndex);
+        // 如果提取的ID不是以 'player_' 開頭（新生成的ID格式），則可能是數據庫ID
+        // 但數據庫ID也可能以 'player_' 開頭，所以我們需要檢查是否在數據庫中
+        // 為了簡化，我們假設如果格式是 {dbId}_{8位字符}，則 {dbId} 就是數據庫ID
+        return possibleDbId || null;
+      }
+    }
+  }
+  
+  // 如果格式不符合預期，可能是舊格式的ID（直接是數據庫ID），直接返回
+  // 或者是不在數據庫中的新玩家ID
+  // 為了安全起見，如果無法確定，返回null
+  return null;
+}
+
 function shuffle(arr) {
   const a = arr.slice();
   for (let i = a.length - 1; i > 0; i--) {
@@ -312,8 +346,18 @@ async function startGame(tableId) {
       
       for (const player of table.players) {
         try {
+          // 從玩家對象中獲取原始的數據庫ID（優先使用）
+          // 如果沒有，則嘗試從playerId格式中提取
+          let dbPlayerId = player.dbPlayerId || extractDatabasePlayerId(player.id);
+          
+          // 如果無法獲取數據庫ID，跳過扣卡（可能是新玩家，不在數據庫中）
+          if (!dbPlayerId) {
+            console.log(`>>> [扣卡] 玩家 ${player.name} (ID: ${player.id}) 不在數據庫中，跳過扣卡`);
+            continue;
+          }
+          
           const dbPlayer = await prisma.player.findUnique({
-            where: { id: player.id },
+            where: { id: dbPlayerId },
             select: { cardCount: true },
           });
           
@@ -323,7 +367,7 @@ async function startGame(tableId) {
             
             await prisma.$transaction([
               prisma.player.update({
-                where: { id: player.id },
+                where: { id: dbPlayerId },
                 data: {
                   cardCount: {
                     decrement: cardsPerPlayer,
@@ -332,7 +376,7 @@ async function startGame(tableId) {
               }),
               prisma.cardConsumptionRecord.create({
                 data: {
-                  playerId: player.id,
+                  playerId: dbPlayerId, // 使用數據庫ID記錄
                   roomId: tableId,
                   amount: cardsPerPlayer,
                   reason: 'game_start_aa_deduction',
@@ -5087,6 +5131,8 @@ io.on('connection', (socket) => {
 
     // 檢查該socket是否已經有對應的playerId（重連情況）
     const existingSocketMapping = socketToPlayer[socket.id];
+    let dbPlayerId = null; // 保存原始的數據庫ID
+    
     if (existingSocketMapping && existingSocketMapping.tableId === tableId) {
       // 如果socket已經在同一個房間中，使用現有的playerId
       playerId = existingSocketMapping.playerId;
@@ -5095,6 +5141,7 @@ io.on('connection', (socket) => {
         userId = existingPlayerInTable.userId;
         avatarUrl = existingPlayerInTable.avatarUrl || avatarUrl;
         remark = existingPlayerInTable.remark || null;
+        dbPlayerId = existingPlayerInTable.dbPlayerId || null; // 從現有玩家獲取數據庫ID
         console.log(`Socket ${socket.id} 已存在於房間 ${tableId}，使用現有playerId: ${playerId}`);
       }
     } else {
@@ -5114,6 +5161,7 @@ io.on('connection', (socket) => {
           const socketIdShort = socket.id.substring(0, 8);
           playerId = `${dbPlayer.id}_${socketIdShort}`;
           userId = dbPlayer.userId;
+          dbPlayerId = dbPlayer.id; // 保存原始的數據庫ID
           // 如果客戶端沒有提供頭像URL，使用數據庫中的
           if (!avatarUrl && dbPlayer.avatarUrl) {
             avatarUrl = dbPlayer.avatarUrl;
@@ -5128,6 +5176,7 @@ io.on('connection', (socket) => {
           const timestamp = Date.now();
           const random = Math.random().toString(36).substr(2, 9);
           playerId = `player_${timestamp}_${random}_${socketIdShort}`;
+          dbPlayerId = null; // 不在數據庫中
           console.log(`新暱稱 "${nickname}"，為socket ${socket.id} 生成新ID: ${playerId}`);
         }
       } catch (error) {
@@ -5137,11 +5186,14 @@ io.on('connection', (socket) => {
         const timestamp = Date.now();
         const random = Math.random().toString(36).substr(2, 9);
         playerId = `player_${timestamp}_${random}_${socketIdShort}`;
+        dbPlayerId = null; // 查詢失敗，不在數據庫中
         console.log(`查詢失敗，為socket ${socket.id} 生成新ID: ${playerId}`);
       }
     }
 
     // 使用服務器端生成的ID，而不是客戶端發送的ID
+    // 保存原始的數據庫ID（如果存在），用於後續的數據庫操作
+    
     const serverPlayer = {
       id: playerId,
       name: nickname,
@@ -5149,7 +5201,8 @@ io.on('connection', (socket) => {
       avatarUrl: avatarUrl || null, // 添加頭像URL
       remark: remark || null, // 添加備註
       isDisconnected: false, // 斷線狀態
-      disconnectedAt: null // 斷線時間戳
+      disconnectedAt: null, // 斷線時間戳
+      dbPlayerId: dbPlayerId // 保存原始的數據庫ID，用於數據庫操作
     };
 
     // 取得房間設定（特別是是否手動開始）
