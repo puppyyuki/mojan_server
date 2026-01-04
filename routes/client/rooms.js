@@ -78,13 +78,8 @@ router.get('/:roomId', async (req, res) => {
     const { prisma } = req.app.locals;
     const { roomId } = req.params;
 
-    // 確保 roomId 是字符串類型（Prisma 可能期望特定類型）
-    const roomIdStr = String(roomId).trim();
-    
-    console.log(`[Rooms API] 查詢房間: ${roomIdStr}`);
-
     const room = await prisma.room.findUnique({
-      where: { roomId: roomIdStr },
+      where: { roomId },
       select: {
         roomId: true,
         creatorId: true,
@@ -97,11 +92,9 @@ router.get('/:roomId', async (req, res) => {
     });
 
     if (!room) {
-      console.log(`[Rooms API] 房間 ${roomIdStr} 不存在`);
       return errorResponse(res, '房間不存在', null, 404);
     }
 
-    console.log(`[Rooms API] 成功獲取房間 ${roomIdStr} 的資訊`);
     return successResponse(res, room, '獲取房間資訊成功');
   } catch (error) {
     console.error('[Rooms API] 獲取房間資訊失敗:', error);
