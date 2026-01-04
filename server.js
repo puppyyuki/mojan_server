@@ -17,6 +17,10 @@ const prisma = new PrismaClient();
 
 const app = express();
 
+// 信任代理（如果服務器在代理後面，如 Render.com、Nginx 等）
+// 這樣可以正確獲取客戶端的真實 IP
+app.set('trust proxy', true);
+
 // 使用統一的 CORS 中間件
 app.use(corsMiddleware);
 app.use(express.json());
@@ -5502,12 +5506,32 @@ io.on('connection', (socket) => {
     // 不管IP檢查是否啟用，都要保存IP地址用於UI顯示
     // 但只有IP檢查啟用時，才會限制相同IP的玩家加入
     if (!existingPlayer) {
-      // 獲取客戶端IP地址
-      const clientIP = socket.handshake.address || 
-                      socket.request?.connection?.remoteAddress || 
-                      socket.handshake?.headers?.['x-forwarded-for']?.split(',')[0]?.trim() ||
-                      socket.handshake?.headers?.['x-real-ip'] ||
-                      'unknown';
+      // 獲取客戶端真實IP地址
+      // 優先檢查代理頭部（x-forwarded-for, x-real-ip），這些是代理服務器設置的客戶端真實IP
+      // 如果服務器在代理後面（如 Render.com），socket.handshake.address 會是代理的IP，不是客戶端的真實IP
+      let clientIP = 'unknown';
+      
+      // 1. 優先檢查 x-forwarded-for（代理轉發的真實IP，可能有多個，取第一個）
+      if (socket.handshake?.headers?.['x-forwarded-for']) {
+        const forwardedIPs = socket.handshake.headers['x-forwarded-for'].split(',').map(ip => ip.trim());
+        clientIP = forwardedIPs[0]; // 取第一個IP（最原始的客戶端IP）
+        console.log(`[IP獲取] 從 x-forwarded-for 獲取IP: ${clientIP} (總共 ${forwardedIPs.length} 個IP)`);
+      }
+      // 2. 檢查 x-real-ip（Nginx 等代理設置的真實IP）
+      else if (socket.handshake?.headers?.['x-real-ip']) {
+        clientIP = socket.handshake.headers['x-real-ip'];
+        console.log(`[IP獲取] 從 x-real-ip 獲取IP: ${clientIP}`);
+      }
+      // 3. 檢查 socket.handshake.address（Socket.io 的握手地址）
+      else if (socket.handshake.address) {
+        clientIP = socket.handshake.address;
+        console.log(`[IP獲取] 從 socket.handshake.address 獲取IP: ${clientIP}`);
+      }
+      // 4. 檢查 socket.request.connection.remoteAddress（直接連接的遠程地址）
+      else if (socket.request?.connection?.remoteAddress) {
+        clientIP = socket.request.connection.remoteAddress;
+        console.log(`[IP獲取] 從 socket.request.connection.remoteAddress 獲取IP: ${clientIP}`);
+      }
       
       // 處理IPv6映射的IPv4地址 (::ffff:192.168.1.1 -> 192.168.1.1)
       const cleanIP = clientIP.replace(/^::ffff:/, '');
