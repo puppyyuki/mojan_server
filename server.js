@@ -4960,6 +4960,68 @@ async function handlePlayerDisconnect(tableId, playerId, socketId) {
   }
 
   // 注意：不從玩家列表中移除，不清理遊戲數據（hands, hiddenHands, melds, discards, flowers）
+  // 但如果遊戲還沒開始（WAITING階段），且玩家真正離開（不是重連），應該從列表中移除
+  // 這樣可以避免人數累積問題
+  
+  // 檢查是否應該真正移除玩家（遊戲未開始且玩家斷線超過一定時間，或明確離開）
+  const shouldRemovePlayer = table.gamePhase === GamePhase.WAITING && !table.started;
+  
+  if (shouldRemovePlayer) {
+    // 遊戲還沒開始，真正移除玩家
+    console.log(`遊戲未開始，從房間 ${tableId} 中移除玩家 ${playerId}`);
+    table.players.splice(playerIndex, 1);
+    
+    // 清理玩家相關數據
+    delete tables[tableId].hands[playerId];
+    delete tables[tableId].hiddenHands[playerId];
+    delete tables[tableId].melds[playerId];
+    delete tables[tableId].discards[playerId];
+    delete tables[tableId].flowers[playerId];
+    
+    // 更新數據庫中的 currentPlayers（只計算在線玩家）
+    const onlinePlayersCount = table.players.filter(p => !p.isDisconnected).length;
+    updateRoomCurrentPlayers(tableId, onlinePlayersCount).catch(err => {
+      console.error(`更新房間 ${tableId} 的 currentPlayers 失敗:`, err);
+    });
+    
+    // 如果房間空了，刪除房間
+    if (table.players.length === 0) {
+      console.log(`房間 ${tableId} 沒有玩家，刪除房間`);
+      delete tables[tableId];
+      
+      // 刪除數據庫中的房間記錄
+      try {
+        const room = await prisma.room.findUnique({
+          where: { roomId: tableId },
+        });
+        
+        if (room) {
+          await prisma.room.delete({
+            where: { roomId: tableId },
+          });
+          console.log(`已刪除數據庫中的房間記錄：${tableId}`);
+        }
+      } catch (error) {
+        console.error(`刪除房間記錄失敗：${tableId}`, error);
+      }
+      
+      return;
+    }
+    
+    // 廣播玩家離開事件
+    safeEmit(tableId, 'playerLeft', {
+      playerId: playerId,
+      remainingPlayers: table.players.length
+    });
+    
+    // 發送更新後的房間狀態
+    const cleanTableData = getCleanTableData(table);
+    if (cleanTableData) {
+      safeEmit(tableId, 'tableUpdate', cleanTableData);
+    }
+    
+    return; // 提前返回，不執行後續的斷線處理邏輯
+  }
 
   // 更新數據庫中的 currentPlayers（只計算在線玩家）
   const onlinePlayersCount = table.players.filter(p => !p.isDisconnected).length;
@@ -6231,25 +6293,35 @@ io.on('connection', (socket) => {
   });
 
   socket.on('leaveTable', ({ tableId, playerId }) => {
+    // 優先使用 socketToPlayer 中的 playerId（這是服務器端生成的完整ID）
+    // 客戶端可能發送的是數據庫ID而不是完整的playerId
+    const mapping = socketToPlayer[socket.id];
+    const actualPlayerId = mapping?.playerId || playerId;
+    const actualTableId = mapping?.tableId || tableId;
+    
+    console.log(`[leaveTable] Socket ${socket.id} 離開房間，使用 playerId: ${actualPlayerId}, tableId: ${actualTableId}`);
+    
     // 清除映射
     if (socketToPlayer[socket.id]) {
       delete socketToPlayer[socket.id];
     }
 
-    // 使用統一的處理函數
-    handlePlayerDisconnect(tableId, playerId, socket.id);
+    // 使用統一的處理函數，使用實際的playerId
+    handlePlayerDisconnect(actualTableId, actualPlayerId, socket.id);
 
-    socket.leave(tableId);
+    socket.leave(actualTableId);
   });
 
   socket.on('disconnect', () => {
     console.log('玩家離線', socket.id);
 
-    // 從映射表中獲取玩家資訊
+    // 從映射表中獲取玩家資訊（使用服務器端保存的完整playerId）
     const playerInfo = socketToPlayer[socket.id];
 
     if (playerInfo) {
       const { tableId, playerId } = playerInfo;
+
+      console.log(`[disconnect] Socket ${socket.id} 斷線，使用 playerId: ${playerId}, tableId: ${tableId}`);
 
       // 處理玩家離開
       handlePlayerDisconnect(tableId, playerId, socket.id);
