@@ -5303,7 +5303,24 @@ io.on('connection', (socket) => {
     }
     
     // 檢查玩家是否已經在房間中（使用服務器端生成的ID）
-    const existingPlayer = tables[tableId].players.find(p => p.id === playerId);
+    let existingPlayer = tables[tableId].players.find(p => p.id === playerId);
+    
+    // 如果沒有找到相同 playerId 的玩家，檢查是否有相同暱稱的斷線玩家（重用斷線玩家記錄）
+    if (!existingPlayer && tables[tableId]) {
+      const disconnectedPlayerWithSameNickname = tables[tableId].players.find(
+        p => p.name === nickname && p.isDisconnected
+      );
+      
+      if (disconnectedPlayerWithSameNickname) {
+        console.log(`發現相同暱稱 "${nickname}" 的斷線玩家 ${disconnectedPlayerWithSameNickname.id}，重用該玩家記錄`);
+        // 重用斷線玩家的 playerId
+        playerId = disconnectedPlayerWithSameNickname.id;
+        serverPlayer.id = playerId;
+        existingPlayer = disconnectedPlayerWithSameNickname;
+        // 更新 socket 映射中的 playerId
+        console.log(`已將斷線玩家 ${disconnectedPlayerWithSameNickname.id} 更新為 ${playerId}`);
+      }
+    }
     
     if (isSameRoom && existingPlayer && !existingPlayer.isDisconnected) {
       // 如果 socket 已經在同一個房間中，且玩家已存在且未斷線，直接返回，避免重複處理
@@ -6218,11 +6235,44 @@ io.on('connection', (socket) => {
 
     if (playerInfo) {
       const { tableId, playerId } = playerInfo;
+      
+      // 保存玩家資訊用於延遲檢查
+      const savedPlayerInfo = { tableId, playerId, disconnectedAt: Date.now() };
 
-      // 處理玩家離開
-      handlePlayerDisconnect(tableId, playerId, socket.id);
+      // 延遲處理斷線，給玩家時間重連（避免因短暫網絡波動誤判）
+      // 如果玩家在 3 秒內重連，則不會被標記為斷線
+      setTimeout(() => {
+        // 檢查玩家是否已經重連（通過檢查房間中是否有相同 playerId 的在線 socket）
+        const table = tables[savedPlayerInfo.tableId];
+        if (!table) {
+          // 房間已不存在，不需要處理
+          return;
+        }
+        
+        const player = table.players.find(p => p.id === savedPlayerInfo.playerId);
+        if (!player) {
+          // 玩家已不在房間中，不需要處理
+          return;
+        }
+        
+        // 檢查是否有其他 socket 連接到這個 playerId
+        let playerReconnected = false;
+        for (const [socketId, mapping] of Object.entries(socketToPlayer)) {
+          if (mapping.tableId === savedPlayerInfo.tableId && mapping.playerId === savedPlayerInfo.playerId) {
+            playerReconnected = true;
+            console.log(`玩家 ${savedPlayerInfo.playerId} 已重連（socket ${socketId}），取消斷線標記`);
+            break;
+          }
+        }
+        
+        // 如果玩家沒有重連，且玩家狀態不是已斷線，才標記為斷線
+        if (!playerReconnected && !player.isDisconnected) {
+          // 處理玩家離開
+          handlePlayerDisconnect(savedPlayerInfo.tableId, savedPlayerInfo.playerId, socket.id);
+        }
+      }, 3000); // 3 秒延遲，給玩家時間重連
 
-      // 清除映射
+      // 立即清除映射（但延遲標記斷線）
       delete socketToPlayer[socket.id];
     } else {
       console.log(`警告：找不到 socket ${socket.id} 對應的玩家資訊`);
