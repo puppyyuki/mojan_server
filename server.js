@@ -5077,63 +5077,67 @@ io.on('connection', (socket) => {
     }
 
     // 根據暱稱獲取或生成玩家ID
+    // 重要：為了避免相同暱稱導致ID衝突，每個socket連接都應該有唯一ID
+    // 我們結合socket.id來確保唯一性
     const nickname = player.name || player.nickname || '玩家';
     let playerId;
     let userId = null;
     let avatarUrl = player.avatarUrl || null; // 從客戶端獲取頭像URL
     let remark = null; // 備註內容
 
-    // 嘗試從數據庫中查找玩家（使用 findFirst 因為現在允許暱稱重複）
-    try {
-      const dbPlayer = await prisma.player.findFirst({
-        where: { nickname: nickname.trim() },
-        select: { id: true, userId: true, avatarUrl: true, bio: true }
-      });
-
-      if (dbPlayer) {
-        // 使用數據庫中的ID
-        playerId = dbPlayer.id;
-        userId = dbPlayer.userId;
-        // 如果客戶端沒有提供頭像URL，使用數據庫中的
-        if (!avatarUrl && dbPlayer.avatarUrl) {
-          avatarUrl = dbPlayer.avatarUrl;
-        }
-        // 從數據庫獲取備註（使用 bio 字段）
-        remark = dbPlayer.bio || null;
-        // 保存暱稱到ID的映射
-        nicknameToPlayerId[nickname] = playerId;
-        // 只在第一次查詢時輸出日誌，避免重複日誌
-        if (!existingMapping || existingMapping.tableId !== tableId) {
-          console.log(`暱稱 "${nickname}" 已存在於數據庫，使用ID: ${playerId}, userId: ${userId}, remark: ${remark || '無'}`);
-        }
-      } else {
-        // 如果數據庫中不存在，檢查內存映射
-        if (nicknameToPlayerId[nickname]) {
-          playerId = nicknameToPlayerId[nickname];
-          if (!existingMapping || existingMapping.tableId !== tableId) {
-            console.log(`暱稱 "${nickname}" 已存在於內存映射，使用ID: ${playerId}`);
-          }
-        } else {
-          // 生成新的ID（使用簡單的哈希算法或時間戳）
-          // 這裡使用時間戳 + 隨機數生成唯一ID
-          playerId = `player_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-          // 保存暱稱到ID的映射
-          nicknameToPlayerId[nickname] = playerId;
-          console.log(`新暱稱 "${nickname}"，生成新ID: ${playerId}`);
-        }
+    // 檢查該socket是否已經有對應的playerId（重連情況）
+    const existingSocketMapping = socketToPlayer[socket.id];
+    if (existingSocketMapping && existingSocketMapping.tableId === tableId) {
+      // 如果socket已經在同一個房間中，使用現有的playerId
+      playerId = existingSocketMapping.playerId;
+      const existingPlayerInTable = tables[tableId]?.players.find(p => p.id === playerId);
+      if (existingPlayerInTable) {
+        userId = existingPlayerInTable.userId;
+        avatarUrl = existingPlayerInTable.avatarUrl || avatarUrl;
+        remark = existingPlayerInTable.remark || null;
+        console.log(`Socket ${socket.id} 已存在於房間 ${tableId}，使用現有playerId: ${playerId}`);
       }
-    } catch (error) {
-      console.error(`查詢玩家失敗: ${error.message}`);
-      // 如果數據庫查詢失敗，使用內存映射或生成新ID
-      if (nicknameToPlayerId[nickname]) {
-        playerId = nicknameToPlayerId[nickname];
-        if (!existingMapping || existingMapping.tableId !== tableId) {
-          console.log(`暱稱 "${nickname}" 已存在於內存映射，使用ID: ${playerId}`);
+    } else {
+      // 新連接或切換房間，需要生成或查找playerId
+      // 嘗試從數據庫中查找玩家（使用 findFirst 因為現在允許暱稱重複）
+      try {
+        const dbPlayer = await prisma.player.findFirst({
+          where: { nickname: nickname.trim() },
+          select: { id: true, userId: true, avatarUrl: true, bio: true }
+        });
+
+        if (dbPlayer) {
+          // 數據庫中存在該暱稱的玩家
+          // 但為了避免ID衝突，我們需要為每個socket連接生成唯一ID
+          // 結合socket.id和數據庫ID來生成唯一標識
+          // 格式：dbPlayer.id_socketId前8位，確保唯一性
+          const socketIdShort = socket.id.substring(0, 8);
+          playerId = `${dbPlayer.id}_${socketIdShort}`;
+          userId = dbPlayer.userId;
+          // 如果客戶端沒有提供頭像URL，使用數據庫中的
+          if (!avatarUrl && dbPlayer.avatarUrl) {
+            avatarUrl = dbPlayer.avatarUrl;
+          }
+          // 從數據庫獲取備註（使用 bio 字段）
+          remark = dbPlayer.bio || null;
+          console.log(`暱稱 "${nickname}" 已存在於數據庫，為socket ${socket.id} 生成唯一ID: ${playerId}, userId: ${userId}, remark: ${remark || '無'}`);
+        } else {
+          // 如果數據庫中不存在，生成全新的唯一ID
+          // 結合socket.id確保唯一性
+          const socketIdShort = socket.id.substring(0, 8);
+          const timestamp = Date.now();
+          const random = Math.random().toString(36).substr(2, 9);
+          playerId = `player_${timestamp}_${random}_${socketIdShort}`;
+          console.log(`新暱稱 "${nickname}"，為socket ${socket.id} 生成新ID: ${playerId}`);
         }
-      } else {
-        playerId = `player_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        nicknameToPlayerId[nickname] = playerId;
-        console.log(`新暱稱 "${nickname}"，生成新ID: ${playerId}`);
+      } catch (error) {
+        console.error(`查詢玩家失敗: ${error.message}`);
+        // 如果數據庫查詢失敗，生成全新的唯一ID
+        const socketIdShort = socket.id.substring(0, 8);
+        const timestamp = Date.now();
+        const random = Math.random().toString(36).substr(2, 9);
+        playerId = `player_${timestamp}_${random}_${socketIdShort}`;
+        console.log(`查詢失敗，為socket ${socket.id} 生成新ID: ${playerId}`);
       }
     }
 
@@ -5403,11 +5407,26 @@ io.on('connection', (socket) => {
     // 但只有IP檢查啟用時，才會限制相同IP的玩家加入
     if (!existingPlayer) {
       // 獲取客戶端IP地址
-      const clientIP = socket.handshake.address || 
-                      socket.request?.connection?.remoteAddress || 
-                      socket.handshake?.headers?.['x-forwarded-for']?.split(',')[0]?.trim() ||
-                      socket.handshake?.headers?.['x-real-ip'] ||
-                      'unknown';
+      // 優先使用代理轉發的真實IP（x-forwarded-for 或 x-real-ip）
+      // 如果沒有，再使用socket的address
+      const forwardedFor = socket.handshake?.headers?.['x-forwarded-for'];
+      const realIP = socket.handshake?.headers?.['x-real-ip'];
+      const socketAddress = socket.handshake.address || socket.request?.connection?.remoteAddress;
+      
+      let clientIP = 'unknown';
+      if (forwardedFor) {
+        // x-forwarded-for 可能包含多個IP（代理鏈），取第一個（最原始的客戶端IP）
+        clientIP = forwardedFor.split(',')[0].trim();
+        console.log(`[IP獲取] 從 x-forwarded-for 獲取IP: ${clientIP}`);
+      } else if (realIP) {
+        clientIP = realIP.trim();
+        console.log(`[IP獲取] 從 x-real-ip 獲取IP: ${clientIP}`);
+      } else if (socketAddress) {
+        clientIP = socketAddress;
+        console.log(`[IP獲取] 從 socket.handshake.address 獲取IP: ${clientIP}`);
+      } else {
+        console.log(`[IP獲取] ⚠️ 無法獲取客戶端IP，使用 'unknown'`);
+      }
       
       // 處理IPv6映射的IPv4地址 (::ffff:192.168.1.1 -> 192.168.1.1)
       const cleanIP = clientIP.replace(/^::ffff:/, '');
