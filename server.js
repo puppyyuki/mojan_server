@@ -939,8 +939,12 @@ async function startGame(tableId) {
   console.log(`>>> [遊戲開始] 同步所有玩家的手牌給前端`);
   table.players.forEach(player => {
     const hand = table.hiddenHands[player.id] || [];
+    const playerIndex = table.players.findIndex(p => p.id === player.id);
+    
     // 發送給對應玩家的 socket
     const playerSockets = Array.from(io.sockets.adapter.rooms.get(tableId) || []);
+    let socketFound = false;
+    
     playerSockets.forEach(socketId => {
       const mapping = socketToPlayer[socketId];
       if (mapping && mapping.playerId === player.id) {
@@ -949,11 +953,17 @@ async function startGame(tableId) {
           socket.emit('myHand', {
             hand: hand
           });
-          const playerIndex = table.players.findIndex(p => p.id === player.id);
-          console.log(`>>> [遊戲開始] 發送玩家${playerIndex + 1}的手牌給前端，手牌數量：${hand.length}`);
+          socketFound = true;
+          console.log(`>>> [遊戲開始] 發送玩家${playerIndex + 1} (${player.name}) 的手牌給前端，手牌數量：${hand.length}`);
         }
       }
     });
+    
+    // 如果找不到對應的 socket，記錄警告（可能是網路波動導致暫時斷線）
+    if (!socketFound) {
+      console.log(`⚠️ [遊戲開始] 警告：找不到玩家${playerIndex + 1} (${player.name}, ID: ${player.id}) 的 socket 連接，手牌將在重連時發送`);
+      // 不標記為斷線，因為可能是短暫的網路波動，玩家會很快重連
+    }
   });
 
   // 開始開局補花流程
@@ -1176,8 +1186,12 @@ function processPlayerFlowerReplacement(tableId, playerIndex) {
         console.log(`>>> [補花完成] 同步所有玩家的手牌給前端`);
         table.players.forEach(player => {
           const hand = table.hiddenHands[player.id] || [];
+          const playerIndex = table.players.findIndex(p => p.id === player.id);
+          
           // 發送給對應玩家的 socket
           const playerSockets = Array.from(io.sockets.adapter.rooms.get(tableId) || []);
+          let socketFound = false;
+          
           playerSockets.forEach(socketId => {
             const mapping = socketToPlayer[socketId];
             if (mapping && mapping.playerId === player.id) {
@@ -1186,11 +1200,16 @@ function processPlayerFlowerReplacement(tableId, playerIndex) {
                 socket.emit('myHand', {
                   hand: hand
                 });
-                const playerIndex = table.players.findIndex(p => p.id === player.id);
-                console.log(`>>> [補花完成] 發送玩家${playerIndex + 1}的手牌給前端，手牌數量：${hand.length}`);
+                socketFound = true;
+                console.log(`>>> [補花完成] 發送玩家${playerIndex + 1} (${player.name}) 的手牌給前端，手牌數量：${hand.length}`);
               }
             }
           });
+          
+          // 如果找不到對應的 socket，記錄警告
+          if (!socketFound) {
+            console.log(`⚠️ [補花完成] 警告：找不到玩家${playerIndex + 1} (${player.name}, ID: ${player.id}) 的 socket 連接，手牌將在重連時發送`);
+          }
         });
       }, 300);
 
