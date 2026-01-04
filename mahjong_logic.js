@@ -220,39 +220,48 @@ function findMeldsRecursive(tiles, foundMelds, targetMelds) {
     return false;
   }
 
-  const firstTile = tiles[0];
-  console.log(`${indent}[findMeldsRecursive] 當前首張牌：${firstTile}`);
-
-  // 嘗試刻子
-  const triplet = findTriplet(tiles, firstTile);
-  if (triplet) {
-    console.log(`${indent}[findMeldsRecursive] 找到刻子：${triplet.join(',')}`);
-    const newTiles = [...tiles];
-    triplet.forEach(tile => {
-      const index = newTiles.indexOf(tile);
-      if (index !== -1) newTiles.splice(index, 1);
-    });
-    if (findMeldsRecursive(newTiles, foundMelds + 1, targetMelds)) {
-      return true;
+  // 獲取所有唯一的牌（用於嘗試不同的起始牌）
+  const uniqueTiles = [];
+  const seen = new Set();
+  for (const tile of tiles) {
+    const key = tile;
+    if (!seen.has(key)) {
+      seen.add(key);
+      uniqueTiles.push(tile);
     }
-  } else {
-    console.log(`${indent}[findMeldsRecursive] 無法組成刻子`);
   }
 
-  // 嘗試順子
-  const sequence = findSequence(tiles, firstTile);
-  if (sequence) {
-    console.log(`${indent}[findMeldsRecursive] 找到順子：${sequence.join(',')}`);
-    const newTiles = [...tiles];
-    sequence.forEach(tile => {
-      const index = newTiles.indexOf(tile);
-      if (index !== -1) newTiles.splice(index, 1);
-    });
-    if (findMeldsRecursive(newTiles, foundMelds + 1, targetMelds)) {
-      return true;
+  // 嘗試從每張唯一的牌開始組成面子
+  for (const startTile of uniqueTiles) {
+    console.log(`${indent}[findMeldsRecursive] 嘗試從牌：${startTile}開始組成面子`);
+
+    // 嘗試刻子
+    const triplet = findTriplet(tiles, startTile);
+    if (triplet) {
+      console.log(`${indent}[findMeldsRecursive] 找到刻子：${triplet.join(',')}`);
+      const newTiles = [...tiles];
+      triplet.forEach(tile => {
+        const index = newTiles.indexOf(tile);
+        if (index !== -1) newTiles.splice(index, 1);
+      });
+      if (findMeldsRecursive(newTiles, foundMelds + 1, targetMelds)) {
+        return true;
+      }
     }
-  } else {
-    console.log(`${indent}[findMeldsRecursive] 無法組成順子`);
+
+    // 嘗試順子
+    const sequence = findSequence(tiles, startTile);
+    if (sequence) {
+      console.log(`${indent}[findMeldsRecursive] 找到順子：${sequence.join(',')}`);
+      const newTiles = [...tiles];
+      sequence.forEach(tile => {
+        const index = newTiles.indexOf(tile);
+        if (index !== -1) newTiles.splice(index, 1);
+      });
+      if (findMeldsRecursive(newTiles, foundMelds + 1, targetMelds)) {
+        return true;
+      }
+    }
   }
 
   console.log(`${indent}[findMeldsRecursive] ✗ 無法從當前牌組找到有效面子`);

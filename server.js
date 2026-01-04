@@ -250,12 +250,110 @@ async function startGame(tableId) {
       player.statistics = {
         selfDraws: 0,
         discards: 0,
-        claimedDiscards: 0
+        claimedDiscards: 0,
+        discardedHu: 0
       };
     }
   });
   
   console.log(`>>> [遊戲開始] 圈數設定: ${table.maxRounds} 圈，當前圈數: ${table.round}`);
+
+  // 執行扣卡邏輯（在遊戲開始時）
+  try {
+    const deduction = table.gameSettings?.deduction || 'AA_DEDUCTION';
+    const rounds = table.maxRounds || 1;
+    const cardsPerRound = 4; // 每圈需要4張房卡（4人各1張）
+    const totalCardsNeeded = rounds * cardsPerRound; // 總共需要的房卡數量
+    
+    // 獲取房間資訊以找到房主
+    const room = await prisma.room.findUnique({
+      where: { roomId: tableId },
+      select: { creatorId: true },
+    });
+    
+    if (deduction === 'HOST_DEDUCTION' && room && room.creatorId) {
+      // 房主扣卡：由房主扣除所有房卡
+      const hostPlayer = await prisma.player.findUnique({
+        where: { id: room.creatorId },
+        select: { cardCount: true },
+      });
+      
+      if (hostPlayer && hostPlayer.cardCount >= totalCardsNeeded) {
+        const previousCount = hostPlayer.cardCount;
+        const newCount = previousCount - totalCardsNeeded;
+        
+        await prisma.$transaction([
+          prisma.player.update({
+            where: { id: room.creatorId },
+            data: {
+              cardCount: {
+                decrement: totalCardsNeeded,
+              },
+            },
+          }),
+          prisma.cardConsumptionRecord.create({
+            data: {
+              playerId: room.creatorId,
+              roomId: tableId,
+              amount: totalCardsNeeded,
+              reason: 'game_start_host_deduction',
+              previousCount: previousCount,
+              newCount: newCount,
+            },
+          }),
+        ]);
+        console.log(`>>> [扣卡] 房主扣卡：扣除 ${totalCardsNeeded} 張房卡（${rounds}圈），剩餘: ${newCount}`);
+      } else {
+        console.log(`>>> [扣卡] 房主房卡不足：需要 ${totalCardsNeeded} 張，目前 ${hostPlayer?.cardCount || 0} 張`);
+      }
+    } else if (deduction === 'AA_DEDUCTION') {
+      // AA扣卡：每位玩家各扣每圈1張（共 rounds 張）
+      const cardsPerPlayer = rounds; // 每位玩家需要扣的房卡數量
+      
+      for (const player of table.players) {
+        try {
+          const dbPlayer = await prisma.player.findUnique({
+            where: { id: player.id },
+            select: { cardCount: true },
+          });
+          
+          if (dbPlayer && dbPlayer.cardCount >= cardsPerPlayer) {
+            const previousCount = dbPlayer.cardCount;
+            const newCount = previousCount - cardsPerPlayer;
+            
+            await prisma.$transaction([
+              prisma.player.update({
+                where: { id: player.id },
+                data: {
+                  cardCount: {
+                    decrement: cardsPerPlayer,
+                  },
+                },
+              }),
+              prisma.cardConsumptionRecord.create({
+                data: {
+                  playerId: player.id,
+                  roomId: tableId,
+                  amount: cardsPerPlayer,
+                  reason: 'game_start_aa_deduction',
+                  previousCount: previousCount,
+                  newCount: newCount,
+                },
+              }),
+            ]);
+            console.log(`>>> [扣卡] AA扣卡：玩家 ${player.name} 扣除 ${cardsPerPlayer} 張房卡（${rounds}圈），剩餘: ${newCount}`);
+          } else {
+            console.log(`>>> [扣卡] 玩家 ${player.name} 房卡不足：需要 ${cardsPerPlayer} 張，目前 ${dbPlayer?.cardCount || 0} 張`);
+          }
+        } catch (error) {
+          console.error(`>>> [扣卡] 扣除玩家 ${player.name} 房卡失敗:`, error);
+        }
+      }
+    }
+  } catch (error) {
+    console.error(`>>> [扣卡] 扣卡邏輯執行失敗:`, error);
+    // 不影響遊戲開始流程，只記錄錯誤
+  }
 
   // 設置莊家標記
   table.players.forEach((player, index) => {
@@ -808,7 +906,10 @@ async function startGame(tableId) {
       seat: p.seat,
       isDealer: p.isDealer,
       score: p.score,
-      isReady: p.isReady
+      isReady: p.isReady,
+      ipAddress: p.ipAddress || null,
+      latitude: p.latitude || null,
+      longitude: p.longitude || null
     })),
     dealerIndex: table.dealerIndex,
     windStart: table.windStart,
@@ -979,7 +1080,10 @@ function startNextRound(tableId) {
       seat: p.seat,
       isDealer: p.isDealer,
       score: p.score,
-      isReady: p.isReady
+      isReady: p.isReady,
+      ipAddress: p.ipAddress || null,
+      latitude: p.latitude || null,
+      longitude: p.longitude || null
     })),
     dealerIndex: table.dealerIndex,
     windStart: table.windStart,
@@ -2379,10 +2483,12 @@ async function endGame(tableId, reason, scores = null) {
     return {
       ...p,
       userId: player.userId || null, // 添加6位數userId
+      remark: player.remark || player.bio || null, // 備註內容（優先使用 remark，如果沒有則使用 bio）
       statistics: player.statistics || {
         selfDraws: 0,
         discards: 0,
-        claimedDiscards: 0
+        claimedDiscards: 0,
+        discardedHu: 0
       }
     };
   });
@@ -4374,11 +4480,39 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
 
   // 更新統計資料
   if (huType === 'selfDrawnHu') {
-    player.statistics = player.statistics || { selfDraws: 0, discards: 0, claimedDiscards: 0 };
+    player.statistics = player.statistics || { selfDraws: 0, discards: 0, claimedDiscards: 0, discardedHu: 0 };
     player.statistics.selfDraws = (player.statistics.selfDraws || 0) + 1;
   } else {
-    player.statistics = player.statistics || { selfDraws: 0, discards: 0, claimedDiscards: 0 };
+    player.statistics = player.statistics || { selfDraws: 0, discards: 0, claimedDiscards: 0, discardedHu: 0 };
     player.statistics.claimedDiscards = (player.statistics.claimedDiscards || 0) + 1;
+    
+    // 更新放槍者的放槍次數統計
+    let discarderId = null;
+    if (targetPlayer !== null && targetPlayer !== undefined) {
+      if (typeof targetPlayer === 'number') {
+        const discarder = table.players[targetPlayer];
+        discarderId = discarder ? discarder.id : null;
+      } else if (typeof targetPlayer === 'string') {
+        discarderId = targetPlayer;
+      } else if (targetPlayer.id) {
+        discarderId = targetPlayer.id;
+      }
+    }
+    
+    // 如果還是找不到，嘗試從 claimingState 中獲取
+    if (!discarderId && table.claimingState && table.claimingState.discardPlayerId) {
+      discarderId = table.claimingState.discardPlayerId;
+    }
+    
+    // 更新放槍者的統計
+    if (discarderId) {
+      const discarder = table.players.find(p => p.id === discarderId);
+      if (discarder) {
+        discarder.statistics = discarder.statistics || { selfDraws: 0, discards: 0, claimedDiscards: 0, discardedHu: 0 };
+        discarder.statistics.discardedHu = (discarder.statistics.discardedHu || 0) + 1;
+        console.log(`>>> [統計] 玩家 ${discarderId} 放槍次數 +1，當前總計: ${discarder.statistics.discardedHu}`);
+      }
+    }
   }
 
   // 計算台數和牌型
@@ -4533,6 +4667,7 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
     roundScores: roundScores, // 該圈分數變化
     totalScores: totalScores, // 累積總分
     isLastRound: isLastRound, // 標記是否為最後一圈
+    remainingTilesList: table.deck || [], // 剩餘牌列表
     players: table.players.map(p => ({
       id: p.id,
       name: p.name,
@@ -4541,10 +4676,11 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
       score: p.score || 0,
       seat: p.seat,
       isDealer: p.isDealer,
-      statistics: p.statistics || { selfDraws: 0, discards: 0, claimedDiscards: 0 },
+      statistics: p.statistics || { selfDraws: 0, discards: 0, claimedDiscards: 0, discardedHu: 0 },
       winPatterns: p.id === playerId ? winPatterns : [], // 只有獲勝者才有牌型
-      hand: p.id === playerId ? table.hiddenHands[p.id] || [] : [], // 只有獲勝者才顯示手牌
-      melds: p.id === playerId ? table.melds[p.id] || [] : [] // 只有獲勝者才顯示明牌
+      hand: table.hiddenHands[p.id] || [], // 所有玩家都顯示手牌
+      melds: table.melds[p.id] || [], // 所有玩家都顯示明牌
+      winningTile: p.id === playerId ? targetTile : null // 只有獲勝者才有胡牌的那張牌
     }))
   });
 
@@ -4576,7 +4712,10 @@ function getCleanTableData(table) {
         isReady: p.isReady,
         isTing: p.isTing || false,
         isTianTing: p.isTianTing || false,
-        isDiTing: p.isDiTing || false
+        isDiTing: p.isDiTing || false,
+        ipAddress: p.ipAddress || null,
+        latitude: p.latitude || null,
+        longitude: p.longitude || null
       })) : [],
       hands: table.hands || {},
       // hiddenHands 不應該發送給所有玩家，只發送給自己
@@ -4596,7 +4735,8 @@ function getCleanTableData(table) {
       round: table.round,
       maxRounds: table.maxRounds || 1,
       wind: table.wind,
-      manualStart: table.manualStart || false
+      manualStart: table.manualStart || false,
+      gameSettings: table.gameSettings || null // 包含遊戲設定（GPS鎖定、IP檢查等）
     };
 
     return cleanData;
@@ -4905,12 +5045,13 @@ io.on('connection', (socket) => {
     let playerId;
     let userId = null;
     let avatarUrl = player.avatarUrl || null; // 從客戶端獲取頭像URL
+    let remark = null; // 備註內容
 
     // 嘗試從數據庫中查找玩家（使用 findFirst 因為現在允許暱稱重複）
     try {
       const dbPlayer = await prisma.player.findFirst({
         where: { nickname: nickname.trim() },
-        select: { id: true, userId: true, avatarUrl: true }
+        select: { id: true, userId: true, avatarUrl: true, bio: true }
       });
 
       if (dbPlayer) {
@@ -4921,11 +5062,13 @@ io.on('connection', (socket) => {
         if (!avatarUrl && dbPlayer.avatarUrl) {
           avatarUrl = dbPlayer.avatarUrl;
         }
+        // 從數據庫獲取備註（使用 bio 字段）
+        remark = dbPlayer.bio || null;
         // 保存暱稱到ID的映射
         nicknameToPlayerId[nickname] = playerId;
         // 只在第一次查詢時輸出日誌，避免重複日誌
         if (!existingMapping || existingMapping.tableId !== tableId) {
-          console.log(`暱稱 "${nickname}" 已存在於數據庫，使用ID: ${playerId}, userId: ${userId}`);
+          console.log(`暱稱 "${nickname}" 已存在於數據庫，使用ID: ${playerId}, userId: ${userId}, remark: ${remark || '無'}`);
         }
       } else {
         // 如果數據庫中不存在，檢查內存映射
@@ -4963,7 +5106,8 @@ io.on('connection', (socket) => {
       id: playerId,
       name: nickname,
       userId: userId || null, // 添加6位數userId
-      avatarUrl: avatarUrl || null // 添加頭像URL
+      avatarUrl: avatarUrl || null, // 添加頭像URL
+      remark: remark || null // 添加備註
     };
 
     // 取得房間設定（特別是是否手動開始）
@@ -4983,6 +5127,13 @@ io.on('connection', (socket) => {
       if (!existingMapping || existingMapping.tableId !== tableId) {
         console.log(`>>> [房間設定] 房間 ${tableId} 的圈數設定: ${maxRounds} 圈`);
         console.log(`>>> [房間設定] 底分: ${gameSettings?.base_points || 100}, 每台分數: ${gameSettings?.scoring_unit || 20}, 封頂: ${gameSettings?.point_cap || 'UP_TO_8_POINTS'}`);
+        const isGPSLockEnabled = gameSettings?.gps_lock === true || gameSettings?.location_check === true;
+        if (isGPSLockEnabled) {
+          console.log(`>>> [房間設定] GPS鎖定: 已啟用`);
+        }
+        if (gameSettings?.ip_check === true) {
+          console.log(`>>> [房間設定] IP檢查: 已啟用`);
+        }
       }
     } catch (err) {
       console.error(`查詢房間設定失敗（${tableId}）:`, err.message);
@@ -5042,14 +5193,20 @@ io.on('connection', (socket) => {
       return;
     }
     
-    // GPS距離檢查（僅在新玩家加入時檢查）
-    if (!existingPlayer && gameSettings?.location_check === true) {
+    // GPS位置收集（僅在新玩家加入時收集）
+    // 檢查 gps_lock 或 location_check（為了向後兼容）
+    // 注意：GPS鎖定現在只要求提供GPS位置（用於UI顯示距離），不再限制距離
+    const isGPSLockEnabled = gameSettings?.gps_lock === true || gameSettings?.location_check === true;
+    if (!existingPlayer && isGPSLockEnabled) {
       const newPlayerLat = player.latitude;
       const newPlayerLon = player.longitude;
       
-      // 檢查新玩家是否提供了GPS位置
+      console.log(`[GPS檢查] 玩家 ${playerId} 嘗試加入房間 ${tableId}，GPS鎖定已啟用（要求提供GPS位置）`);
+      console.log(`[GPS檢查] 新玩家GPS位置: lat=${newPlayerLat}, lon=${newPlayerLon}`);
+      
+      // 檢查新玩家是否提供了GPS位置（GPS鎖定啟用時必須提供）
       if (newPlayerLat == null || newPlayerLon == null) {
-        console.log(`玩家 ${playerId} 嘗試加入房間 ${tableId}，但未提供GPS位置（房間已開啟GPS檢查）`);
+        console.log(`[GPS檢查] 玩家 ${playerId} 嘗試加入房間 ${tableId}，但未提供GPS位置（房間已開啟GPS鎖定）`);
         socket.emit('joinTableError', {
           success: false,
           error: 'LOCATION_REQUIRED',
@@ -5058,34 +5215,81 @@ io.on('connection', (socket) => {
         return;
       }
       
-      // 檢查與房間內所有現有玩家的距離
-      const existingPlayers = tables[tableId].players;
-      const MIN_DISTANCE = 500; // 最小距離500公尺
-      
-      for (const existingPlayer of existingPlayers) {
-        if (existingPlayer.latitude != null && existingPlayer.longitude != null) {
-          const distance = calculateDistance(
-            newPlayerLat,
-            newPlayerLon,
-            existingPlayer.latitude,
-            existingPlayer.longitude
-          );
-          
-          if (distance < MIN_DISTANCE) {
-            console.log(`玩家 ${playerId} 與房間內玩家 ${existingPlayer.id} 距離過近: ${distance.toFixed(2)} 公尺`);
-            socket.emit('joinTableError', {
-              success: false,
-              error: 'LOCATION_TOO_CLOSE',
-              message: '您與房內玩家位置過於相近'
-            });
-            return;
-          }
-        }
+      // 驗證GPS座標是否有效
+      if (isNaN(newPlayerLat) || isNaN(newPlayerLon) || 
+          newPlayerLat < -90 || newPlayerLat > 90 ||
+          newPlayerLon < -180 || newPlayerLon > 180) {
+        console.log(`[GPS檢查] 玩家 ${playerId} 提供的GPS座標無效: lat=${newPlayerLat}, lon=${newPlayerLon}`);
+        socket.emit('joinTableError', {
+          success: false,
+          error: 'LOCATION_INVALID',
+          message: 'GPS位置資訊無效，請重新定位'
+        });
+        return;
       }
       
-      // GPS檢查通過，將GPS位置添加到serverPlayer
+      // GPS鎖定啟用時，只保存GPS位置用於UI顯示，不檢查距離限制
       serverPlayer.latitude = newPlayerLat;
       serverPlayer.longitude = newPlayerLon;
+      console.log(`[GPS檢查] ✅ 已保存玩家 ${playerId} 的GPS位置（用於UI顯示距離）`);
+    } else if (!existingPlayer && player.latitude != null && player.longitude != null) {
+      // 即使GPS鎖定未啟用，如果玩家提供了GPS位置，也保存它（以備後用）
+      serverPlayer.latitude = player.latitude;
+      serverPlayer.longitude = player.longitude;
+      console.log(`[GPS收集] ✅ 已保存玩家 ${playerId} 的GPS位置（GPS鎖定未啟用，但玩家提供了位置）`);
+    }
+    
+    // IP地址收集和檢查（僅在新玩家加入時處理）
+    // 不管IP檢查是否啟用，都要保存IP地址用於UI顯示
+    // 但只有IP檢查啟用時，才會限制相同IP的玩家加入
+    if (!existingPlayer) {
+      // 獲取客戶端IP地址
+      const clientIP = socket.handshake.address || 
+                      socket.request?.connection?.remoteAddress || 
+                      socket.handshake?.headers?.['x-forwarded-for']?.split(',')[0]?.trim() ||
+                      socket.handshake?.headers?.['x-real-ip'] ||
+                      'unknown';
+      
+      // 處理IPv6映射的IPv4地址 (::ffff:192.168.1.1 -> 192.168.1.1)
+      const cleanIP = clientIP.replace(/^::ffff:/, '');
+      
+      const isIPCheckEnabled = gameSettings?.ip_check === true;
+      
+      if (isIPCheckEnabled) {
+        console.log(`[IP檢查] 玩家 ${playerId} 嘗試加入房間 ${tableId}，IP檢查已啟用`);
+        console.log(`[IP檢查] 新玩家IP地址: ${cleanIP}`);
+        
+        // 檢查與房間內所有現有玩家的IP
+        const existingPlayers = tables[tableId].players;
+        
+        console.log(`[IP檢查] 房間內現有玩家數量: ${existingPlayers.length}`);
+        
+        for (const existingPlayer of existingPlayers) {
+          if (existingPlayer.ipAddress) {
+            console.log(`[IP檢查] 玩家 ${playerId} IP: ${cleanIP} vs 房間內玩家 ${existingPlayer.id} (${existingPlayer.name}) IP: ${existingPlayer.ipAddress}`);
+            
+            if (cleanIP === existingPlayer.ipAddress) {
+              console.log(`[IP檢查] ❌ 玩家 ${playerId} 與房間內玩家 ${existingPlayer.id} 使用相同IP地址: ${cleanIP}`);
+              socket.emit('joinTableError', {
+                success: false,
+                error: 'IP_SAME',
+                message: '您與房內玩家使用相同IP地址，無法加入'
+              });
+              return;
+            }
+          } else {
+            console.log(`[IP檢查] ⚠️ 房間內玩家 ${existingPlayer.id} (${existingPlayer.name}) 沒有IP地址資訊`);
+          }
+        }
+        
+        // IP檢查通過，將IP地址添加到serverPlayer
+        serverPlayer.ipAddress = cleanIP;
+        console.log(`[IP檢查] ✅ 玩家 ${playerId} IP檢查通過，已加入房間`);
+      } else {
+        // IP檢查未啟用，但仍保存IP地址用於UI顯示
+        serverPlayer.ipAddress = cleanIP;
+        console.log(`[IP收集] ✅ 已保存玩家 ${playerId} 的IP地址（IP檢查未啟用，但保存用於UI顯示）`);
+      }
     }
     
     if (!existingPlayer) {
@@ -5104,7 +5308,8 @@ io.on('connection', (socket) => {
         statistics: { // 統計資料
           selfDraws: 0,
           discards: 0,
-          claimedDiscards: 0
+          claimedDiscards: 0,
+          discardedHu: 0
         }
       };
       
@@ -5112,6 +5317,11 @@ io.on('connection', (socket) => {
       if (serverPlayer.latitude != null && serverPlayer.longitude != null) {
         playerData.latitude = serverPlayer.latitude;
         playerData.longitude = serverPlayer.longitude;
+      }
+      
+      // 如果有IP地址，添加到玩家資料中
+      if (serverPlayer.ipAddress) {
+        playerData.ipAddress = serverPlayer.ipAddress;
       }
       
       tables[tableId].players.push(playerData);

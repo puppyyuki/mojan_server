@@ -69,4 +69,37 @@ router.post('/', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/client/rooms/:roomId
+ * 獲取房間資訊
+ */
+router.get('/:roomId', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { roomId } = req.params;
+
+    const room = await prisma.room.findUnique({
+      where: { roomId },
+      select: {
+        roomId: true,
+        creatorId: true,
+        currentPlayers: true,
+        maxPlayers: true,
+        status: true,
+        gameSettings: true,
+        createdAt: true,
+      },
+    });
+
+    if (!room) {
+      return errorResponse(res, '房間不存在', null, 404);
+    }
+
+    return successResponse(res, room, '獲取房間資訊成功');
+  } catch (error) {
+    console.error('[Rooms API] 獲取房間資訊失敗:', error);
+    return errorResponse(res, '獲取房間資訊失敗', error.message, 500);
+  }
+});
+
 module.exports = router;
