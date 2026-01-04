@@ -4519,11 +4519,19 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
   const taiResult = calculateTai(table, player, playerIndex, huType);
   const totalTai = taiResult.totalTai;
   
-  // 在牌型列表最前面加上"胡牌"或"自摸"
-  // 顯示格式：自摸、XXX、XXX 或 胡牌、XXX、XXX
-  const winPatterns = huType === 'selfDrawnHu' 
-    ? ['自摸', ...taiResult.patternNames]
-    : ['胡牌', ...taiResult.patternNames];
+  // 構建牌型列表，確保"自摸"或"胡牌"在最前面
+  // 注意：calculateTai 已經會添加"自摸"到 patternNames 中，但順序可能不對
+  // 我們需要將"自摸"或"門清自摸"移到最前面，避免重複
+  let winPatterns;
+  if (huType === 'selfDrawnHu') {
+    // 自摸時，從 patternNames 中移除"自摸"或"門清自摸"，然後放在最前面
+    const otherPatterns = taiResult.patternNames.filter(p => p !== '自摸' && p !== '門清自摸');
+    const selfDrawPattern = taiResult.patternNames.find(p => p === '自摸' || p === '門清自摸') || '自摸';
+    winPatterns = [selfDrawPattern, ...otherPatterns];
+  } else {
+    // 放槍時，在前面加上"胡牌"
+    winPatterns = ['胡牌', ...taiResult.patternNames];
+  }
   
   // 獲取遊戲設定
   const gameSettings = table.gameSettings || {
