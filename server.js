@@ -1344,11 +1344,43 @@ function processPlayerFlowerReplacement(tableId, playerIndex) {
     // 處理第一張花牌
     const flower = flowers[0];
     console.log(`玩家${playerIndex + 1}正在處理花牌：${flower}`);
-    const flowerIndex = hand.indexOf(flower);
+    
+    // 改進：使用 findIndex 確保找到正確的花牌位置
+    // 如果找不到，嘗試從手牌中直接找到第一張花牌
+    let flowerIndex = hand.findIndex(tile => tile === flower);
+    let actualFlowerToRemove = flower; // 預設使用識別到的花牌
+    
+    // 如果找不到完全匹配的，嘗試找到第一張花牌（可能是名稱格式問題）
+    if (flowerIndex === -1) {
+      flowerIndex = hand.findIndex(tile => isFlowerTile(tile));
+      if (flowerIndex !== -1) {
+        // 使用實際找到的花牌名稱
+        actualFlowerToRemove = hand[flowerIndex];
+        console.log(`>>> [補花警告] 找不到完全匹配的花牌 "${flower}"，使用手牌中的花牌 "${actualFlowerToRemove}"`);
+      }
+    }
+    
+    // 如果還是找不到，記錄錯誤但繼續處理
+    if (flowerIndex === -1) {
+      console.log(`>>> [補花錯誤] 無法在手牌中找到花牌 "${flower}"，手牌：${hand.join(', ')}`);
+      // 嘗試從手牌中找到任何花牌
+      flowerIndex = hand.findIndex(tile => isFlowerTile(tile));
+      if (flowerIndex === -1) {
+        console.log(`>>> [補花錯誤] 手牌中完全沒有花牌，但識別到花牌：${flowers.join(', ')}`);
+        // 跳過這張花牌，處理下一位玩家
+        processPlayerFlowerReplacement(tableId, playerIndex + 1);
+        return;
+      } else {
+        // 使用找到的第一張花牌
+        actualFlowerToRemove = hand[flowerIndex];
+        console.log(`>>> [補花錯誤恢復] 使用手牌中的第一張花牌 "${actualFlowerToRemove}"`);
+      }
+    }
 
-    // 移除花牌並加入收集
+    // 移除花牌並加入收集（使用實際找到的花牌）
     hand.splice(flowerIndex, 1);
-    table.flowers[player.id].push(flower);
+    table.flowers[player.id].push(actualFlowerToRemove);
+    console.log(`>>> [補花] 移除花牌：${actualFlowerToRemove}，剩餘手牌：${hand.join(', ')}`);
 
     // 從牌組補摸一張牌
     if (table.deck.length > 0) {
@@ -1405,16 +1437,18 @@ function processPlayerFlowerReplacement(tableId, playerIndex) {
       }
       hand.push(newTile);
 
-      console.log(`玩家${playerIndex + 1}補花: ${flower} -> ${newTile}`);
+      // 使用實際移除的花牌名稱（可能與識別的不同）
+      const flowerToBroadcast = actualFlowerToRemove || flower;
+      console.log(`玩家${playerIndex + 1}補花: ${flowerToBroadcast} -> ${newTile}`);
 
-      // 廣播補花事件
-      console.log(`>>> 廣播補花事件：玩家${playerIndex + 1}，花牌：${flower}，新牌：${newTile}`);
+      // 廣播補花事件（使用實際移除的花牌名稱）
+      console.log(`>>> 廣播補花事件：玩家${playerIndex + 1}，花牌：${flowerToBroadcast}，新牌：${newTile}`);
       // 廣播開局補花給所有玩家（確保所有玩家都能聽到音效）
       console.log(`>>> [音效廣播] 廣播開局補花事件給房間 ${tableId} 的所有玩家`);
       io.to(tableId).emit('flowerReplacement', {
         playerId: player.id,
         playerIndex: playerIndex,
-        flower: flower,
+        flower: flowerToBroadcast,
         newTile: newTile,
         isInitial: true
       });
@@ -1470,6 +1504,9 @@ function drawTile(tableId, playerId) {
     console.log(`玩家索引 ${playerIndex} 無效，無法摸牌`);
     return;
   }
+
+  // 允許為斷線玩家摸牌
+  const isDisconnected = player.isDisconnected === true;
 
   // 檢查牌組是否還有牌
   if (table.deck.length === 0) {
@@ -1736,13 +1773,23 @@ function drawTile(tableId, playerId) {
               console.log(`>>> [${tingType}自動打牌] 玩家${playerIndex + 1}手牌中沒有摸到的牌，自動打出第一張牌：${currentHand[0]}`);
               discardTile(tableId, playerId, currentHand[0]);
             } else {
-              startTurnTimer(tableId, playerId);
+              // 如果玩家斷線，不啟動計時器
+              if (!isDisconnected) {
+                startTurnTimer(tableId, playerId);
+              } else {
+                console.log(`玩家 ${playerId} 斷線，不啟動回合計時器，等待重連`);
+              }
             }
           }
         }, 1500);
       } else {
         // 等待玩家打牌或自槓
-        startTurnTimer(tableId, playerId);
+        // 如果玩家斷線，不啟動計時器
+        if (!isDisconnected) {
+          startTurnTimer(tableId, playerId);
+        } else {
+          console.log(`玩家 ${playerId} 斷線，不啟動回合計時器，等待重連`);
+        }
       }
     }
   }
@@ -2052,9 +2099,15 @@ function handleFlowerTile(tableId, playerId, flower) {
           }, 1500);
         } else {
           // 等待玩家打牌或自槓
-          setTimeout(() => {
-            startTurnTimer(tableId, playerId);
-          }, 1500);
+          // 如果玩家斷線，不啟動計時器
+          const isDisconnected = player.isDisconnected === true;
+          if (!isDisconnected) {
+            setTimeout(() => {
+              startTurnTimer(tableId, playerId);
+            }, 1500);
+          } else {
+            console.log(`玩家 ${playerId} 斷線，不啟動回合計時器，等待重連`);
+          }
         }
       }
     }
@@ -4723,7 +4776,9 @@ function getCleanTableData(table) {
         isDiTing: p.isDiTing || false,
         ipAddress: p.ipAddress || null,
         latitude: p.latitude || null,
-        longitude: p.longitude || null
+        longitude: p.longitude || null,
+        isDisconnected: p.isDisconnected || false,
+        disconnectedAt: p.disconnectedAt || null
       })) : [],
       hands: table.hands || {},
       // hiddenHands 不應該發送給所有玩家，只發送給自己
@@ -4809,7 +4864,7 @@ async function handlePlayerDisconnect(tableId, playerId, socketId) {
     return;
   }
 
-  console.log(`處理玩家離開：房間 ${tableId}，玩家 ${playerId}`);
+  console.log(`處理玩家斷線：房間 ${tableId}，玩家 ${playerId}`);
 
   // 找出玩家索引
   const playerIndex = table.players.findIndex(p => p.id === playerId);
@@ -4819,72 +4874,62 @@ async function handlePlayerDisconnect(tableId, playerId, socketId) {
     return;
   }
 
-  // 清除所有與該玩家相關的計時器
-  if (table.claimingState && table.claimingState.options) {
-    const playerOption = table.claimingState.options.find(opt => opt.playerId === playerId);
-    if (playerOption) {
-      // 如果該玩家正在等待吃碰槓，移除該選項
-      table.claimingState.options = table.claimingState.options.filter(opt => opt.playerId !== playerId);
+  const player = table.players[playerIndex];
 
-      // 如果沒有其他選項了，清除吃碰槓狀態
-      if (table.claimingState.options.length === 0) {
-        if (table.claimingTimer) {
-          clearInterval(table.claimingTimer);
-          table.claimingTimer = null;
-        }
-        table.claimingState = null;
-        table.gamePhase = GamePhase.PLAYING;
-      }
-    }
-  }
-
-  // 清除聽牌狀態（如果該玩家正在聽牌）
-  if (table.tingState && table.tingState.playerId === playerId) {
-    if (table.tingTimer) {
-      clearInterval(table.tingTimer);
-      table.tingTimer = null;
-    }
-    table.tingState = null;
-    table.gamePhase = GamePhase.PLAYING;
-  }
+  // 標記玩家為斷線狀態（不刪除玩家）
+  player.isDisconnected = true;
+  player.disconnectedAt = Date.now();
+  console.log(`玩家 ${playerId} 已標記為斷線，時間戳：${player.disconnectedAt}`);
 
   // 清除回合計時器（如果該玩家是當前回合）
   if (table.turn === playerIndex && table.turnTimer) {
     clearInterval(table.turnTimer);
     table.turnTimer = null;
+    console.log(`玩家 ${playerId} 斷線，清除回合計時器`);
   }
+
+  // 如果遊戲正在進行且輪到斷線玩家
+  if ((table.gamePhase === GamePhase.PLAYING || table.gamePhase === GamePhase.CLAIMING) && table.turn === playerIndex) {
+    // 檢查玩家是否已摸牌
+    const playerHand = table.hiddenHands[playerId] || [];
+    const hasDrawnTile = playerHand.length > 0; // 簡化判斷，實際應該檢查是否在摸牌後狀態
+    
+    if (!hasDrawnTile) {
+      // 如果未摸牌，自動摸牌
+      console.log(`玩家 ${playerId} 斷線且未摸牌，自動摸牌`);
+      drawTile(tableId, playerId);
+    } else {
+      // 如果已摸牌，保持等待狀態，不清除計時器（已在上方清除）
+      console.log(`玩家 ${playerId} 斷線且已摸牌，保持等待狀態`);
+    }
+  }
+
+  // 注意：不從 claimingState 中移除斷線玩家，保留決策選項供重連後使用
+  // 注意：不從 tingState 中移除斷線玩家，保留聽牌狀態
 
   // 如果是手動開始房間，重置所有玩家的準備狀態
   if (table.manualStart) {
     table.players.forEach(p => {
       p.isReady = false;
     });
-    console.log(`玩家 ${playerId} 離開，重置所有玩家準備狀態`);
+    console.log(`玩家 ${playerId} 斷線，重置所有玩家準備狀態`);
   }
 
-  // 從玩家列表中移除
-  table.players = table.players.filter(p => p.id !== playerId);
+  // 注意：不從玩家列表中移除，不清理遊戲數據（hands, hiddenHands, melds, discards, flowers）
 
-  // 清理玩家相關數據
-  delete table.hands[playerId];
-  delete table.hiddenHands[playerId];
-  delete table.melds[playerId];
-  delete table.discards[playerId];
-  delete table.flowers[playerId];
-
-  // 更新數據庫中的 currentPlayers
-  updateRoomCurrentPlayers(tableId, table.players.length).catch(err => {
+  // 更新數據庫中的 currentPlayers（只計算在線玩家）
+  const onlinePlayersCount = table.players.filter(p => !p.isDisconnected).length;
+  updateRoomCurrentPlayers(tableId, onlinePlayersCount).catch(err => {
     console.error(`更新房間 ${tableId} 的 currentPlayers 失敗:`, err);
   });
 
-  // 如果房間空了，刪除房間
-  if (table.players.length === 0) {
-    console.log(`房間 ${tableId} 已空，刪除房間`);
+  // 如果所有玩家都斷線，刪除房間
+  if (onlinePlayersCount === 0) {
+    console.log(`房間 ${tableId} 所有玩家都斷線，刪除房間`);
     delete tables[tableId];
 
     // 刪除數據庫中的房間記錄
     try {
-      // 查找並刪除房間
       const room = await prisma.room.findUnique({
         where: { roomId: tableId },
       });
@@ -4897,37 +4942,16 @@ async function handlePlayerDisconnect(tableId, playerId, socketId) {
       }
     } catch (error) {
       console.error(`刪除房間記錄失敗：${tableId}`, error);
-      // 即使刪除失敗，也繼續執行，因為內存中的房間已經刪除
     }
 
     return;
   }
 
-  // 如果遊戲正在進行，需要處理玩家離開的情況
-  if (table.gamePhase === GamePhase.PLAYING || table.gamePhase === GamePhase.CLAIMING) {
-    // 如果離開的是當前玩家，輪到下一家
-    if (table.turn === playerIndex) {
-      console.log(`當前玩家離開，輪到下一家`);
-      // 確保下一個玩家索引有效
-      if (table.players.length > 0) {
-        // 重新計算 turn（因為玩家列表已更新）
-        const newTurnIndex = table.turn % table.players.length;
-        table.turn = newTurnIndex;
-        nextTurn(tableId);
-      }
-    } else {
-      // 更新 turn 索引（因為玩家列表已更新）
-      const oldTurn = table.turn;
-      if (playerIndex < oldTurn) {
-        table.turn = oldTurn - 1;
-      }
-    }
-  }
-
-  // 廣播玩家離開
-  safeEmit(tableId, 'playerLeft', {
+  // 廣播玩家斷線事件
+  safeEmit(tableId, 'playerDisconnected', {
     playerId: playerId,
-    remainingPlayers: table.players.length
+    disconnectedAt: player.disconnectedAt,
+    remainingOnlinePlayers: onlinePlayersCount
   });
 
   // 發送更新後的房間狀態
@@ -4996,6 +5020,10 @@ function nextTurn(tableId) {
     // 再次檢查玩家是否仍然存在
     const currentTable = tables[tableId];
     if (currentTable && currentTable.players[table.turn] && currentTable.players[table.turn].id === nextPlayer.id) {
+      // 如果玩家斷線，仍然自動摸牌
+      if (nextPlayer.isDisconnected) {
+        console.log(`玩家 ${nextPlayer.id} 斷線，自動摸牌`);
+      }
       drawTile(tableId, nextPlayer.id);
     } else {
       console.log(`玩家 ${nextPlayer.id} 已離開，跳過摸牌`);
@@ -5115,7 +5143,9 @@ io.on('connection', (socket) => {
       name: nickname,
       userId: userId || null, // 添加6位數userId
       avatarUrl: avatarUrl || null, // 添加頭像URL
-      remark: remark || null // 添加備註
+      remark: remark || null, // 添加備註
+      isDisconnected: false, // 斷線狀態
+      disconnectedAt: null // 斷線時間戳
     };
 
     // 取得房間設定（特別是是否手動開始）
@@ -5192,12 +5222,133 @@ io.on('connection', (socket) => {
     // 檢查該 socket 是否已經在同一個房間中
     const isSameRoom = existingMapping && existingMapping.tableId === tableId && existingMapping.playerId === playerId;
     
-    if (isSameRoom && existingPlayer) {
-      // 如果 socket 已經在同一個房間中，且玩家已存在，直接返回，避免重複處理
+    if (isSameRoom && existingPlayer && !existingPlayer.isDisconnected) {
+      // 如果 socket 已經在同一個房間中，且玩家已存在且未斷線，直接返回，避免重複處理
       console.log(`Socket ${socket.id} 已在此房間 ${tableId}，跳過重複加入`);
       // 仍然發送更新，確保客戶端狀態同步
       const cleanTableData = getCleanTableData(tables[tableId]);
       socket.emit('tableUpdate', cleanTableData);
+      return;
+    }
+
+    // 處理玩家重連（玩家已存在且斷線）
+    if (existingPlayer && existingPlayer.isDisconnected) {
+      console.log(`玩家 ${playerId} 重連，恢復連接`);
+      
+      // 更新 socket 映射
+      socketToPlayer[socket.id] = { tableId, playerId };
+      socket.join(tableId);
+      
+      // 恢復玩家狀態
+      existingPlayer.isDisconnected = false;
+      existingPlayer.disconnectedAt = null;
+      
+      // 處理重連玩家的回合邏輯
+      const table = tables[tableId];
+      if (table && table.gamePhase === GamePhase.PLAYING) {
+        const playerIndex = table.players.findIndex(p => p.id === playerId);
+        const isCurrentTurn = table.turn === playerIndex;
+        
+        if (isCurrentTurn) {
+          // 玩家是當前回合
+          const playerHand = table.hiddenHands[playerId] || [];
+          // 正常手牌應該是16張（開局）+ 1張（摸牌）= 17張，或者更少（已打牌）
+          // 如果手牌數量是16張或更少，且沒有其他玩家打出的牌等待處理，則需要摸牌
+          const expectedHandSize = 16; // 開局16張
+          const hasDrawnTile = playerHand.length > expectedHandSize;
+          
+          if (!hasDrawnTile && table.deck.length > 0) {
+            // 如果未摸牌，自動摸牌（drawTile 會自動處理花牌補花）
+            console.log(`玩家 ${playerId} 重連，當前回合且未摸牌，自動摸牌`);
+            drawTile(tableId, playerId);
+          } else if (hasDrawnTile) {
+            // 如果已摸牌，檢查手牌中是否有未處理的花牌
+            const flowersInHand = playerHand.filter(tile => isFlowerTile(tile));
+            if (flowersInHand.length > 0) {
+              // 手牌中有花牌，需要處理補花
+              console.log(`玩家 ${playerId} 重連，當前回合且已摸牌，手牌中有 ${flowersInHand.length} 張花牌需要補花`);
+              // 處理第一張花牌（handleFlowerTile 會自動處理後續的花牌）
+              const firstFlower = flowersInHand[0];
+              handleFlowerTile(tableId, playerId, firstFlower);
+            } else {
+              // 如果已摸牌且沒有花牌，啟動計時器
+              console.log(`玩家 ${playerId} 重連，當前回合且已摸牌，啟動計時器`);
+              startTurnTimer(tableId, playerId);
+            }
+          }
+        }
+      }
+      
+      // 發送完整遊戲狀態給重連玩家
+      const cleanTableData = getCleanTableData(table);
+      if (cleanTableData) {
+        socket.emit('tableUpdate', cleanTableData);
+        
+        // 發送遊戲狀態更新
+        socket.emit('gameStateUpdate', {
+          gamePhase: table.gamePhase,
+          turn: table.turn,
+          remainingTiles: table.deck.length,
+          timer: table.timer
+        });
+        
+        // 發送玩家自己的手牌
+        const playerHand = table.hiddenHands[playerId] || [];
+        socket.emit('myHand', { hand: playerHand });
+        
+        // 發送所有玩家的手牌數量更新
+        const handCounts = {};
+        table.players.forEach(p => {
+          handCounts[p.id] = table.hiddenHands[p.id]?.length || 0;
+        });
+        socket.emit('handCountsUpdate', { handCounts: handCounts });
+        
+        // 如果遊戲已開始，發送 startGame 事件以確保客戶端有完整狀態
+        if (table.started) {
+          socket.emit('startGame', {
+            id: tableId,
+            players: table.players.map(p => ({
+              id: p.id,
+              name: p.name,
+              userId: p.userId || null,
+              avatarUrl: p.avatarUrl || null,
+              seat: p.seat,
+              isDealer: p.isDealer,
+              score: p.score,
+              isReady: p.isReady,
+              ipAddress: p.ipAddress || null,
+              latitude: p.latitude || null,
+              longitude: p.longitude || null
+            })),
+            dealerIndex: table.dealerIndex,
+            windStart: table.windStart,
+            turn: table.turn,
+            gamePhase: table.gamePhase,
+            round: table.round,
+            maxRounds: table.maxRounds
+          });
+        }
+      }
+      
+      // 發送玩家ID分配事件（確保客戶端有正確的ID）
+      socket.emit('playerIdAssigned', {
+        playerId: playerId,
+        nickname: existingPlayer.name,
+        userId: existingPlayer.userId || null
+      });
+      
+      // 廣播玩家重連事件
+      safeEmit(tableId, 'playerReconnected', {
+        playerId: playerId,
+        reconnectedAt: Date.now()
+      });
+      
+      // 更新數據庫中的 currentPlayers
+      const onlinePlayersCount = tables[tableId].players.filter(p => !p.isDisconnected).length;
+      updateRoomCurrentPlayers(tableId, onlinePlayersCount).catch(err => {
+        console.error(`更新房間 ${tableId} 的 currentPlayers 失敗:`, err);
+      });
+      
       return;
     }
     
