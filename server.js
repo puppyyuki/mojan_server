@@ -5385,12 +5385,33 @@ io.on('connection', (socket) => {
     // 不管IP檢查是否啟用，都要保存IP地址用於UI顯示
     // 但只有IP檢查啟用時，才會限制相同IP的玩家加入
     if (!existingPlayer) {
-      // 獲取客戶端IP地址
-      const clientIP = socket.handshake.address ||
-        socket.request?.connection?.remoteAddress ||
-        socket.handshake?.headers?.['x-forwarded-for']?.split(',')[0]?.trim() ||
-        socket.handshake?.headers?.['x-real-ip'] ||
-        'unknown';
+      // 獲取客戶端真實IP地址
+      // 優先順序：x-forwarded-for > x-real-ip > socket.handshake.address
+      // 在生產環境（Render等），應用通常在代理/負載均衡器後面，
+      // 需要從 x-forwarded-for 或 x-real-ip header 獲取真實IP
+      let clientIP = 'unknown';
+
+      // 1. 優先使用 x-forwarded-for（可能包含多個IP，第一個是真實客戶端IP）
+      const forwardedFor = socket.handshake?.headers?.['x-forwarded-for'];
+      if (forwardedFor) {
+        clientIP = forwardedFor.split(',')[0].trim();
+        console.log(`[IP獲取] 從 x-forwarded-for 獲取: ${clientIP}`);
+      }
+      // 2. 次優先使用 x-real-ip
+      else if (socket.handshake?.headers?.['x-real-ip']) {
+        clientIP = socket.handshake.headers['x-real-ip'];
+        console.log(`[IP獲取] 從 x-real-ip 獲取: ${clientIP}`);
+      }
+      // 3. 最後使用直接連接地址（本地開發環境）
+      else if (socket.handshake.address) {
+        clientIP = socket.handshake.address;
+        console.log(`[IP獲取] 從 socket.handshake.address 獲取: ${clientIP}`);
+      }
+      // 4. 備選：從 connection 獲取
+      else if (socket.request?.connection?.remoteAddress) {
+        clientIP = socket.request.connection.remoteAddress;
+        console.log(`[IP獲取] 從 connection.remoteAddress 獲取: ${clientIP}`);
+      }
 
       // 處理IPv6映射的IPv4地址 (::ffff:192.168.1.1 -> 192.168.1.1)
       const cleanIP = clientIP.replace(/^::ffff:/, '');
