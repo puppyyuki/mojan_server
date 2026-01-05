@@ -198,21 +198,21 @@ async function startGame(tableId) {
   // 設置遊戲狀態
   table.started = true;
   table.gamePhase = GamePhase.DEALING;
-  
+
   // 隨機選擇一個玩家作為東風位（windStart）
   // 第一圈時，東風位玩家就是莊家
   table.windStart = Math.floor(Math.random() * 4); // 隨機選擇 0-3 其中一個座位作為東風位
   table.dealerIndex = table.windStart; // 第一圈東風位玩家為莊家
   table.turn = table.dealerIndex;
-  
+
   const windNames = ['東', '南', '西', '北'];
   console.log(`>>> [遊戲開始] 隨機選擇玩家${table.windStart + 1}為東風位，並擔任莊家`);
   console.log(`>>> [遊戲開始] 風位分配：座位${table.windStart}=${windNames[0]}風，座位${(table.windStart + 1) % 4}=${windNames[1]}風，座位${(table.windStart + 2) % 4}=${windNames[2]}風，座位${(table.windStart + 3) % 4}=${windNames[3]}風`);
-  
+
   // 初始化圈數和分數
   table.round = 1;
   table.roundHistory = [];
-  
+
   // 確保 maxRounds 和 gameSettings 正確設置（從房間設定讀取）
   if (!table.maxRounds || table.maxRounds < 1 || !table.gameSettings) {
     try {
@@ -241,7 +241,7 @@ async function startGame(tableId) {
       }
     }
   }
-  
+
   // 確保所有玩家分數為 0，並初始化統計資料
   table.players.forEach(player => {
     player.score = 0;
@@ -255,7 +255,7 @@ async function startGame(tableId) {
       };
     }
   });
-  
+
   console.log(`>>> [遊戲開始] 圈數設定: ${table.maxRounds} 圈，當前圈數: ${table.round}`);
 
   // 執行扣卡邏輯（在遊戲開始時）
@@ -264,24 +264,24 @@ async function startGame(tableId) {
     const rounds = table.maxRounds || 1;
     const cardsPerRound = 4; // 每圈需要4張房卡（4人各1張）
     const totalCardsNeeded = rounds * cardsPerRound; // 總共需要的房卡數量
-    
+
     // 獲取房間資訊以找到房主
     const room = await prisma.room.findUnique({
       where: { roomId: tableId },
       select: { creatorId: true },
     });
-    
+
     if (deduction === 'HOST_DEDUCTION' && room && room.creatorId) {
       // 房主扣卡：由房主扣除所有房卡
       const hostPlayer = await prisma.player.findUnique({
         where: { id: room.creatorId },
         select: { cardCount: true },
       });
-      
+
       if (hostPlayer && hostPlayer.cardCount >= totalCardsNeeded) {
         const previousCount = hostPlayer.cardCount;
         const newCount = previousCount - totalCardsNeeded;
-        
+
         await prisma.$transaction([
           prisma.player.update({
             where: { id: room.creatorId },
@@ -309,18 +309,18 @@ async function startGame(tableId) {
     } else if (deduction === 'AA_DEDUCTION') {
       // AA扣卡：每位玩家各扣每圈1張（共 rounds 張）
       const cardsPerPlayer = rounds; // 每位玩家需要扣的房卡數量
-      
+
       for (const player of table.players) {
         try {
           const dbPlayer = await prisma.player.findUnique({
             where: { id: player.id },
             select: { cardCount: true },
           });
-          
+
           if (dbPlayer && dbPlayer.cardCount >= cardsPerPlayer) {
             const previousCount = dbPlayer.cardCount;
             const newCount = previousCount - cardsPerPlayer;
-            
+
             await prisma.$transaction([
               prisma.player.update({
                 where: { id: player.id },
@@ -952,8 +952,16 @@ async function startGame(tableId) {
     });
   });
 
+  // 清除之前的補花定時器（如果存在）
+  if (table.flowerReplacementTimer) {
+    clearTimeout(table.flowerReplacementTimer);
+    table.flowerReplacementTimer = null;
+    console.log('>>> [遊戲開始] 清除之前的補花定時器');
+  }
+
   // 開始開局補花流程
-  setTimeout(() => {
+  table.flowerReplacementTimer = setTimeout(() => {
+    table.flowerReplacementTimer = null; // 執行後清除引用
     startInitialFlowerReplacement(tableId);
   }, 2000);
 }
@@ -981,10 +989,10 @@ function startNextRound(tableId) {
 
   // 保存上一圈的莊家索引
   const previousDealerIndex = table.dealerIndex;
-  
+
   // 判斷獲勝者是否是莊家
   const isDealerWin = (winnerIndex === previousDealerIndex);
-  
+
   // 決定新莊家：
   // - 如果莊家獲勝：下一輪還是該玩家當莊家（dealerIndex 不變）
   // - 如果其他家獲勝：依序輪換到下一個風位（東->南->西->北）
@@ -1128,8 +1136,16 @@ function startNextRound(tableId) {
     });
   });
 
+  // 清除之前的補花定時器（如果存在）
+  if (table.flowerReplacementTimer) {
+    clearTimeout(table.flowerReplacementTimer);
+    table.flowerReplacementTimer = null;
+    console.log('>>> [下一圈] 清除之前的補花定時器');
+  }
+
   // 開始開局補花流程
-  setTimeout(() => {
+  table.flowerReplacementTimer = setTimeout(() => {
+    table.flowerReplacementTimer = null; // 執行後清除引用
     startInitialFlowerReplacement(tableId);
   }, 2000);
 }
@@ -1138,6 +1154,27 @@ function startNextRound(tableId) {
 function startInitialFlowerReplacement(tableId) {
   const table = tables[tableId];
   if (!table) return;
+
+  // 補花前先同步所有玩家的手牌給前端，確保客戶端在補花階段開始前就有正確的手牌
+  console.log(`>>> [補花前] 同步所有玩家的手牌給前端`);
+  table.players.forEach(player => {
+    const hand = table.hiddenHands[player.id] || [];
+    // 發送給對應玩家的 socket
+    const playerSockets = Array.from(io.sockets.adapter.rooms.get(tableId) || []);
+    playerSockets.forEach(socketId => {
+      const mapping = socketToPlayer[socketId];
+      if (mapping && mapping.playerId === player.id) {
+        const socket = io.sockets.sockets.get(socketId);
+        if (socket) {
+          socket.emit('myHand', {
+            hand: hand
+          });
+          const playerIndex = table.players.findIndex(p => p.id === player.id);
+          console.log(`>>> [補花前] 發送玩家${playerIndex + 1}的手牌給前端，手牌數量：${hand.length}`);
+        }
+      }
+    });
+  });
 
   table.gamePhase = GamePhase.FLOWER_REPLACEMENT;
   console.log(`開始開局補花 - 房間: ${tableId}`);
@@ -1161,17 +1198,24 @@ function processPlayerFlowerReplacement(tableId, playerIndex) {
       // 延遲廣播遊戲狀態更新，確保最後一位玩家的補花事件已完全處理
       // 這樣可以避免前端在補花狀態更新完成前就收到 gameStateUpdate
       setTimeout(() => {
+        // 檢查房間是否仍然存在且遊戲未結束
+        const currentTable = tables[tableId];
+        if (!currentTable || currentTable.gamePhase === GamePhase.ENDED) {
+          console.log(`>>> [補花完成] 房間已結束，跳過狀態更新 - 房間: ${tableId}`);
+          return;
+        }
+
         // 廣播遊戲狀態更新
         io.to(tableId).emit('gameStateUpdate', {
           gamePhase: GamePhase.PLAYING,
-          turn: table.turn,
+          turn: currentTable.turn,
           message: '遊戲開始！'
         });
 
         // 補花完成後，再次同步所有玩家的手牌給前端，確保補花後的手牌狀態一致
         console.log(`>>> [補花完成] 同步所有玩家的手牌給前端`);
-        table.players.forEach(player => {
-          const hand = table.hiddenHands[player.id] || [];
+        currentTable.players.forEach(player => {
+          const hand = currentTable.hiddenHands[player.id] || [];
           // 發送給對應玩家的 socket
           const playerSockets = Array.from(io.sockets.adapter.rooms.get(tableId) || []);
           playerSockets.forEach(socketId => {
@@ -1182,7 +1226,7 @@ function processPlayerFlowerReplacement(tableId, playerIndex) {
                 socket.emit('myHand', {
                   hand: hand
                 });
-                const playerIndex = table.players.findIndex(p => p.id === player.id);
+                const playerIndex = currentTable.players.findIndex(p => p.id === player.id);
                 console.log(`>>> [補花完成] 發送玩家${playerIndex + 1}的手牌給前端，手牌數量：${hand.length}`);
               }
             }
@@ -1581,7 +1625,7 @@ function drawTile(tableId, playerId) {
         hasDecided: false,
         decision: null
       };
-      
+
       table.claimingState = {
         discardPlayerId: playerId, // 自摸時，打出牌的玩家是自己
         discardedTile: drawnTile, // 自摸時，目標牌是剛摸到的牌
@@ -1892,7 +1936,7 @@ function handleFlowerTile(tableId, playerId, flower) {
           hasDecided: false,
           decision: null
         };
-        
+
         table.claimingState = {
           discardPlayerId: playerId, // 自摸時，打出牌的玩家是自己
           discardedTile: newTile, // 自摸時，目標牌是補花後摸到的牌
@@ -2182,6 +2226,13 @@ async function endGame(tableId, reason, scores = null) {
     console.log('>>> 清除回合計時器');
   }
 
+  // 清除補花定時器
+  if (table.flowerReplacementTimer) {
+    clearTimeout(table.flowerReplacementTimer);
+    table.flowerReplacementTimer = null;
+    console.log('>>> 清除補花定時器');
+  }
+
   // 清除所有等待狀態
   table.claimingState = null;
   table.tingState = null;
@@ -2465,9 +2516,9 @@ async function endGame(tableId, reason, scores = null) {
   });
 
   // 準備最終結算資料
-  const finalScores = table.players.map(p => ({ 
-    id: p.id, 
-    score: p.score || 0 
+  const finalScores = table.players.map(p => ({
+    id: p.id,
+    score: p.score || 0
   }));
 
   // 準備每圈分數變化記錄
@@ -2883,7 +2934,7 @@ function checkClaims(tableId, discardPlayerId, discardedTile) {
         decision: null // 'claim' 或 'pass'
       };
     });
-    
+
     table.claimingState = {
       discardPlayerId: discardPlayerId,
       discardedTile: discardedTile,
@@ -3458,7 +3509,7 @@ function checkAllPlayersDecided(tableId) {
     const decision = playerDecisions[playerId];
     if (decision.decision === 'claim') {
       // 找到該玩家的選項以獲取優先級
-      const option = claimingState.options.find(opt => 
+      const option = claimingState.options.find(opt =>
         opt.playerId === playerId && opt.claimType === decision.claimType
       );
       if (option) {
@@ -3475,18 +3526,18 @@ function checkAllPlayersDecided(tableId) {
   // 如果沒有任何玩家選擇「claim」，所有玩家都選擇「過」
   if (claimDecisions.length === 0) {
     console.log(`>>> [決策追蹤] 所有玩家都選擇「過」，輪到下一家`);
-    
+
     // 處理搶槓的特殊情況
     const isQiangGang = claimingState.isQiangGang || false;
     if (isQiangGang) {
       console.log(`>>> [搶槓檢測] 所有玩家都選擇了「過」，恢復補槓流程`);
       const kongPlayerId = claimingState.discardPlayerId;
       const kongPlayerIndex = table.players.findIndex(p => p.id === kongPlayerId);
-      
+
       // 清除吃碰槓狀態
       table.claimingState = null;
       table.gamePhase = GamePhase.PLAYING;
-      
+
       if (kongPlayerIndex !== -1) {
         console.log(`>>> [搶槓檢測] 恢復補槓流程：玩家${kongPlayerIndex + 1}補摸一張牌`);
         setTimeout(() => {
@@ -3628,21 +3679,21 @@ function calculateTai(table, player, playerIndex, huType) {
   const hasNoMelds = melds.length === 0; // 門清：沒有吃碰槓
   const isSelfDrawnHu = huType === 'selfDrawnHu';
   const isDealer = player.isDealer || false;
-  
+
   let totalTai = 0;
   const patterns = []; // 牌型名稱列表
   const patternNames = []; // 用於顯示的牌型名稱（中文）
-  
+
   // 計算玩家的風位（根據windStart和玩家座位）
   const windStart = table.windStart || 0;
   const playerWindIndex = (playerIndex - windStart + 4) % 4; // 玩家的風位索引：0=東, 1=南, 2=西, 3=北
   const windNames = ['東', '南', '西', '北'];
   const playerWindTile = windNames[playerWindIndex]; // 玩家對應的風牌名稱
-  
+
   // 計算當前風圈（使用 table.wind，如果沒有則根據圈數計算）
   const currentRoundWindIndex = table.wind !== undefined ? table.wind : Math.floor((table.round - 1) / 4) % 4;
   const roundWindTile = windNames[currentRoundWindIndex];
-  
+
   // 檢查門風台：手牌有3張以上對應自己風位的風牌，或有碰槓對應的風牌
   const windTileCountInHand = hand.filter(tile => tile === playerWindTile).length;
   const hasWindTileInMelds = melds.some(meld => {
@@ -3656,7 +3707,7 @@ function calculateTai(table, player, playerIndex, huType) {
     patterns.push('menFengTai');
     patternNames.push('門風台');
   }
-  
+
   // 檢查圈風台：手牌有3張以上對應風圈的風牌，或有碰槓對應的風牌
   const roundWindTileCountInHand = hand.filter(tile => tile === roundWindTile).length;
   const hasRoundWindTileInMelds = melds.some(meld => {
@@ -3670,7 +3721,7 @@ function calculateTai(table, player, playerIndex, huType) {
     patterns.push('quanFengTai');
     patternNames.push('圈風台');
   }
-  
+
   // 檢查三元台：手牌有3張以上的"中、發、白"，或是有碰槓對應的"中、發、白"
   const dragonTiles = ['中', '發', '白'];
   let sanYuanTaiCount = 0;
@@ -3691,7 +3742,7 @@ function calculateTai(table, player, playerIndex, huType) {
     patterns.push('sanYuanTai');
     patternNames.push(`三元台(${sanYuanTaiCount})`);
   }
-  
+
   // 檢查花牌：胡牌後玩家身上的補花若有跟自身座位風向對應的花牌
   const playerFlowers = table.flowers[player.id] || [];
   const windFlowerMap = {
@@ -3712,14 +3763,14 @@ function calculateTai(table, player, playerIndex, huType) {
     patterns.push('flowerTai');
     patternNames.push(`花牌(${flowerTaiCount})`);
   }
-  
+
   // 1台牌型
   if (isDealer) {
     totalTai += 1;
     patterns.push('dealer');
     patternNames.push('莊家');
   }
-  
+
   // 檢查門清自摸（需要同時有門清和自摸）
   if (hasNoMelds && isSelfDrawnHu) {
     // 門清自摸是3台
@@ -3733,162 +3784,162 @@ function calculateTai(table, player, playerIndex, huType) {
       patterns.push('selfDraw');
       patternNames.push('自摸');
     }
-    
+
     if (hasNoMelds) {
       totalTai += 1; // 門清單獨1台
       patterns.push('menQing');
       patternNames.push('門清');
     }
   }
-  
+
   if (player.isDuTing) {
     totalTai += 1;
     patterns.push('duTing');
     patternNames.push('獨聽');
   }
-  
+
   if (player.isQiangGang) {
     totalTai += 1;
     patterns.push('qiangGang');
     patternNames.push('搶槓');
   }
-  
+
   if (player.isGangShangKaiHua) {
     totalTai += 1;
     patterns.push('gangShangKaiHua');
     patternNames.push('槓上開花');
   }
-  
+
   if (player.isHaiDiLaoYue) {
     totalTai += 1;
     patterns.push('haiDiLaoYue');
     patternNames.push('海底撈月');
   }
-  
+
   if (player.isHaiDiLaoYu) {
     totalTai += 1;
     patterns.push('haiDiLaoYu');
     patternNames.push('海底撈魚');
   }
-  
+
   // 2台牌型
   if (player.isHuaGang) {
     totalTai += 2;
     patterns.push('huaGang');
     patternNames.push('花槓');
   }
-  
+
   if (player.isQuanQiu) {
     totalTai += 2;
     patterns.push('quanQiu');
     patternNames.push('全求');
   }
-  
+
   if (player.isSanAnKe) {
     totalTai += 2;
     patterns.push('sanAnKe');
     patternNames.push('三暗刻');
   }
-  
+
   // 4台牌型
   if (player.isPengPengHu) {
     totalTai += 4;
     patterns.push('pengPengHu');
     patternNames.push('碰碰胡');
   }
-  
+
   if (player.isHunYiSe) {
     totalTai += 4;
     patterns.push('hunYiSe');
     patternNames.push('混一色');
   }
-  
+
   if (player.isXiaoSanYuan) {
     totalTai += 4;
     patterns.push('xiaoSanYuan');
     patternNames.push('小三元');
   }
-  
+
   // 5台牌型
   if (player.isSiAnKe) {
     totalTai += 5;
     patterns.push('siAnKe');
     patternNames.push('四暗刻');
   }
-  
+
   // 8台牌型
   if (player.isDiTing) {
     totalTai += 8;
     patterns.push('diTing');
     patternNames.push('地聽');
   }
-  
+
   if (player.isWuAnKe) {
     totalTai += 8;
     patterns.push('wuAnKe');
     patternNames.push('五暗刻');
   }
-  
+
   if (player.isQingYiSe) {
     totalTai += 8;
     patterns.push('qingYiSe');
     patternNames.push('清一色');
   }
-  
+
   if (player.isZiYiSe) {
     totalTai += 8;
     patterns.push('ziYiSe');
     patternNames.push('字一色');
   }
-  
+
   if (player.isDaSanYuan) {
     totalTai += 8;
     patterns.push('daSanYuan');
     patternNames.push('大三元');
   }
-  
+
   if (player.isXiaoSiXi) {
     totalTai += 8;
     patterns.push('xiaoSiXi');
     patternNames.push('小四喜');
   }
-  
+
   if (player.isLiGuLiGu) {
     totalTai += 8;
     patterns.push('liGuLiGu');
     patternNames.push('嚦咕嚦咕');
   }
-  
+
   if (player.isBaXianGuoHai) {
     totalTai += 8;
     patterns.push('baXianGuoHai');
     patternNames.push('八仙過海');
   }
-  
+
   // 16台牌型
   if (player.isTianTing) {
     totalTai += 16;
     patterns.push('tianTing');
     patternNames.push('天聽');
   }
-  
+
   if (player.isDaSiXi) {
     totalTai += 16;
     patterns.push('daSiXi');
     patternNames.push('大四喜');
   }
-  
+
   // 套用封頂限制
   const pointCap = table.gameSettings?.point_cap || 'UP_TO_8_POINTS';
   let finalTai = totalTai;
-  
+
   // 莊家台和連莊台不計入封頂限制（但我們這裡沒有連莊台，所以只考慮莊家台）
   // 根據規則，封頂只限制牌型台數，不限制莊家台
   // 但為了簡化，我們先計算所有台數，然後套用封頂
   // 如果設定封頂，需要將莊家台分開計算
   const dealerTai = isDealer ? 1 : 0;
   const patternTai = totalTai - dealerTai; // 牌型台數（不含莊家台）
-  
+
   if (pointCap === 'UP_TO_4_POINTS') {
     finalTai = dealerTai + Math.min(patternTai, 4);
   } else if (pointCap === 'UP_TO_8_POINTS') {
@@ -3900,10 +3951,10 @@ function calculateTai(table, player, playerIndex, huType) {
     // 預設為8台滿
     finalTai = dealerTai + Math.min(patternTai, 8);
   }
-  
+
   console.log(`>>> [台數計算] 玩家${playerIndex + 1} 總台數: ${totalTai}, 牌型台數: ${patternTai}, 莊家台: ${dealerTai}, 封頂後: ${finalTai}`);
   console.log(`>>> [台數計算] 牌型: ${patternNames.join('、')}`);
-  
+
   return {
     totalTai: finalTai,
     originalTai: totalTai,
@@ -4485,7 +4536,7 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
   } else {
     player.statistics = player.statistics || { selfDraws: 0, discards: 0, claimedDiscards: 0, discardedHu: 0 };
     player.statistics.claimedDiscards = (player.statistics.claimedDiscards || 0) + 1;
-    
+
     // 更新放槍者的放槍次數統計
     let discarderId = null;
     if (targetPlayer !== null && targetPlayer !== undefined) {
@@ -4498,12 +4549,12 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
         discarderId = targetPlayer.id;
       }
     }
-    
+
     // 如果還是找不到，嘗試從 claimingState 中獲取
     if (!discarderId && table.claimingState && table.claimingState.discardPlayerId) {
       discarderId = table.claimingState.discardPlayerId;
     }
-    
+
     // 更新放槍者的統計
     if (discarderId) {
       const discarder = table.players.find(p => p.id === discarderId);
@@ -4518,7 +4569,7 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
   // 計算台數和牌型
   const taiResult = calculateTai(table, player, playerIndex, huType);
   const totalTai = taiResult.totalTai;
-  
+
   // 構建牌型列表，確保"自摸"或"胡牌"在最前面
   // 注意：calculateTai 已經會添加"自摸"到 patternNames 中，但順序可能不對
   // 我們需要將"自摸"或"門清自摸"移到最前面，避免重複
@@ -4532,7 +4583,7 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
     // 放槍時，在前面加上"胡牌"
     winPatterns = ['胡牌', ...taiResult.patternNames];
   }
-  
+
   // 獲取遊戲設定
   const gameSettings = table.gameSettings || {
     base_points: 100,
@@ -4541,19 +4592,19 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
   };
   const basePoints = gameSettings.base_points || 100;
   const scoringUnit = gameSettings.scoring_unit || 20;
-  
+
   // 計算分數：底 + 台 × 台數
   // 底 = basePoints（基本胡牌數字/底分）
   // 台 = totalTai（總台數，已套用封頂限制）
   // 台數 = scoringUnit（每台分數）
   const scorePerPlayer = basePoints + (totalTai * scoringUnit);
-  
+
   console.log(`>>> [分數計算] 底: ${basePoints}, 台: ${totalTai}, 台數: ${scoringUnit}`);
   console.log(`>>> [分數計算] 計算公式: 底(${basePoints}) + 台(${totalTai}) × 台數(${scoringUnit}) = ${scorePerPlayer}`);
-  
+
   // 計算該圈的分數變化
   const roundScores = {};
-  
+
   if (huType === 'selfDrawnHu') {
     // 自摸：其他三家各扣相同分數，獲勝者獲得三家總和
     const totalWinnings = scorePerPlayer * 3; // 三家總和
@@ -4582,12 +4633,12 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
         discarderId = targetPlayer.id;
       }
     }
-    
+
     // 如果還是找不到，嘗試從 claimingState 中獲取
     if (!discarderId && table.claimingState && table.claimingState.discardPlayerId) {
       discarderId = table.claimingState.discardPlayerId;
     }
-    
+
     if (discarderId) {
       table.players.forEach(p => {
         if (p.id === playerId) {
@@ -4658,7 +4709,7 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
 
   // 所有情況都先顯示中間結算（包括最後一圈），玩家按下繼續後才顯示最終結算
   console.log(`>>> [圈數管理] 觸發中間結算（當前圈數: ${currentRound}/${maxRounds}）`);
-  
+
   // 準備中間結算資料
   const totalScores = {};
   table.players.forEach(p => {
@@ -4667,7 +4718,7 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
 
   // 保存獲勝者ID（用於下一圈換莊家，如果是最後一圈則不會用到）
   table.nextRoundWinnerId = playerId;
-  
+
   // 廣播中間結算事件
   io.to(tableId).emit('roundEnd', {
     round: currentRound,
@@ -4862,6 +4913,89 @@ async function handlePlayerDisconnect(tableId, playerId, socketId) {
     console.log(`玩家 ${playerId} 離開，重置所有玩家準備狀態`);
   }
 
+  // 在等待階段，給予斷線玩家重連寬限期（30秒）
+  // 避免短暫斷線後重連被當作新玩家，導致座位混亂
+  if (table.gamePhase === GamePhase.WAITING) {
+    console.log(`[等待階段斷線] 玩家 ${playerId} 斷線，給予30秒重連寬限期`);
+
+    // 標記玩家為斷線狀態
+    const player = table.players[playerIndex];
+    if (player) {
+      player.isDisconnected = true;
+      player.disconnectTime = Date.now();
+
+      // 清除該玩家之前的重連定時器（如果有）
+      if (player.reconnectTimer) {
+        clearTimeout(player.reconnectTimer);
+      }
+
+      // 設置30秒後移除玩家的定時器
+      player.reconnectTimer = setTimeout(() => {
+        console.log(`[等待階段斷線] 玩家 ${playerId} 30秒內未重連，移除玩家`);
+
+        // 檢查玩家是否仍在房間且仍處於斷線狀態
+        const currentTable = tables[tableId];
+        if (currentTable) {
+          const currentPlayerIndex = currentTable.players.findIndex(p => p.id === playerId);
+          if (currentPlayerIndex !== -1 && currentTable.players[currentPlayerIndex].isDisconnected) {
+            // 從玩家列表中移除
+            currentTable.players = currentTable.players.filter(p => p.id !== playerId);
+
+            // 清理玩家相關數據
+            delete currentTable.hands[playerId];
+            delete currentTable.hiddenHands[playerId];
+            delete currentTable.melds[playerId];
+            delete currentTable.discards[playerId];
+            delete currentTable.flowers[playerId];
+
+            // 更新數據庫中的 currentPlayers
+            updateRoomCurrentPlayers(tableId, currentTable.players.length).catch(err => {
+              console.error(`更新房間 ${tableId} 的 currentPlayers 失敗:`, err);
+            });
+
+            // 廣播玩家離開
+            safeEmit(tableId, 'playerLeft', {
+              playerId: playerId,
+              remainingPlayers: currentTable.players.length
+            });
+
+            // 發送更新後的房間狀態
+            const cleanTableData = getCleanTableData(currentTable);
+            if (cleanTableData) {
+              safeEmit(tableId, 'tableUpdate', cleanTableData);
+            }
+
+            // 如果房間空了，刪除房間
+            if (currentTable.players.length === 0) {
+              console.log(`房間 ${tableId} 已空，刪除房間`);
+              delete tables[tableId];
+
+              // 刪除數據庫中的房間記錄
+              prisma.room.delete({ where: { roomId: tableId } })
+                .then(() => console.log(`已刪除數據庫中的房間記錄：${tableId}`))
+                .catch(err => console.error(`刪除房間記錄失敗：${tableId}`, err));
+            }
+          }
+        }
+      }, 30000); // 30秒寬限期
+
+      // 廣播玩家斷線（但未移除）
+      safeEmit(tableId, 'playerDisconnected', {
+        playerId: playerId,
+        reconnectTimeLeft: 30
+      });
+
+      // 發送更新後的房間狀態
+      const cleanTableData = getCleanTableData(table);
+      if (cleanTableData) {
+        safeEmit(tableId, 'tableUpdate', cleanTableData);
+      }
+
+      return; // 不執行後續的移除邏輯
+    }
+  }
+
+  // 遊戲進行中或其他階段：立即移除玩家
   // 從玩家列表中移除
   table.players = table.players.filter(p => p.id !== playerId);
 
@@ -5188,10 +5322,10 @@ io.on('connection', (socket) => {
 
     // 檢查玩家是否已經在房間中（使用服務器端生成的ID）
     const existingPlayer = tables[tableId].players.find(p => p.id === playerId);
-    
+
     // 檢查該 socket 是否已經在同一個房間中
     const isSameRoom = existingMapping && existingMapping.tableId === tableId && existingMapping.playerId === playerId;
-    
+
     if (isSameRoom && existingPlayer) {
       // 如果 socket 已經在同一個房間中，且玩家已存在，直接返回，避免重複處理
       console.log(`Socket ${socket.id} 已在此房間 ${tableId}，跳過重複加入`);
@@ -5200,7 +5334,7 @@ io.on('connection', (socket) => {
       socket.emit('tableUpdate', cleanTableData);
       return;
     }
-    
+
     // GPS位置收集（僅在新玩家加入時收集）
     // 檢查 gps_lock 或 location_check（為了向後兼容）
     // 注意：GPS鎖定現在只要求提供GPS位置（用於UI顯示距離），不再限制距離
@@ -5208,10 +5342,10 @@ io.on('connection', (socket) => {
     if (!existingPlayer && isGPSLockEnabled) {
       const newPlayerLat = player.latitude;
       const newPlayerLon = player.longitude;
-      
+
       console.log(`[GPS檢查] 玩家 ${playerId} 嘗試加入房間 ${tableId}，GPS鎖定已啟用（要求提供GPS位置）`);
       console.log(`[GPS檢查] 新玩家GPS位置: lat=${newPlayerLat}, lon=${newPlayerLon}`);
-      
+
       // 檢查新玩家是否提供了GPS位置（GPS鎖定啟用時必須提供）
       if (newPlayerLat == null || newPlayerLon == null) {
         console.log(`[GPS檢查] 玩家 ${playerId} 嘗試加入房間 ${tableId}，但未提供GPS位置（房間已開啟GPS鎖定）`);
@@ -5222,11 +5356,11 @@ io.on('connection', (socket) => {
         });
         return;
       }
-      
+
       // 驗證GPS座標是否有效
-      if (isNaN(newPlayerLat) || isNaN(newPlayerLon) || 
-          newPlayerLat < -90 || newPlayerLat > 90 ||
-          newPlayerLon < -180 || newPlayerLon > 180) {
+      if (isNaN(newPlayerLat) || isNaN(newPlayerLon) ||
+        newPlayerLat < -90 || newPlayerLat > 90 ||
+        newPlayerLon < -180 || newPlayerLon > 180) {
         console.log(`[GPS檢查] 玩家 ${playerId} 提供的GPS座標無效: lat=${newPlayerLat}, lon=${newPlayerLon}`);
         socket.emit('joinTableError', {
           success: false,
@@ -5235,7 +5369,7 @@ io.on('connection', (socket) => {
         });
         return;
       }
-      
+
       // GPS鎖定啟用時，只保存GPS位置用於UI顯示，不檢查距離限制
       serverPlayer.latitude = newPlayerLat;
       serverPlayer.longitude = newPlayerLon;
@@ -5246,36 +5380,36 @@ io.on('connection', (socket) => {
       serverPlayer.longitude = player.longitude;
       console.log(`[GPS收集] ✅ 已保存玩家 ${playerId} 的GPS位置（GPS鎖定未啟用，但玩家提供了位置）`);
     }
-    
+
     // IP地址收集和檢查（僅在新玩家加入時處理）
     // 不管IP檢查是否啟用，都要保存IP地址用於UI顯示
     // 但只有IP檢查啟用時，才會限制相同IP的玩家加入
     if (!existingPlayer) {
       // 獲取客戶端IP地址
-      const clientIP = socket.handshake.address || 
-                      socket.request?.connection?.remoteAddress || 
-                      socket.handshake?.headers?.['x-forwarded-for']?.split(',')[0]?.trim() ||
-                      socket.handshake?.headers?.['x-real-ip'] ||
-                      'unknown';
-      
+      const clientIP = socket.handshake.address ||
+        socket.request?.connection?.remoteAddress ||
+        socket.handshake?.headers?.['x-forwarded-for']?.split(',')[0]?.trim() ||
+        socket.handshake?.headers?.['x-real-ip'] ||
+        'unknown';
+
       // 處理IPv6映射的IPv4地址 (::ffff:192.168.1.1 -> 192.168.1.1)
       const cleanIP = clientIP.replace(/^::ffff:/, '');
-      
+
       const isIPCheckEnabled = gameSettings?.ip_check === true;
-      
+
       if (isIPCheckEnabled) {
         console.log(`[IP檢查] 玩家 ${playerId} 嘗試加入房間 ${tableId}，IP檢查已啟用`);
         console.log(`[IP檢查] 新玩家IP地址: ${cleanIP}`);
-        
+
         // 檢查與房間內所有現有玩家的IP
         const existingPlayers = tables[tableId].players;
-        
+
         console.log(`[IP檢查] 房間內現有玩家數量: ${existingPlayers.length}`);
-        
+
         for (const existingPlayer of existingPlayers) {
           if (existingPlayer.ipAddress) {
             console.log(`[IP檢查] 玩家 ${playerId} IP: ${cleanIP} vs 房間內玩家 ${existingPlayer.id} (${existingPlayer.name}) IP: ${existingPlayer.ipAddress}`);
-            
+
             if (cleanIP === existingPlayer.ipAddress) {
               console.log(`[IP檢查] ❌ 玩家 ${playerId} 與房間內玩家 ${existingPlayer.id} 使用相同IP地址: ${cleanIP}`);
               socket.emit('joinTableError', {
@@ -5289,7 +5423,7 @@ io.on('connection', (socket) => {
             console.log(`[IP檢查] ⚠️ 房間內玩家 ${existingPlayer.id} (${existingPlayer.name}) 沒有IP地址資訊`);
           }
         }
-        
+
         // IP檢查通過，將IP地址添加到serverPlayer
         serverPlayer.ipAddress = cleanIP;
         console.log(`[IP檢查] ✅ 玩家 ${playerId} IP檢查通過，已加入房間`);
@@ -5299,7 +5433,7 @@ io.on('connection', (socket) => {
         console.log(`[IP收集] ✅ 已保存玩家 ${playerId} 的IP地址（IP檢查未啟用，但保存用於UI顯示）`);
       }
     }
-    
+
     if (!existingPlayer) {
       // 分配座位（0:東、1:南、2:西、3:北）
       const seat = tables[tableId].players.length;
@@ -5320,18 +5454,18 @@ io.on('connection', (socket) => {
           discardedHu: 0
         }
       };
-      
+
       // 如果有GPS位置，添加到玩家資料中
       if (serverPlayer.latitude != null && serverPlayer.longitude != null) {
         playerData.latitude = serverPlayer.latitude;
         playerData.longitude = serverPlayer.longitude;
       }
-      
+
       // 如果有IP地址，添加到玩家資料中
       if (serverPlayer.ipAddress) {
         playerData.ipAddress = serverPlayer.ipAddress;
       }
-      
+
       tables[tableId].players.push(playerData);
 
       // 初始化玩家狀態
@@ -5348,8 +5482,31 @@ io.on('connection', (socket) => {
         console.error(`更新房間 ${tableId} 的 currentPlayers 失敗:`, err);
       });
     } else {
-      // 玩家已存在於房間中，但可能是不同的 socket 連接
+      // 玩家已存在於房間中，可能是重連
       console.log('玩家已存在於房間中，更新 socket 映射:', tableId, playerId);
+
+      // 如果玩家處於斷線狀態，恢復連線
+      if (existingPlayer.isDisconnected) {
+        console.log(`[等待階段重連] 玩家 ${playerId} 重新連線，恢復正常狀態`);
+
+        // 清除斷線標記
+        existingPlayer.isDisconnected = false;
+        delete existingPlayer.disconnectTime;
+
+        // 清除重連定時器
+        if (existingPlayer.reconnectTimer) {
+          clearTimeout(existingPlayer.reconnectTimer);
+          delete existingPlayer.reconnectTimer;
+        }
+
+        // 廣播玩家重連
+        safeEmit(tableId, 'playerReconnected', {
+          playerId: playerId,
+          playerName: existingPlayer.name
+        });
+
+        console.log(`[等待階段重連] ✅ 玩家 ${playerId} 成功重連，保留原座位 ${existingPlayer.seat}`);
+      }
     }
 
     socket.join(tableId);
@@ -5640,7 +5797,7 @@ io.on('connection', (socket) => {
             decision: null
           };
         });
-        
+
         table.claimingState = {
           discardPlayerId: playerId, // 補槓的玩家
           discardedTile: tile, // 補槓的牌
@@ -6062,10 +6219,10 @@ app.get('/api/players/:playerId/clubs', (req, res, next) => {
   // 保存原始 URL
   const originalUrl = req.url;
   const playerId = req.params.playerId;
-  
+
   // 修改 URL 以匹配 clubs.js 中的路由定義
   req.url = `/players/${playerId}/clubs`;
-  
+
   // 轉發到 clubsRoutes
   clubsRoutes(req, res, (err) => {
     // 恢復原始 URL
