@@ -160,8 +160,22 @@ function startGameCountdown(tableId) {
     message: '四人到齊，遊戲即將開始！'
   });
 
-  const countdownInterval = setInterval(() => {
+  // 存儲定時器以便取消
+  table.countdownTimer = setInterval(() => {
     countdown--;
+
+    // 再次檢查人數，如果有人中途離開則終止
+    if (table.players.length < 4) {
+      console.log(`倒數中斷：房間 ${tableId} 玩家人數不足`);
+      clearInterval(table.countdownTimer);
+      table.countdownTimer = null;
+      table.countdownStarted = false;
+      io.to(tableId).emit('gameCountdown', {
+        countdown: null,
+        message: '玩家離開，倒數中斷'
+      });
+      return;
+    }
 
     if (countdown > 0) {
       // 廣播倒數計時
@@ -171,7 +185,8 @@ function startGameCountdown(tableId) {
       });
     } else {
       // 倒數結束，開始遊戲
-      clearInterval(countdownInterval);
+      clearInterval(table.countdownTimer);
+      table.countdownTimer = null;
       io.to(tableId).emit('gameCountdown', {
         countdown: 0,
         message: '遊戲開始！'
@@ -179,7 +194,10 @@ function startGameCountdown(tableId) {
 
       // 延遲1秒後開始遊戲
       setTimeout(() => {
-        startGame(tableId).catch(err => console.error('開始遊戲失敗:', err));
+        // 開始前最後檢查
+        if (table.players.length === 4) {
+          startGame(tableId).catch(err => console.error('開始遊戲失敗:', err));
+        }
       }, 1000);
     }
   }, 1000);
@@ -4913,89 +4931,23 @@ async function handlePlayerDisconnect(tableId, playerId, socketId) {
     console.log(`玩家 ${playerId} 離開，重置所有玩家準備狀態`);
   }
 
-  // 在等待階段，給予斷線玩家重連寬限期（30秒）
-  // 避免短暫斷線後重連被當作新玩家，導致座位混亂
-  if (table.gamePhase === GamePhase.WAITING) {
-    console.log(`[等待階段斷線] 玩家 ${playerId} 斷線，給予30秒重連寬限期`);
-
-    // 標記玩家為斷線狀態
-    const player = table.players[playerIndex];
-    if (player) {
-      player.isDisconnected = true;
-      player.disconnectTime = Date.now();
-
-      // 清除該玩家之前的重連定時器（如果有）
-      if (player.reconnectTimer) {
-        clearTimeout(player.reconnectTimer);
-      }
-
-      // 設置30秒後移除玩家的定時器
-      player.reconnectTimer = setTimeout(() => {
-        console.log(`[等待階段斷線] 玩家 ${playerId} 30秒內未重連，移除玩家`);
-
-        // 檢查玩家是否仍在房間且仍處於斷線狀態
-        const currentTable = tables[tableId];
-        if (currentTable) {
-          const currentPlayerIndex = currentTable.players.findIndex(p => p.id === playerId);
-          if (currentPlayerIndex !== -1 && currentTable.players[currentPlayerIndex].isDisconnected) {
-            // 從玩家列表中移除
-            currentTable.players = currentTable.players.filter(p => p.id !== playerId);
-
-            // 清理玩家相關數據
-            delete currentTable.hands[playerId];
-            delete currentTable.hiddenHands[playerId];
-            delete currentTable.melds[playerId];
-            delete currentTable.discards[playerId];
-            delete currentTable.flowers[playerId];
-
-            // 更新數據庫中的 currentPlayers
-            updateRoomCurrentPlayers(tableId, currentTable.players.length).catch(err => {
-              console.error(`更新房間 ${tableId} 的 currentPlayers 失敗:`, err);
-            });
-
-            // 廣播玩家離開
-            safeEmit(tableId, 'playerLeft', {
-              playerId: playerId,
-              remainingPlayers: currentTable.players.length
-            });
-
-            // 發送更新後的房間狀態
-            const cleanTableData = getCleanTableData(currentTable);
-            if (cleanTableData) {
-              safeEmit(tableId, 'tableUpdate', cleanTableData);
-            }
-
-            // 如果房間空了，刪除房間
-            if (currentTable.players.length === 0) {
-              console.log(`房間 ${tableId} 已空，刪除房間`);
-              delete tables[tableId];
-
-              // 刪除數據庫中的房間記錄
-              prisma.room.delete({ where: { roomId: tableId } })
-                .then(() => console.log(`已刪除數據庫中的房間記錄：${tableId}`))
-                .catch(err => console.error(`刪除房間記錄失敗：${tableId}`, err));
-            }
-          }
-        }
-      }, 30000); // 30秒寬限期
-
-      // 廣播玩家斷線（但未移除）
-      safeEmit(tableId, 'playerDisconnected', {
-        playerId: playerId,
-        reconnectTimeLeft: 30
-      });
-
-      // 發送更新後的房間狀態
-      const cleanTableData = getCleanTableData(table);
-      if (cleanTableData) {
-        safeEmit(tableId, 'tableUpdate', cleanTableData);
-      }
-
-      return; // 不執行後續的移除邏輯
+  // 如果玩家離開時正在倒數，取消倒數
+  if (table.countdownStarted && table.players.length < 4) {
+    console.log(`[大廳斷線] 取消倒數計時 - 房間: ${tableId}`);
+    if (table.countdownTimer) {
+      clearInterval(table.countdownTimer);
+      table.countdownTimer = null;
     }
+    table.countdownStarted = false;
+    safeEmit(tableId, 'gameCountdown', {
+      countdown: null,
+      message: '玩家離開，倒數停止'
+    });
   }
 
-  // 遊戲進行中或其他階段：立即移除玩家
+  // 移除等待階段的 30 秒寬限期（根據用戶要求：大廳斷線即移除，讓其他玩家可進入）
+  // 僅在遊戲進行中（PLAYING/CLAIMING/TING）保留寬限期（未來擴展用）
+
   // 從玩家列表中移除
   table.players = table.players.filter(p => p.id !== playerId);
 
@@ -5456,8 +5408,16 @@ io.on('connection', (socket) => {
     }
 
     if (!existingPlayer) {
-      // 分配座位（0:東、1:南、2:西、3:北）
-      const seat = tables[tableId].players.length;
+      // 獲取已使用的座位
+      const usedSeats = tables[tableId].players.map(p => p.seat);
+      // 查找第一個可用的座位（0, 1, 2, 3）
+      let seat = 0;
+      for (let i = 0; i < 4; i++) {
+        if (!usedSeats.includes(i)) {
+          seat = i;
+          break;
+        }
+      }
       const playerData = {
         ...serverPlayer,
         seat,
