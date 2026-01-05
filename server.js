@@ -5280,7 +5280,15 @@ io.on('connection', (socket) => {
 
     if (isSameRoom && existingPlayer) {
       // 如果 socket 已經在同一個房間中，且玩家已存在，直接返回，避免重複處理
-      console.log(`Socket ${socket.id} 已在此房間 ${tableId}，跳過重複加入`);
+      console.log(`Socket ${socket.id} 已在此房間 ${tableId}，跳過重複處理`);
+
+      // 補發 ID 確認，確保客戶端 myPlayerId 同步
+      socket.emit('playerIdAssigned', {
+        playerId: existingPlayer.id,
+        nickname: existingPlayer.name,
+        userId: existingPlayer.userId
+      });
+
       // 仍然發送更新，確保客戶端狀態同步
       const cleanTableData = getCleanTableData(tables[tableId]);
       socket.emit('tableUpdate', cleanTableData);
