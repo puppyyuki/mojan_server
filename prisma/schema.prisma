@@ -25,7 +25,7 @@ model User {
 model Player {
   id               String    @id @default(cuid())
   userId           String    @unique // 6位數字，唯一
-  nickname         String    // 允許重複，因為有 id、userId、lineUserId 作為唯一標識
+  nickname         String // 允許重複，因為有 id、userId、lineUserId 作為唯一標識
   cardCount        Int       @default(0)
   avatarUrl        String? // 頭像URL
   bio              String? // 備註
@@ -46,6 +46,8 @@ model Player {
   agentSales             AgentRoomCardSale[]     @relation("AgentSales")
   agentPurchasesAsBuyer  AgentRoomCardSale[]     @relation("BuyerSales")
   agentPurchases         AgentRoomCardPurchase[]
+  joinRequests           ClubJoinRequest[]       @relation("PlayerJoinRequests")
+  roomParticipants       RoomParticipant[]       @relation("PlayerRoomParticipants")
 
   @@map("players")
 }
@@ -57,42 +59,93 @@ model Club {
   creatorId    String
   creator      Player   @relation("ClubCreator", fields: [creatorId], references: [id], onDelete: Cascade)
   cardCount    Int      @default(0)
-  avatarUrl    String?  // 俱樂部頭像URL (通常是創建者的頭像)
+  avatarUrl    String? // 俱樂部頭像URL (通常是創建者的頭像)
+  logoUrl      String? // 俱樂部 Logo
+  description  String? // 俱樂部描述
   gameSettings Json? // 俱樂部遊戲設定
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  members ClubMember[]
-  rooms   Room[]
+  members      ClubMember[]
+  rooms        Room[]
+  joinRequests ClubJoinRequest[] @relation("ClubJoinRequests")
 
   @@map("clubs")
 }
 
-model ClubMember {
-  id       String   @id @default(cuid())
-  clubId   String
-  club     Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+// 俱樂部加入申請
+model ClubJoinRequest {
+  id        String            @id @default(cuid())
+  clubId    String
+  club      Club              @relation("ClubJoinRequests", fields: [clubId], references: [id], onDelete: Cascade)
+  playerId  String
+  player    Player            @relation("PlayerJoinRequests", fields: [playerId], references: [id], onDelete: Cascade)
+  status    JoinRequestStatus @default(PENDING) // PENDING, APPROVED, REJECTED, CANCELLED
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  @@map("club_join_requests")
+}
+
+// 房間參與者紀錄（用於戰績與排行榜統計）
+model RoomParticipant {
+  id       String    @id @default(cuid())
+  roomId   String
+  room     Room      @relation("RoomParticipants", fields: [roomId], references: [id], onDelete: Cascade)
   playerId String
-  player   Player   @relation(fields: [playerId], references: [id], onDelete: Cascade)
-  joinedAt DateTime @default(now())
+  player   Player    @relation("PlayerRoomParticipants", fields: [playerId], references: [id], onDelete: Cascade)
+  joinedAt DateTime  @default(now())
+  leftAt   DateTime?
+
+  @@unique([roomId, playerId])
+  @@map("room_participants")
+}
+
+// 會員角色
+enum MemberRole {
+  OWNER
+  CO_LEADER
+  MEMBER
+}
+
+// 加入申請狀態
+enum JoinRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model ClubMember {
+  id          String     @id @default(cuid())
+  clubId      String
+  club        Club       @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  playerId    String
+  player      Player     @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  joinedAt    DateTime   @default(now())
+  role        MemberRole @default(MEMBER)
+  isBanned    Boolean    @default(false)
+  scoreLimit  Int?
+  noSameTable Boolean    @default(false)
 
   @@unique([clubId, playerId])
   @@map("club_members")
 }
 
 model Room {
-  id             String   @id @default(cuid())
-  roomId         String   @unique // 6位數字，唯一
+  id             String            @id @default(cuid())
+  roomId         String            @unique // 6位數字，唯一
   clubId         String?
-  club           Club?    @relation(fields: [clubId], references: [id], onDelete: SetNull)
+  club           Club?             @relation(fields: [clubId], references: [id], onDelete: SetNull)
   creatorId      String
-  creator        Player   @relation("RoomCreator", fields: [creatorId], references: [id], onDelete: Cascade)
-  currentPlayers Int      @default(0)
-  maxPlayers     Int      @default(4)
-  status         String   @default("WAITING") // WAITING, PLAYING, FINISHED
+  creator        Player            @relation("RoomCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  currentPlayers Int               @default(0)
+  maxPlayers     Int               @default(4)
+  status         String            @default("WAITING") // WAITING, PLAYING, FINISHED
   gameSettings   Json? // 遊戲設定（JSON格式）
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+  participants   RoomParticipant[] @relation("RoomParticipants")
 
   @@map("rooms")
 }
@@ -161,8 +214,8 @@ model Announcement {
 
 model RoomCardProduct {
   id         String   @id @default(cuid())
-  cardAmount Int      // 房卡數量
-  price      Int      // 價格（新台幣）
+  cardAmount Int // 房卡數量
+  price      Int // 價格（新台幣）
   isActive   Boolean  @default(true) // 是否啟用
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -173,24 +226,24 @@ model RoomCardProduct {
 }
 
 model RoomCardOrder {
-  id                String    @id @default(cuid())
-  playerId          String
-  player            Player    @relation(fields: [playerId], references: [id], onDelete: Cascade)
-  productId         String
-  product           RoomCardProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
-  merchantTradeNo   String    @unique // 商店訂單編號
-  ecpayTradeNo      String?   // 綠界交易編號
-  cardAmount        Int       // 房卡數量
-  price             Int       // 價格
-  status            String    @default("PENDING") // PENDING, PAID, FAILED, CANCELLED
-  paymentType       String?   // 付款方式
-  virtualAccount    String?   // ATM 虛擬帳號
-  bankCode          String?   // 銀行代碼
-  expireDate        DateTime? // 繳費期限
-  paidAt            DateTime? // 付款時間
-  raw               Json?     // 原始資料
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  id              String          @id @default(cuid())
+  playerId        String
+  player          Player          @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  productId       String
+  product         RoomCardProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  merchantTradeNo String          @unique // 商店訂單編號
+  ecpayTradeNo    String? // 綠界交易編號
+  cardAmount      Int // 房卡數量
+  price           Int // 價格
+  status          String          @default("PENDING") // PENDING, PAID, FAILED, CANCELLED
+  paymentType     String? // 付款方式
+  virtualAccount  String? // ATM 虛擬帳號
+  bankCode        String? // 銀行代碼
+  expireDate      DateTime? // 繳費期限
+  paidAt          DateTime? // 付款時間
+  raw             Json? // 原始資料
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
   @@map("room_card_orders")
 }
@@ -201,7 +254,7 @@ model AgentRoomCardSale {
   agent      Player   @relation("AgentSales", fields: [agentId], references: [id], onDelete: Cascade)
   buyerId    String
   buyer      Player   @relation("BuyerSales", fields: [buyerId], references: [id], onDelete: Cascade)
-  cardAmount Int      // 銷售的房卡數量
+  cardAmount Int // 銷售的房卡數量
   status     String   @default("COMPLETED") // COMPLETED, CANCELLED
   createdAt  DateTime @default(now())
 
@@ -210,8 +263,8 @@ model AgentRoomCardSale {
 
 model AgentRoomCardProduct {
   id         String   @id @default(cuid())
-  cardAmount Int      // 房卡數量
-  price      Int      // 價格（新台幣）
+  cardAmount Int // 房卡數量
+  price      Int // 價格（新台幣）
   isActive   Boolean  @default(true) // 是否啟用
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
@@ -222,19 +275,19 @@ model AgentRoomCardProduct {
 }
 
 model AgentRoomCardPurchase {
-  id           String                @id @default(cuid())
+  id           String               @id @default(cuid())
   agentId      String
-  agent        Player                @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  agent        Player               @relation(fields: [agentId], references: [id], onDelete: Cascade)
   productId    String
-  product      AgentRoomCardProduct  @relation(fields: [productId], references: [id], onDelete: Cascade)
-  cardAmount   Int                   // 購買的房卡數量
-  price        Int                   // 價格
-  status       String                @default("PENDING") // PENDING, COMPLETED, REJECTED
-  paymentProof String?               // Base64 encoded image
-  reviewedBy   String?               // Admin user ID
+  product      AgentRoomCardProduct @relation(fields: [productId], references: [id], onDelete: Cascade)
+  cardAmount   Int // 購買的房卡數量
+  price        Int // 價格
+  status       String               @default("PENDING") // PENDING, COMPLETED, REJECTED
+  paymentProof String? // Base64 encoded image
+  reviewedBy   String? // Admin user ID
   reviewedAt   DateTime?
-  createdAt    DateTime              @default(now())
-  updatedAt    DateTime              @updatedAt
+  createdAt    DateTime             @default(now())
+  updatedAt    DateTime             @updatedAt
 
   @@map("agent_room_card_purchases")
 }
@@ -243,14 +296,13 @@ model Purchase {
   id            String   @id @default(cuid())
   transactionId String   @unique // Google Play 的 purchaseToken 或 iOS 的 transactionId
   playerId      String
-  productId     String   // 商品 ID (例如: room_card_10)
-  platform      String   // 'android' 或 'ios'
-  cardAmount    Int      // 發放的房卡數量
+  productId     String // 商品 ID (例如: room_card_10)
+  platform      String // 'android' 或 'ios'
+  cardAmount    Int // 發放的房卡數量
   status        String   @default("completed") // completed, refunded
-  purchaseData  String?  // JSON 格式的購買資料
+  purchaseData  String? // JSON 格式的購買資料
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   @@map("purchases")
 }
-

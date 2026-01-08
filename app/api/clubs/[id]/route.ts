@@ -28,6 +28,8 @@ export async function GET(
         id: true,
         clubId: true,
         name: true,
+        description: true,
+        logoUrl: true,
         cardCount: true, // 包含俱樂部房卡數量
         avatarUrl: true, // 包含俱樂部頭像 URL
         creator: {
@@ -84,7 +86,7 @@ export async function PATCH(
   try {
     const { id } = await params
     const body = await request.json()
-    const { name, cardCount, avatarUrl } = body
+    const { name, cardCount, avatarUrl, description, logoUrl } = body
 
     const updateData: any = {}
     if (name !== undefined) {
@@ -95,6 +97,12 @@ export async function PATCH(
     }
     if (avatarUrl !== undefined) {
       updateData.avatarUrl = avatarUrl ? avatarUrl.trim() : null
+    }
+    if (description !== undefined) {
+      updateData.description = description ? description.trim() : null
+    }
+    if (logoUrl !== undefined) {
+      updateData.logoUrl = logoUrl ? logoUrl.trim() : null
     }
 
     const club = await prisma.club.update({
@@ -107,6 +115,76 @@ export async function PATCH(
             userId: true,
             nickname: true,
             avatarUrl: true, // 包含創建者頭像 URL
+          },
+        },
+        members: {
+          include: {
+            player: {
+              select: {
+                id: true,
+                userId: true,
+                nickname: true,
+              },
+            },
+          },
+        },
+      },
+    })
+
+    return NextResponse.json(
+      {
+        success: true,
+        data: club,
+        message: '俱樂部更新成功',
+      },
+      { headers: corsHeaders() }
+    )
+  } catch (error) {
+    console.error('更新俱樂部失敗:', error)
+    return NextResponse.json(
+      { success: false, error: '更新俱樂部失敗' },
+      { status: 500, headers: corsHeaders() }
+    )
+  }
+}
+
+// 更新俱樂部（PUT 等同於 PATCH）
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params
+    const body = await request.json()
+    const { name, cardCount, avatarUrl, description, logoUrl } = body
+
+    const updateData: any = {}
+    if (name !== undefined) {
+      updateData.name = name.trim()
+    }
+    if (cardCount !== undefined) {
+      updateData.cardCount = parseInt(cardCount)
+    }
+    if (avatarUrl !== undefined) {
+      updateData.avatarUrl = avatarUrl ? avatarUrl.trim() : null
+    }
+    if (description !== undefined) {
+      updateData.description = description ? description.trim() : null
+    }
+    if (logoUrl !== undefined) {
+      updateData.logoUrl = logoUrl ? logoUrl.trim() : null
+    }
+
+    const club = await prisma.club.update({
+      where: { id },
+      data: updateData,
+      include: {
+        creator: {
+          select: {
+            id: true,
+            userId: true,
+            nickname: true,
+            avatarUrl: true,
           },
         },
         members: {
@@ -166,4 +244,3 @@ export async function DELETE(
     )
   }
 }
-

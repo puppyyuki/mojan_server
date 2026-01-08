@@ -125,6 +125,7 @@ export async function POST(request: NextRequest) {
       data: {
         clubId: club.id,
         playerId: creatorId,
+        role: 'OWNER',
       },
     })
 
