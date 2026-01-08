@@ -95,26 +95,20 @@ function countTiles(hand) {
 
 // 檢查是否能胡牌
 // [hand] 手牌（暗牌）
-// [newTile] 新摸入或別人打出的牌
+// [newTile] 新摸入或別人打出的牌 (可選，若為 null 則表示 hand 已經包含所有牌)
 // [exposedMelds] 明牌數量（吃碰槓的牌組數量，預設0）
 function canHu(hand, newTile, exposedMelds = 0) {
-  const allTiles = [...hand, newTile];
+  const allTiles = newTile ? [...hand, newTile] : [...hand];
   
-  // 調試日誌
-  console.log(`    [canHu] 手牌數量：${hand.length}，目標牌：${newTile}，明牌組數：${exposedMelds}，總牌數：${allTiles.length}`);
-
   // 檢查七對子（只有沒有明牌時才能七對子）
   if (exposedMelds === 0 && isSevenPairs(allTiles)) {
-    console.log(`    [canHu] 七對子檢測通過`);
     return true;
   }
 
   // 檢查標準胡牌（台灣麻將：5組面子 + 1對將）
   // 已經有 exposedMelds 組明牌，還需要 5 - exposedMelds 組面子
   const remainingMeldsNeeded = 5 - exposedMelds;
-  console.log(`    [canHu] 需要組成${remainingMeldsNeeded}組面子`);
   const result = checkStandardHu(allTiles, remainingMeldsNeeded);
-  console.log(`    [canHu] checkStandardHu結果：${result}`);
   return result;
 }
 
@@ -143,80 +137,57 @@ function isSevenPairs(tiles) {
 
 // 檢查標準胡牌
 function checkStandardHu(tiles, meldsNeeded) {
-  console.log(`      [checkStandardHu] tiles數量：${tiles.length}，需要面子數：${meldsNeeded}`);
-  console.log(`      [checkStandardHu] tiles：${tiles.join(',')}`);
   if (meldsNeeded === 0) {
     const result = tiles.length === 2 && isPair(tiles);
-    console.log(`      [checkStandardHu] meldsNeeded=0，結果：${result}`);
     return result;
   }
 
   const expectedTiles = meldsNeeded * 3 + 2;
-  console.log(`      [checkStandardHu] 預期牌數：${expectedTiles}，實際牌數：${tiles.length}`);
   if (tiles.length !== expectedTiles) {
-    console.log(`      [checkStandardHu] 牌數不符合，返回false`);
     return false;
   }
 
   // 嘗試所有可能的將牌組合
-  let pairCount = 0;
   for (let i = 0; i < tiles.length; i++) {
     for (let j = i + 1; j < tiles.length; j++) {
       if (isSameTile(tiles[i], tiles[j])) {
-        pairCount++;
-        console.log(`      [checkStandardHu] 嘗試將牌對：${tiles[i]}和${tiles[j]}（第${pairCount}對）`);
         const remainingTiles = [...tiles];
         remainingTiles.splice(j, 1);
         remainingTiles.splice(i, 1);
-        console.log(`      [checkStandardHu] 移除將牌後剩餘：${remainingTiles.join(',')}，數量：${remainingTiles.length}`);
 
         const canForm = canFormMelds(remainingTiles, meldsNeeded);
-        console.log(`      [checkStandardHu] canFormMelds結果：${canForm}`);
         if (canForm) {
-          console.log(`      [checkStandardHu] ✓ 找到有效胡牌組合！`);
           return true;
         }
       }
     }
   }
 
-  console.log(`      [checkStandardHu] ✗ 嘗試了${pairCount}對將牌，都無法組成有效胡牌`);
   return false;
 }
 
 // 檢查是否能組成指定數量的面子
 function canFormMelds(tiles, meldsNeeded) {
-  console.log(`        [canFormMelds] 開始檢查，tiles數量：${tiles.length}，需要面子數：${meldsNeeded}`);
   if (tiles.length === 0 && meldsNeeded === 0) {
-    console.log(`        [canFormMelds] 基礎情況：無剩餘牌且不需要面子，返回true`);
     return true;
   }
   if (tiles.length === 0 || meldsNeeded === 0) {
-    console.log(`        [canFormMelds] 基礎情況不符，返回false`);
     return false;
   }
   if (tiles.length !== meldsNeeded * 3) {
-    console.log(`        [canFormMelds] 牌數不符：${tiles.length} != ${meldsNeeded * 3}，返回false`);
     return false;
   }
 
-  console.log(`        [canFormMelds] 牌組：${tiles.join(',')}`);
   const result = findMeldsRecursive(tiles, 0, meldsNeeded);
-  console.log(`        [canFormMelds] 遞迴結果：${result}`);
   return result;
 }
 
 // 遞迴尋找面子組合
 function findMeldsRecursive(tiles, foundMelds, targetMelds) {
-  const indent = '          '.repeat(foundMelds);
-  console.log(`${indent}[findMeldsRecursive] 深度${foundMelds}/${targetMelds}，剩餘牌數：${tiles.length}，牌組：${tiles.slice(0, 10).join(',')}${tiles.length > 10 ? '...' : ''}`);
-  
   if (foundMelds === targetMelds && tiles.length === 0) {
-    console.log(`${indent}[findMeldsRecursive] ✓ 成功：已找到${targetMelds}組面子，無剩餘牌`);
     return true;
   }
   if (tiles.length === 0) {
-    console.log(`${indent}[findMeldsRecursive] ✗ 失敗：無剩餘牌但未完成目標`);
     return false;
   }
 
@@ -233,12 +204,9 @@ function findMeldsRecursive(tiles, foundMelds, targetMelds) {
 
   // 嘗試從每張唯一的牌開始組成面子
   for (const startTile of uniqueTiles) {
-    console.log(`${indent}[findMeldsRecursive] 嘗試從牌：${startTile}開始組成面子`);
-
     // 嘗試刻子
     const triplet = findTriplet(tiles, startTile);
     if (triplet) {
-      console.log(`${indent}[findMeldsRecursive] 找到刻子：${triplet.join(',')}`);
       const newTiles = [...tiles];
       triplet.forEach(tile => {
         const index = newTiles.indexOf(tile);
@@ -252,7 +220,6 @@ function findMeldsRecursive(tiles, foundMelds, targetMelds) {
     // 嘗試順子
     const sequence = findSequence(tiles, startTile);
     if (sequence) {
-      console.log(`${indent}[findMeldsRecursive] 找到順子：${sequence.join(',')}`);
       const newTiles = [...tiles];
       sequence.forEach(tile => {
         const index = newTiles.indexOf(tile);
@@ -264,7 +231,6 @@ function findMeldsRecursive(tiles, foundMelds, targetMelds) {
     }
   }
 
-  console.log(`${indent}[findMeldsRecursive] ✗ 無法從當前牌組找到有效面子`);
   return false;
 }
 

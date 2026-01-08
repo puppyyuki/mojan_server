@@ -229,19 +229,21 @@ async function startGame(tableId) {
   const diceSum = dice.reduce((a, b) => a + b, 0);
   
   // 3. 決定東風位（windStart）
-  // 由「莊家座位」開始，逆時針方向（索引遞增）依序計數
-  // 計數至「骰子總和」所對應的玩家，即為該局的 東風玩家
-  table.windStart = (table.dealerIndex + (diceSum - 1)) % 4;
+  // 根據新規則：莊家必為東風
+  table.windStart = table.dealerIndex;
   
   table.turn = table.dealerIndex;
 
   const windNames = ['東', '南', '西', '北'];
-  console.log(`>>> [遊戲開始] 骰子點數: [${dice.join(', ')}], 總和: ${diceSum}`);
+  console.log(`>>> [遊戲開始] 骰子點數: [${dice.join(', ')}], 總和: ${diceSum} (不再影響風位)`);
   console.log(`>>> [遊戲開始] 莊家: 玩家${table.dealerIndex + 1}, 東風位: 玩家${table.windStart + 1} (${windNames[0]}風)`);
   console.log(`>>> [遊戲開始] 風位分配：座位${table.windStart}=${windNames[0]}風，座位${(table.windStart + 1) % 4}=${windNames[1]}風，座位${(table.windStart + 2) % 4}=${windNames[2]}風，座位${(table.windStart + 3) % 4}=${windNames[3]}風`);
 
   // 初始化圈數和分數
-  table.round = 1;
+  table.round = 1; // 當前圈數 (1:東風圈, 2:南風圈...)
+  table.totalHands = 1; // 總局數
+  table.dealerCountInCircle = 0; // 當前圈已擔任過莊家的人數 (不含連莊)
+  table.dealerLianZhuangCount = 0; // 莊家連莊次數
   table.roundHistory = [];
 
   // 確保 maxRounds 和 gameSettings 正確設置（從房間設定讀取）
@@ -1025,31 +1027,38 @@ function startNextRound(tableId) {
   // 判斷獲勝者是否是莊家
   const isDealerWin = (winnerIndex === previousDealerIndex);
 
-  // 決定新莊家：
-  // - 如果莊家獲勝：下一輪還是該玩家當莊家（dealerIndex 不變）
-  // - 如果其他家獲勝：依序輪換到下一個風位（東->南->西->北）
+  // 增加總局數
+  table.totalHands = (table.totalHands || 1) + 1;
+
+  // 決定新莊家與圈數：
   let newDealerIndex;
+  
   if (isDealerWin) {
-    // 莊家獲勝，保持莊家不變
+    // 莊家獲勝，連莊
     newDealerIndex = previousDealerIndex;
-    console.log(`>>> [下一圈] 獲勝者：玩家${winnerIndex + 1} (${table.players[winnerIndex].name})，莊家獲勝，繼續當莊家`);
+    table.dealerLianZhuangCount = (table.dealerLianZhuangCount || 0) + 1;
+    console.log(`>>> [下一圈] 獲勝者：玩家${winnerIndex + 1}，莊家連莊 (連莊數: ${table.dealerLianZhuangCount})`);
   } else {
-    // 其他家獲勝，輪換到下一個風位（相對於 windStart 的風位順序）
-    // 計算當前莊家相對於 windStart 的風位偏移
-    const currentWindOffset = (previousDealerIndex - table.windStart + 4) % 4;
-    // 輪換到下一個風位（東->南->西->北->東）
-    const nextWindOffset = (currentWindOffset + 1) % 4;
-    // 計算新的座位索引
-    newDealerIndex = (table.windStart + nextWindOffset) % 4;
-    const windNames = ['東', '南', '西', '北'];
-    console.log(`>>> [下一圈] 獲勝者：玩家${winnerIndex + 1} (${table.players[winnerIndex].name})，非莊家獲勝，輪換到${windNames[nextWindOffset]}風位（座位${newDealerIndex}）當莊家`);
+    // 閒家獲勝，換莊 (下家)
+    newDealerIndex = (previousDealerIndex + 1) % 4;
+    table.dealerLianZhuangCount = 0;
+    
+    // 更新圈內莊家計數
+    table.dealerCountInCircle = (table.dealerCountInCircle || 0) + 1;
+    console.log(`>>> [下一圈] 獲勝者：玩家${winnerIndex + 1}，非莊家獲勝，換莊 (座位${previousDealerIndex}->${newDealerIndex})，圈內已輪替人數: ${table.dealerCountInCircle}`);
+    
+    // 檢查是否該圈結束 (4位玩家都當過莊家)
+    if (table.dealerCountInCircle >= 4) {
+      table.round = (table.round || 1) + 1; // 進入下一圈 (Quan)
+      table.dealerCountInCircle = 0; // 重置圈內計數
+      console.log(`>>> [下一圈] 一圈結束，進入第 ${table.round} 圈`);
+    }
   }
 
   // 重置遊戲狀態
   table.gamePhase = GamePhase.DEALING;
   table.dealerIndex = newDealerIndex;
-  // windStart 在遊戲開始時已隨機設定，代表東風位的起始座位，整場遊戲不變
-  // 風位不隨莊家輪替而改變，只會按照風位順序輪換莊家
+  // windStart 不再改變，保持開局時的設定
   table.turn = newDealerIndex;
 
   // 清除所有玩家的手牌、明牌、打出牌、花牌、聽牌狀態
@@ -1105,23 +1114,23 @@ function startNextRound(tableId) {
 
   console.log(`>>> [下一圈] 新莊家: 玩家${table.dealerIndex + 1}, 東風起始位置: ${table.windStart}`);
 
-  // 生成下一圈的骰子並依據規則設定新的東風位
+  // 生成下一圈的骰子 (僅用於顯示，不改變風位)
   const nextRoundDice = [
     Math.floor(Math.random() * 6) + 1,
     Math.floor(Math.random() * 6) + 1,
     Math.floor(Math.random() * 6) + 1
   ];
   const nextRoundDiceSum = nextRoundDice.reduce((a, b) => a + b, 0);
-  table.windStart = (table.dealerIndex + (nextRoundDiceSum - 1)) % 4;
-  console.log(`>>> [下一圈] 骰子點數: [${nextRoundDice.join(', ')}], 總和: ${nextRoundDiceSum}`);
-  console.log(`>>> [下一圈] 依據骰子結果設定東風位為座位 ${table.windStart}`);
+  // table.windStart 不變
+  console.log(`>>> [下一圈] 骰子點數: [${nextRoundDice.join(', ')}], 總和: ${nextRoundDiceSum} (不影響風位)`);
 
   // 清除繼續確認狀態
   table.roundContinueReady = null;
   table.nextRoundWinnerId = null;
 
   // 廣播下一圈開始
-  safeEmit(tableId, 'startGame', {
+  // 改用直接 emit 避免 safeEmit 過濾掉 dice 屬性
+  io.to(tableId).emit('startGame', {
     id: tableId,
     players: table.players.map(p => ({
       id: p.id,
@@ -1613,23 +1622,13 @@ function drawTile(tableId, playerId) {
     // 注意：drawnTile 已經被加入 hiddenHands[playerId] 了
     const hand = table.hiddenHands[playerId];
     const melds = table.melds[playerId] || [];
-    // 手牌中已經包含摸到的牌，需要排除剛摸到的牌再檢測
-    // 使用 lastIndexOf 找到最後一次出現的位置（因為可能有多張相同的牌）
-    let handWithoutDrawn;
-    if (hand.includes(drawnTile)) {
-      // 手牌中包含這張牌，排除最後一次出現的那張
-      const lastIndex = hand.lastIndexOf(drawnTile);
-      handWithoutDrawn = hand.slice(0, lastIndex).concat(hand.slice(lastIndex + 1));
-    } else {
-      // 手牌中不包含這張牌（不應該發生，但為了安全）
-      handWithoutDrawn = [...hand];
+    
+    // 優化：直接傳入 hand (已含 drawnTile)，canHu 第二參數傳 null
+    const canHuResult = canHu(hand, null, melds.length);
+    
+    if (canHuResult) {
+      console.log(`>>> [自摸檢測] 玩家${playerIndex + 1}摸牌 ${drawnTile} 後可以自摸胡牌`);
     }
-    console.log(`>>> [自摸檢測] 玩家${playerIndex + 1}摸牌：${drawnTile}`);
-    console.log(`>>> [自摸檢測] 當前手牌：${hand.join(',')}，手牌數量：${hand.length}`);
-    console.log(`>>> [自摸檢測] 排除目標牌後的手牌：${handWithoutDrawn.join(',')}，手牌數量：${handWithoutDrawn.length}`);
-    console.log(`>>> [自摸檢測] 明牌數量：${melds.length}`);
-    const canHuResult = canHu(handWithoutDrawn, drawnTile, melds.length);
-    console.log(`>>> [自摸檢測] 自摸檢測結果：${canHuResult}`);
 
     // 檢查是否八仙過海（湊齊8張花牌，可以無視任何條件直接胡牌）
     const isBaXianGuoHai = player.isBaXianGuoHai || false;
@@ -1700,15 +1699,24 @@ function drawTile(tableId, playerId) {
       startClaimTimer(tableId);
     } else {
       // 不能自摸，檢測自槓（包括補槓）
-      console.log(`>>> [自槓檢測] 玩家${playerIndex + 1}摸牌：${drawnTile}`);
-      console.log(`>>> [自槓檢測] 當前手牌：${hand.join(',')}，手牌數量：${hand.length}`);
-      console.log(`>>> [自槓檢測] 手牌（不包括剛摸起的牌）：${handWithoutDrawn.join(',')}，手牌數量：${handWithoutDrawn.length}`);
+      // console.log(`>>> [自槓檢測] 玩家${playerIndex + 1}摸牌：${drawnTile}`);
+      // console.log(`>>> [自槓檢測] 當前手牌：${hand.join(',')}，手牌數量：${hand.length}`);
+      
+      // 注意：hand 已經包含 drawnTile
+      // 若要計算 handWithoutDrawn，需先移除最後一張 drawnTile
+      const lastIndex = hand.lastIndexOf(drawnTile);
+      const handWithoutDrawn = lastIndex !== -1 
+        ? hand.slice(0, lastIndex).concat(hand.slice(lastIndex + 1))
+        : [...hand];
+
+      // console.log(`>>> [自槓檢測] 手牌（不包括剛摸起的牌）：${handWithoutDrawn.join(',')}，手牌數量：${handWithoutDrawn.length}`);
 
       // 檢測自槓：檢查兩種情況
       // 1. 剛摸起的牌加入手牌後有4張相同（canSelfKong檢測）
       // 2. 手牌中已有4張相同（不包括剛摸起的牌，之前選擇"棄"後留在手牌的牌）
+      // canSelfKong(handWithoutDrawn, drawnTile) 內部會把 drawnTile 加回去計算
       const canSelfKongResult = canSelfKong(handWithoutDrawn, drawnTile);
-      console.log(`>>> [自槓檢測] 自槓檢測結果（手牌+摸起牌）：${canSelfKongResult}`);
+      // console.log(`>>> [自槓檢測] 自槓檢測結果（手牌+摸起牌）：${canSelfKongResult}`);
 
       // 檢測手牌中是否已有4張相同（不包括剛摸起的牌）
       const countsInHand = {};
@@ -1716,7 +1724,7 @@ function drawTile(tableId, playerId) {
         countsInHand[tile] = (countsInHand[tile] || 0) + 1;
       });
       const hasFourInHand = Object.values(countsInHand).some(count => count >= 4);
-      console.log(`>>> [自槓檢測] 手牌中是否已有4張相同（不包括摸起牌）：${hasFourInHand}`);
+      // console.log(`>>> [自槓檢測] 手牌中是否已有4張相同（不包括摸起牌）：${hasFourInHand}`);
 
       const canDoSelfKong = canSelfKongResult || hasFourInHand;
 
@@ -1742,9 +1750,9 @@ function drawTile(tableId, playerId) {
       });
 
       canAddKong = drawnTileMatchesPong || handHasPongTile;
-      console.log(`>>> [補槓檢測] 剛摸起的牌是否與碰牌相同：${drawnTileMatchesPong}`);
-      console.log(`>>> [補槓檢測] 手牌中是否已有1張與碰牌相同：${handHasPongTile}`);
-      console.log(`>>> [補槓檢測] 玩家${playerIndex + 1}是否有可補槓的碰牌：${canAddKong}`);
+      // console.log(`>>> [補槓檢測] 剛摸起的牌是否與碰牌相同：${drawnTileMatchesPong}`);
+      // console.log(`>>> [補槓檢測] 手牌中是否已有1張與碰牌相同：${handHasPongTile}`);
+      // console.log(`>>> [補槓檢測] 玩家${playerIndex + 1}是否有可補槓的碰牌：${canAddKong}`);
 
       if (canDoSelfKong || canAddKong) {
         console.log(`>>> [自槓檢測] 玩家${playerIndex + 1}可以自槓或補槓！`);
@@ -2773,17 +2781,17 @@ function discardTile(tableId, playerId, tile) {
   // 注意：hand 已經在第 537 行宣告，但打牌後手牌已更新，需要重新獲取
   const updatedHand = table.hiddenHands[playerId];
   const melds = table.melds[playerId] || [];
-  console.log(`玩家${playerIndex + 1}打牌後手牌：${updatedHand.join(',')}，明牌數量：${melds.length}`);
+  // console.log(`玩家${playerIndex + 1}打牌後手牌：${updatedHand.join(',')}，明牌數量：${melds.length}`);
 
   // 優先檢測打牌玩家是否可以聽牌（打牌後）
   const currentPlayer = table.players[playerIndex];
   if (currentPlayer && currentPlayer.id && !currentPlayer.isTing) {
     // 檢測是否聽牌（打牌後）
     const isTing = canTing(updatedHand, melds.length);
-    console.log(`玩家${playerIndex + 1}打牌後聽牌檢測結果：${isTing}`);
+    // console.log(`玩家${playerIndex + 1}打牌後聽牌檢測結果：${isTing}`);
 
     if (isTing) {
-      console.log(`玩家${playerIndex + 1}打牌後可以聽牌！手牌：${updatedHand.join(',')}，明牌：${melds.length}組`);
+      console.log(`玩家${playerIndex + 1}打牌後可以聽牌！`);
 
       // 使用之前記錄的 wasFirstDealerDiscard 標記
       // 檢查地聽條件：第一圈、非莊家、摸牌打牌後聽牌、沒有其他玩家吃碰槓
@@ -2917,9 +2925,9 @@ function checkClaims(tableId, discardPlayerId, discardedTile) {
     }
 
     // 檢查胡牌（考慮明牌數量）
-    console.log(`>>> [胡牌檢測] 玩家${i + 1}，手牌：${hand.join(',')}，手牌數量：${hand.length}，明牌數量：${melds.length}，目標牌：${discardedTile}，是否聽牌：${player.isTing}`);
+    // console.log(`>>> [胡牌檢測] 玩家${i + 1}，手牌：${hand.join(',')}...`);
     const canHuResult = canHu(hand, discardedTile, melds.length);
-    console.log(`>>> [胡牌檢測] 玩家${i + 1}胡牌檢測結果：${canHuResult}`);
+    // console.log(`>>> [胡牌檢測] 玩家${i + 1}胡牌檢測結果：${canHuResult}`);
     if (canHuResult) {
       console.log(`>>> [胡牌檢測] 玩家${i + 1}可以胡牌！`);
       claimOptions.push({
@@ -3338,6 +3346,13 @@ function handleClaimRequest(tableId, playerId, claimType, tiles) {
       ? table.players.findIndex(p => p.id === table.claimingState.discardPlayerId)
       : null;
     const huType = table.claimingState.claimType === 'selfDrawnHu' ? 'selfDrawnHu' : 'hu';
+    
+    // 清除倒計時
+    if (table.claimingTimer) {
+      clearInterval(table.claimingTimer);
+      table.claimingTimer = null;
+    }
+    
     declareHu(tableId, playerId, huType, targetTile, targetPlayer);
     return;
   }
@@ -4012,6 +4027,23 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
   const table = tables[tableId];
   if (!table) return;
 
+  // 清除所有相關計時器
+  if (table.claimingTimer) {
+    clearInterval(table.claimingTimer);
+    table.claimingTimer = null;
+  }
+  if (table.turnTimer) {
+    clearInterval(table.turnTimer);
+    table.turnTimer = null;
+  }
+  if (table.tingTimer) {
+    clearInterval(table.tingTimer);
+    table.tingTimer = null;
+  }
+
+  // 設置遊戲狀態為 ENDED
+  table.gamePhase = GamePhase.ENDED;
+
   const playerIndex = table.players.findIndex(p => p.id === playerId);
   if (playerIndex === -1) {
     console.log(`>>> [胡牌驗證] 找不到玩家 ${playerId}`);
@@ -4155,8 +4187,10 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
   if (huType === 'selfDrawnHu') {
     // 自摸：手牌中已經包含摸到的牌，需要排除最後一張
     const targetTile = table.claimingState?.discardedTile || hand[hand.length - 1];
-    if (hand.includes(targetTile)) {
-      const lastIndex = hand.lastIndexOf(targetTile);
+    
+    // 檢查 hand 是否包含 targetTile，避免 lastIndexOf 返回 -1 導致錯誤截取
+    const lastIndex = hand.lastIndexOf(targetTile);
+    if (lastIndex !== -1) {
       handBeforeHu = hand.slice(0, lastIndex).concat(hand.slice(lastIndex + 1));
     } else {
       handBeforeHu = [...hand];
@@ -4745,11 +4779,31 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
 
   // 判斷是否需要中間結算或最終結算
   const maxRounds = table.maxRounds || 1;
-  const currentRound = table.round;
-  const nextRound = currentRound + 1;
-  const isLastRound = (nextRound > maxRounds) || (maxRounds === 1 && currentRound === 1);
+  const currentRound = table.round; // 當前圈數 (Quan)
+  
+  // 預測下一圈狀態 (僅用於判斷是否為最後一圈，實際狀態更新在 startNextRound)
+  // 判斷獲勝者是否是莊家
+  const currentDealerIndex = table.dealerIndex;
+  const winnerIndex = table.players.findIndex(p => p.id === playerId);
+  const isDealerWin = (winnerIndex === currentDealerIndex);
+  
+  let nextRound = currentRound;
+  
+  if (!isDealerWin) {
+    // 閒家獲勝，莊家輪替
+    const currentDealerCount = table.dealerCountInCircle || 0;
+    const nextDealerCount = currentDealerCount + 1;
+    // 如果這圈已經有4位玩家當過莊家 (0,1,2,3 -> 4)，則進入下一圈
+    if (nextDealerCount >= 4) {
+      nextRound = currentRound + 1;
+    }
+  }
+  
+  // 判斷是否結束
+  const isLastRound = (nextRound > maxRounds);
 
-  console.log(`>>> [圈數管理] 當前圈數: ${currentRound}, 下一圈: ${nextRound}, 總圈數: ${maxRounds}, 是否最後一圈: ${isLastRound}`);
+  console.log(`>>> [圈數管理] 當前圈數: ${currentRound}, 預測下一圈: ${nextRound}, 總圈數: ${maxRounds}, 是否最後一圈: ${isLastRound}`);
+  console.log(`>>> [圈數管理] 獲勝者: ${playerIndex}, 莊家: ${currentDealerIndex}, 是否連莊: ${isDealerWin}, 圈內已當莊人數: ${table.dealerCountInCircle || 0}`);
 
   // 所有情況都先顯示中間結算（包括最後一圈），玩家按下繼續後才顯示最終結算
   console.log(`>>> [圈數管理] 觸發中間結算（當前圈數: ${currentRound}/${maxRounds}）`);
@@ -4787,10 +4841,7 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
     }))
   });
 
-  // 如果不是最後一圈，增加圈數，準備下一圈
-  if (!isLastRound) {
-    table.round = nextRound;
-  }
+  // 注意：這裡不再直接更新 table.round，改由 startNextRound 處理
   table.roundContinueReady = new Set(); // 追蹤哪些玩家已確認繼續
   table.isLastRound = isLastRound; // 標記是否為最後一圈
   console.log(`>>> [圈數管理] 等待玩家確認繼續，是否最後一圈: ${isLastRound}`);
