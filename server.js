@@ -217,14 +217,27 @@ async function startGame(tableId) {
   table.started = true;
   table.gamePhase = GamePhase.DEALING;
 
-  // 隨機選擇一個玩家作為東風位（windStart）
-  // 第一圈時，東風位玩家就是莊家
-  table.windStart = Math.floor(Math.random() * 4); // 隨機選擇 0-3 其中一個座位作為東風位
-  table.dealerIndex = table.windStart; // 第一圈東風位玩家為莊家
+  // 1. 隨機決定莊家（維持原有機制）
+  table.dealerIndex = Math.floor(Math.random() * 4);
+  
+  // 2. 伺服器產生 3 組介於 1～6 的隨機亂數（骰子點數）
+  const dice = [
+    Math.floor(Math.random() * 6) + 1,
+    Math.floor(Math.random() * 6) + 1,
+    Math.floor(Math.random() * 6) + 1
+  ];
+  const diceSum = dice.reduce((a, b) => a + b, 0);
+  
+  // 3. 決定東風位（windStart）
+  // 由「莊家座位」開始，逆時針方向（索引遞增）依序計數
+  // 計數至「骰子總和」所對應的玩家，即為該局的 東風玩家
+  table.windStart = (table.dealerIndex + (diceSum - 1)) % 4;
+  
   table.turn = table.dealerIndex;
 
   const windNames = ['東', '南', '西', '北'];
-  console.log(`>>> [遊戲開始] 隨機選擇玩家${table.windStart + 1}為東風位，並擔任莊家`);
+  console.log(`>>> [遊戲開始] 骰子點數: [${dice.join(', ')}], 總和: ${diceSum}`);
+  console.log(`>>> [遊戲開始] 莊家: 玩家${table.dealerIndex + 1}, 東風位: 玩家${table.windStart + 1} (${windNames[0]}風)`);
   console.log(`>>> [遊戲開始] 風位分配：座位${table.windStart}=${windNames[0]}風，座位${(table.windStart + 1) % 4}=${windNames[1]}風，座位${(table.windStart + 2) % 4}=${windNames[2]}風，座位${(table.windStart + 3) % 4}=${windNames[3]}風`);
 
   // 初始化圈數和分數
@@ -931,13 +944,14 @@ async function startGame(tableId) {
     })),
     dealerIndex: table.dealerIndex,
     windStart: table.windStart,
+    dice: dice,
     turn: table.turn,
     gamePhase: table.gamePhase
   });
 
   // 同步最新桌狀態（確保有玩家漏掉 startGame 事件時仍能收到 started 狀態）
   const cleanTableData = getCleanTableData(table);
-  io.to(tableId).emit('tableUpdate', cleanTableData);
+  io.to(tableId).emit('tableUpdate', { ...cleanTableData, dice });
 
   // 廣播所有玩家的手牌數量更新（讓所有玩家知道手牌數量）
   const handCounts = {};
@@ -1091,6 +1105,17 @@ function startNextRound(tableId) {
 
   console.log(`>>> [下一圈] 新莊家: 玩家${table.dealerIndex + 1}, 東風起始位置: ${table.windStart}`);
 
+  // 生成下一圈的骰子並依據規則設定新的東風位
+  const nextRoundDice = [
+    Math.floor(Math.random() * 6) + 1,
+    Math.floor(Math.random() * 6) + 1,
+    Math.floor(Math.random() * 6) + 1
+  ];
+  const nextRoundDiceSum = nextRoundDice.reduce((a, b) => a + b, 0);
+  table.windStart = (table.dealerIndex + (nextRoundDiceSum - 1)) % 4;
+  console.log(`>>> [下一圈] 骰子點數: [${nextRoundDice.join(', ')}], 總和: ${nextRoundDiceSum}`);
+  console.log(`>>> [下一圈] 依據骰子結果設定東風位為座位 ${table.windStart}`);
+
   // 清除繼續確認狀態
   table.roundContinueReady = null;
   table.nextRoundWinnerId = null;
@@ -1113,6 +1138,7 @@ function startNextRound(tableId) {
     })),
     dealerIndex: table.dealerIndex,
     windStart: table.windStart,
+    dice: nextRoundDice,
     turn: table.turn,
     gamePhase: table.gamePhase,
     round: table.round,
@@ -1121,7 +1147,7 @@ function startNextRound(tableId) {
 
   // 同步最新桌狀態
   const cleanTableData = getCleanTableData(table);
-  io.to(tableId).emit('tableUpdate', cleanTableData);
+  io.to(tableId).emit('tableUpdate', { ...cleanTableData, dice: nextRoundDice });
 
   // 廣播所有玩家的手牌數量更新（讓所有玩家知道手牌數量）
   const handCounts = {};
