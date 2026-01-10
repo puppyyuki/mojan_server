@@ -929,7 +929,7 @@ async function startGame(tableId) {
   console.log(`莊家: 玩家${table.dealerIndex + 1}, 東風起始位置: ${table.windStart}`);
 
   // 廣播遊戲開始
-  safeEmit(tableId, 'startGame', {
+  io.to(tableId).emit('startGame', {
     id: tableId,
     players: table.players.map(p => ({
       id: p.id,
@@ -948,7 +948,9 @@ async function startGame(tableId) {
     windStart: table.windStart,
     dice: dice,
     turn: table.turn,
-    gamePhase: table.gamePhase
+    gamePhase: table.gamePhase,
+    round: table.round,
+    maxRounds: table.maxRounds
   });
 
   // 同步最新桌狀態（確保有玩家漏掉 startGame 事件時仍能收到 started 狀態）
@@ -4892,7 +4894,7 @@ function getCleanTableData(table) {
 function safeEmit(room, event, data) {
   try {
     // 如果資料是 table 物件，先清理
-    if (data && typeof data === 'object' && data.id && data.players) {
+    if (data && typeof data === 'object' && data.id && data.players && (data.hands || data.discards || data.melds || data.flowers || data.deck)) {
       data = getCleanTableData(data);
     }
 
