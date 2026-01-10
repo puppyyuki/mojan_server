@@ -1513,7 +1513,8 @@ function processPlayerFlowerReplacement(tableId, playerIndex) {
         playerIndex: playerIndex,
         flower: flower,
         newTile: newTile,
-        isInitial: true
+        isInitial: true,
+        deckCount: table.deck.length
       });
 
       // 如果補摸的仍是花牌，繼續補花
@@ -1792,6 +1793,24 @@ function drawTile(tableId, playerId) {
         const uniqueKongTiles = [...new Set(kongTiles)];
 
         if (uniqueKongTiles.length > 0) {
+          // 確保等待時間
+          table.gamePhase = GamePhase.CLAIMING;
+          table.claimingState = {
+             discardPlayerId: playerId,
+             discardedTile: drawnTile,
+             options: [{
+               playerId: playerId,
+               playerIndex: playerIndex,
+               claimType: ClaimType.KONG,
+               priority: 2,
+               kongTiles: uniqueKongTiles
+             }],
+             timer: 30,
+             playerDecisions: {
+               [playerId]: { hasDecided: false, decision: null }
+             }
+          };
+
           // 發送自槓提示給客戶端
           io.to(playerId).emit('selfKongAvailable', {
             playerId: playerId,
@@ -1799,6 +1818,10 @@ function drawTile(tableId, playerId) {
             tiles: uniqueKongTiles // 可以自槓或補槓的牌列表
           });
           console.log(`>>> [自槓檢測] 發送自槓/補槓提示給玩家${playerIndex + 1}，可自槓/補槓的牌：${uniqueKongTiles.join(',')}`);
+
+          // 開始倒計時
+          startClaimTimer(tableId);
+          return; // 已經進入 CLAIMING 狀態，不再啟動普通出牌計時器
         }
       }
 
@@ -1936,7 +1959,8 @@ function handleFlowerTile(tableId, playerId, flower) {
       playerIndex: playerIndex,
       flower: flower,
       newTile: newTile,
-      isInitial: false
+      isInitial: false,
+      deckCount: table.deck.length
     });
 
     // 標記玩家最近進行了補花（用於槓上開花判斷）
@@ -3346,13 +3370,6 @@ function handleClaimRequest(tableId, playerId, claimType, tiles) {
       ? table.players.findIndex(p => p.id === table.claimingState.discardPlayerId)
       : null;
     const huType = table.claimingState.claimType === 'selfDrawnHu' ? 'selfDrawnHu' : 'hu';
-    
-    // 清除倒計時
-    if (table.claimingTimer) {
-      clearInterval(table.claimingTimer);
-      table.claimingTimer = null;
-    }
-    
     declareHu(tableId, playerId, huType, targetTile, targetPlayer);
     return;
   }
@@ -4027,23 +4044,6 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
   const table = tables[tableId];
   if (!table) return;
 
-  // 清除所有相關計時器
-  if (table.claimingTimer) {
-    clearInterval(table.claimingTimer);
-    table.claimingTimer = null;
-  }
-  if (table.turnTimer) {
-    clearInterval(table.turnTimer);
-    table.turnTimer = null;
-  }
-  if (table.tingTimer) {
-    clearInterval(table.tingTimer);
-    table.tingTimer = null;
-  }
-
-  // 設置遊戲狀態為 ENDED
-  table.gamePhase = GamePhase.ENDED;
-
   const playerIndex = table.players.findIndex(p => p.id === playerId);
   if (playerIndex === -1) {
     console.log(`>>> [胡牌驗證] 找不到玩家 ${playerId}`);
@@ -4187,10 +4187,8 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
   if (huType === 'selfDrawnHu') {
     // 自摸：手牌中已經包含摸到的牌，需要排除最後一張
     const targetTile = table.claimingState?.discardedTile || hand[hand.length - 1];
-    
-    // 檢查 hand 是否包含 targetTile，避免 lastIndexOf 返回 -1 導致錯誤截取
-    const lastIndex = hand.lastIndexOf(targetTile);
-    if (lastIndex !== -1) {
+    if (hand.includes(targetTile)) {
+      const lastIndex = hand.lastIndexOf(targetTile);
       handBeforeHu = hand.slice(0, lastIndex).concat(hand.slice(lastIndex + 1));
     } else {
       handBeforeHu = [...hand];
