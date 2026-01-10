@@ -254,7 +254,7 @@ async function startGame(tableId) {
         select: { gameSettings: true }
       });
       const gameSettings = roomRecord?.gameSettings || null;
-      table.maxRounds = gameSettings?.rounds || 1;
+      table.maxRounds = Number(gameSettings?.rounds) || 1;
       table.gameSettings = gameSettings || {
         base_points: 100,
         scoring_unit: 20,
@@ -5282,7 +5282,7 @@ io.on('connection', (socket) => {
       gameSettings = roomRecord?.gameSettings || null;
       manualStart = gameSettings?.manual_start === true;
       // 讀取圈數設定（1/2/4圈）
-      maxRounds = gameSettings?.rounds || 1;
+      maxRounds = Number(gameSettings?.rounds) || 1;
       // 只在第一次加入或切換房間時輸出日誌
       if (!existingMapping || existingMapping.tableId !== tableId) {
         console.log(`>>> [房間設定] 房間 ${tableId} 的圈數設定: ${maxRounds} 圈`);
