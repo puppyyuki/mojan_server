@@ -5273,8 +5273,9 @@ io.on('connection', (socket) => {
     let manualStart = false;
     let maxRounds = 1; // 預設1圈
     let gameSettings = null; // 保存完整的遊戲設定
+    let roomRecord = null;
     try {
-      const roomRecord = await prisma.room.findUnique({
+      roomRecord = await prisma.room.findUnique({
         where: { roomId: tableId },
         select: { gameSettings: true }
       });
@@ -5296,6 +5297,21 @@ io.on('connection', (socket) => {
       }
     } catch (err) {
       console.error(`查詢房間設定失敗（${tableId}）:`, err.message);
+      socket.emit('joinTableError', {
+        success: false,
+        error: 'ROOM_QUERY_FAILED',
+        message: '房間資訊查詢失敗，請稍後再試'
+      });
+      return;
+    }
+
+    if (!roomRecord) {
+      socket.emit('joinTableError', {
+        success: false,
+        error: 'ROOM_NOT_FOUND',
+        message: '房間不存在或已結束'
+      });
+      return;
     }
 
     if (!tables[tableId]) {
