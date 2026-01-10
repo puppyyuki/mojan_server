@@ -3749,7 +3749,7 @@ function passTing(tableId, playerId) {
 
 // 計算台數和收集牌型
 // 返回 { totalTai: number, patterns: string[], patternNames: string[] }
-function calculateTai(table, player, playerIndex, huType) {
+function calculateTai(table, player, playerIndex, huType, winningTile) {
   const hand = table.hiddenHands[player.id] || [];
   const melds = table.melds[player.id] || [];
   const hasNoMelds = melds.length === 0; // 門清：沒有吃碰槓
@@ -3759,6 +3759,11 @@ function calculateTai(table, player, playerIndex, huType) {
   let totalTai = 0;
   const patterns = []; // 牌型名稱列表
   const patternNames = []; // 用於顯示的牌型名稱（中文）
+
+  const tilesForTai = [...hand];
+  if (!isSelfDrawnHu && winningTile) {
+    tilesForTai.push(winningTile);
+  }
 
   // 計算玩家的風位（根據windStart和玩家座位）
   const windStart = table.windStart || 0;
@@ -3771,7 +3776,7 @@ function calculateTai(table, player, playerIndex, huType) {
   const roundWindTile = windNames[currentRoundWindIndex];
 
   // 檢查門風台：手牌有3張以上對應自己風位的風牌，或有碰槓對應的風牌
-  const windTileCountInHand = hand.filter(tile => tile === playerWindTile).length;
+  const windTileCountInHand = tilesForTai.filter(tile => tile === playerWindTile).length;
   const hasWindTileInMelds = melds.some(meld => {
     if (meld.type === 'pong' || meld.type === 'kong') {
       return meld.tiles && meld.tiles.includes(playerWindTile);
@@ -3785,7 +3790,7 @@ function calculateTai(table, player, playerIndex, huType) {
   }
 
   // 檢查圈風台：手牌有3張以上對應風圈的風牌，或有碰槓對應的風牌
-  const roundWindTileCountInHand = hand.filter(tile => tile === roundWindTile).length;
+  const roundWindTileCountInHand = tilesForTai.filter(tile => tile === roundWindTile).length;
   const hasRoundWindTileInMelds = melds.some(meld => {
     if (meld.type === 'pong' || meld.type === 'kong') {
       return meld.tiles && meld.tiles.includes(roundWindTile);
@@ -3802,7 +3807,7 @@ function calculateTai(table, player, playerIndex, huType) {
   const dragonTiles = ['中', '發', '白'];
   let sanYuanTaiCount = 0;
   dragonTiles.forEach(dragonTile => {
-    const dragonTileCountInHand = hand.filter(tile => tile === dragonTile).length;
+    const dragonTileCountInHand = tilesForTai.filter(tile => tile === dragonTile).length;
     const hasDragonTileInMelds = melds.some(meld => {
       if (meld.type === 'pong' || meld.type === 'kong') {
         return meld.tiles && meld.tiles.includes(dragonTile);
@@ -4644,7 +4649,7 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
   }
 
   // 計算台數和牌型
-  const taiResult = calculateTai(table, player, playerIndex, huType);
+  const taiResult = calculateTai(table, player, playerIndex, huType, targetTile);
   const totalTai = taiResult.totalTai;
 
   // 構建牌型列表，確保"自摸"或"胡牌"在最前面
@@ -6359,12 +6364,15 @@ app.use((req, res, next) => {
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`伺服器啟動於 http://0.0.0.0:${PORT}`);
-});
+if (require.main === module) {
+  server.listen(PORT, '0.0.0.0', () => {
+    console.log(`伺服器啟動於 http://0.0.0.0:${PORT}`);
+  });
+}
 
 // 導出函數供其他模組使用
 module.exports = {
+  calculateTai,
   passClaim,
   passTing,
   autoDiscardTile,
