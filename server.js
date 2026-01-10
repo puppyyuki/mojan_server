@@ -254,7 +254,7 @@ async function startGame(tableId) {
         select: { gameSettings: true }
       });
       const gameSettings = roomRecord?.gameSettings || null;
-      table.maxRounds = Number(gameSettings?.rounds) || 1;
+      table.maxRounds = gameSettings?.rounds || 1;
       table.gameSettings = gameSettings || {
         base_points: 100,
         scoring_unit: 20,
@@ -929,7 +929,7 @@ async function startGame(tableId) {
   console.log(`莊家: 玩家${table.dealerIndex + 1}, 東風起始位置: ${table.windStart}`);
 
   // 廣播遊戲開始
-  io.to(tableId).emit('startGame', {
+  safeEmit(tableId, 'startGame', {
     id: tableId,
     players: table.players.map(p => ({
       id: p.id,
@@ -949,8 +949,8 @@ async function startGame(tableId) {
     dice: dice,
     turn: table.turn,
     gamePhase: table.gamePhase,
-    round: table.round,
-    maxRounds: table.maxRounds
+    round: table.round || 1,
+    maxRounds: table.maxRounds || 1
   });
 
   // 同步最新桌狀態（確保有玩家漏掉 startGame 事件時仍能收到 started 狀態）
@@ -4894,7 +4894,7 @@ function getCleanTableData(table) {
 function safeEmit(room, event, data) {
   try {
     // 如果資料是 table 物件，先清理
-    if (data && typeof data === 'object' && data.id && data.players && (data.hands || data.discards || data.melds || data.flowers || data.deck)) {
+    if (data && typeof data === 'object' && data.id && data.players) {
       data = getCleanTableData(data);
     }
 
@@ -5284,7 +5284,7 @@ io.on('connection', (socket) => {
       gameSettings = roomRecord?.gameSettings || null;
       manualStart = gameSettings?.manual_start === true;
       // 讀取圈數設定（1/2/4圈）
-      maxRounds = Number(gameSettings?.rounds) || 1;
+      maxRounds = gameSettings?.rounds || 1;
       // 只在第一次加入或切換房間時輸出日誌
       if (!existingMapping || existingMapping.tableId !== tableId) {
         console.log(`>>> [房間設定] 房間 ${tableId} 的圈數設定: ${maxRounds} 圈`);
