@@ -4605,6 +4605,8 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
   // 保存胡牌類型到玩家對象，用於結算時顯示
   player.lastHuType = huType; // 'selfDrawnHu' 或 'hu'
 
+  let discarderId = null;
+
   // 更新統計資料
   if (huType === 'selfDrawnHu') {
     player.statistics = player.statistics || { selfDraws: 0, discards: 0, claimedDiscards: 0, discardedHu: 0 };
@@ -4614,7 +4616,6 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
     player.statistics.claimedDiscards = (player.statistics.claimedDiscards || 0) + 1;
 
     // 更新放槍者的放槍次數統計
-    let discarderId = null;
     if (targetPlayer !== null && targetPlayer !== undefined) {
       if (typeof targetPlayer === 'number') {
         const discarder = table.players[targetPlayer];
@@ -4695,26 +4696,6 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
   } else {
     // 放槍：只扣放槍玩家的點數
     // targetPlayer 可能是玩家索引（數字）或玩家ID（字符串）或玩家對象
-    let discarderId = null;
-    if (targetPlayer !== null && targetPlayer !== undefined) {
-      if (typeof targetPlayer === 'number') {
-        // 如果是索引，找到對應的玩家ID
-        const discarder = table.players[targetPlayer];
-        discarderId = discarder ? discarder.id : null;
-      } else if (typeof targetPlayer === 'string') {
-        // 如果是字符串，直接使用
-        discarderId = targetPlayer;
-      } else if (targetPlayer.id) {
-        // 如果是對象，使用 id 屬性
-        discarderId = targetPlayer.id;
-      }
-    }
-
-    // 如果還是找不到，嘗試從 claimingState 中獲取
-    if (!discarderId && table.claimingState && table.claimingState.discardPlayerId) {
-      discarderId = table.claimingState.discardPlayerId;
-    }
-
     if (discarderId) {
       table.players.forEach(p => {
         if (p.id === playerId) {
@@ -4822,6 +4803,10 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
     roundScores: roundScores, // 該圈分數變化
     totalScores: totalScores, // 累積總分
     isLastRound: isLastRound, // 標記是否為最後一圈
+    winnerId: playerId,
+    huType: huType,
+    tai: totalTai,
+    discarderId: discarderId,
     remainingTilesList: table.deck || [], // 剩餘牌列表
     players: table.players.map(p => ({
       id: p.id,
