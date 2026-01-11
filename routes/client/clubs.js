@@ -1069,6 +1069,82 @@ router.post('/:clubId/members/no-same-table', async (req, res) => {
 });
 
 /**
+ * POST /api/client/clubs/:clubId/members/banned-table-players
+ * 設定禁止同桌的玩家列表
+ */
+router.post('/:clubId/members/banned-table-players', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { clubId } = req.params;
+    const { playerId, bannedPlayerIds } = req.body || {};
+
+    if (!playerId) {
+      return errorResponse(res, '請提供玩家ID', null, 400);
+    }
+
+    const club = await findClub(prisma, clubId);
+    if (!club) {
+      return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    const member = await prisma.clubMember.findUnique({
+      where: { clubId_playerId: { clubId: club.id, playerId } },
+    });
+    if (!member) {
+      return errorResponse(res, '玩家不是俱樂部成員', null, 404);
+    }
+
+    const updated = await prisma.clubMember.update({
+      where: { clubId_playerId: { clubId: club.id, playerId } },
+      data: { bannedTablePlayers: bannedPlayerIds || [] },
+    });
+
+    return successResponse(res, updated, '設定禁止同桌玩家成功');
+  } catch (error) {
+    console.error('[Clubs API] 設定禁止同桌玩家失敗:', error);
+    return errorResponse(res, '設定禁止同桌失敗', error.message, 500);
+  }
+});
+
+/**
+ * POST /api/client/clubs/:clubId/members/co-leader-permissions
+ * 設定副會長權限
+ */
+router.post('/:clubId/members/co-leader-permissions', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { clubId } = req.params;
+    const { playerId, permissions } = req.body || {};
+
+    if (!playerId) {
+      return errorResponse(res, '請提供玩家ID', null, 400);
+    }
+
+    const club = await findClub(prisma, clubId);
+    if (!club) {
+      return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    const member = await prisma.clubMember.findUnique({
+      where: { clubId_playerId: { clubId: club.id, playerId } },
+    });
+    if (!member) {
+      return errorResponse(res, '玩家不是俱樂部成員', null, 404);
+    }
+
+    const updated = await prisma.clubMember.update({
+      where: { clubId_playerId: { clubId: club.id, playerId } },
+      data: { coLeaderPermissions: permissions || null },
+    });
+
+    return successResponse(res, updated, '設定副會長權限成功');
+  } catch (error) {
+    console.error('[Clubs API] 設定副會長權限失敗:', error);
+    return errorResponse(res, '設定副會長權限失敗', error.message, 500);
+  }
+});
+
+/**
  * PUT /api/client/clubs/:clubId
  * 更新俱樂部資訊（名稱/描述/Logo/房卡數）
  */

@@ -141,16 +141,22 @@ model ClubActivity {
 }
 
 model ClubMember {
-  id          String     @id @default(cuid())
-  clubId      String
-  club        Club       @relation(fields: [clubId], references: [id], onDelete: Cascade)
-  playerId    String
-  player      Player     @relation(fields: [playerId], references: [id], onDelete: Cascade)
-  joinedAt    DateTime   @default(now())
-  role        MemberRole @default(MEMBER)
-  isBanned    Boolean    @default(false)
-  scoreLimit  Int?
-  noSameTable Boolean    @default(false)
+  id                  String     @id @default(cuid())
+  clubId              String
+  club                Club       @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  playerId            String
+  player              Player     @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  joinedAt            DateTime   @default(now())
+  role                MemberRole @default(MEMBER)
+  isBanned            Boolean    @default(false)
+  scoreLimit          Int?
+  noSameTable         Boolean    @default(false)
+  clubScore           Int        @default(0) // 俱樂部內分數
+  totalGames          Int        @default(0) // 俱樂部內總局數
+  hostCount           Int        @default(0) // 俱樂部內房主次數
+  lastGameTime        DateTime? // 最近遊戲時間
+  bannedTablePlayers  String[]   @default([]) // 禁止同桌的玩家ID列表
+  coLeaderPermissions Json? // 副會長權限設定
 
   @@unique([clubId, playerId])
   @@map("club_members")
