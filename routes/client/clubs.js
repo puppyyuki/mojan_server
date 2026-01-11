@@ -242,6 +242,140 @@ router.get('/:clubId/rooms', async (req, res) => {
   }
 });
 
+router.post('/:clubId/join-requests', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { clubId } = req.params;
+    const { playerId } = req.body || {};
+
+    if (!playerId) {
+      return errorResponse(res, '請提供玩家ID', null, 400);
+    }
+
+    const club = await findClub(prisma, clubId);
+    if (!club) {
+      return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    const player = await prisma.player.findUnique({ where: { id: playerId } });
+    if (!player) {
+      return errorResponse(res, '玩家不存在', null, 404);
+    }
+
+    const existingMember = await prisma.clubMember.findUnique({
+      where: { clubId_playerId: { clubId: club.id, playerId } },
+    });
+    if (existingMember) {
+      return errorResponse(res, '玩家已經是俱樂部成員', null, 400);
+    }
+
+    const existingRequest = await prisma.clubJoinRequest.findFirst({
+      where: { clubId: club.id, playerId, status: 'PENDING' },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        player: { select: { id: true, userId: true, nickname: true, avatarUrl: true } },
+      },
+    });
+    if (existingRequest) {
+      return successResponse(res, existingRequest, '加入申請已送出');
+    }
+
+    const request = await prisma.clubJoinRequest.create({
+      data: { clubId: club.id, playerId, status: 'PENDING' },
+      include: {
+        player: { select: { id: true, userId: true, nickname: true, avatarUrl: true } },
+      },
+    });
+
+    return successResponse(res, request, '加入申請已送出');
+  } catch (error) {
+    console.error('[Clubs API] 建立加入申請失敗:', error);
+    return errorResponse(res, '加入申請失敗', error.message, 500);
+  }
+});
+
+router.get('/:clubId/join-requests', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { clubId } = req.params;
+
+    const club = await findClub(prisma, clubId);
+    if (!club) {
+      return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    const requests = await prisma.clubJoinRequest.findMany({
+      where: { clubId: club.id },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        player: { select: { id: true, userId: true, nickname: true, avatarUrl: true } },
+      },
+    });
+
+    return successResponse(res, requests);
+  } catch (error) {
+    console.error('[Clubs API] 獲取加入申請列表失敗:', error);
+    return errorResponse(res, '獲取加入申請列表失敗', error.message, 500);
+  }
+});
+
+router.post('/:clubId/join-requests/:requestId', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { clubId, requestId } = req.params;
+    const action = (req.query.action || '').toString().toLowerCase();
+
+    const club = await findClub(prisma, clubId);
+    if (!club) {
+      return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    const request = await prisma.clubJoinRequest.findFirst({
+      where: { id: requestId, clubId: club.id },
+    });
+    if (!request) {
+      return errorResponse(res, '加入申請不存在', null, 404);
+    }
+
+    if (action !== 'approve' && action !== 'reject' && action !== 'cancel') {
+      return errorResponse(res, '無效的操作', null, 400);
+    }
+
+    if (action === 'approve') {
+      const existingMember = await prisma.clubMember.findUnique({
+        where: { clubId_playerId: { clubId: club.id, playerId: request.playerId } },
+      });
+      if (!existingMember) {
+        await prisma.clubMember.create({
+          data: { clubId: club.id, playerId: request.playerId },
+        });
+      }
+      await prisma.clubJoinRequest.update({
+        where: { id: request.id },
+        data: { status: 'APPROVED' },
+      });
+      return successResponse(res, null, '已批准加入申請');
+    }
+
+    if (action === 'reject') {
+      await prisma.clubJoinRequest.update({
+        where: { id: request.id },
+        data: { status: 'REJECTED' },
+      });
+      return successResponse(res, null, '已拒絕加入申請');
+    }
+
+    await prisma.clubJoinRequest.update({
+      where: { id: request.id },
+      data: { status: 'CANCELLED' },
+    });
+    return successResponse(res, null, '已取消加入申請');
+  } catch (error) {
+    console.error('[Clubs API] 更新加入申請失敗:', error);
+    return errorResponse(res, '更新加入申請失敗', error.message, 500);
+  }
+});
+
 /**
  * GET /api/client/clubs/:clubId/rankings
  * 獲取俱樂部排行榜（暫以會員房卡數排序）
