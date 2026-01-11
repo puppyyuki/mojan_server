@@ -181,6 +181,10 @@ router.get('/:clubId', async (req, res) => {
         name: true,
         cardCount: true,
         avatarUrl: true,
+        logoUrl: true,
+        description: true,
+        createdAt: true,
+        updatedAt: true,
         creator: {
           select: {
             id: true,
