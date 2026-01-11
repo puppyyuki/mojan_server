@@ -239,6 +239,110 @@ router.get('/:clubId/rooms', async (req, res) => {
 });
 
 /**
+ * GET /api/client/clubs/:clubId/rankings
+ * 獲取俱樂部排行榜（暫以會員房卡數排序）
+ */
+router.get('/:clubId/rankings', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { clubId } = req.params;
+
+    const club = await findClub(prisma, clubId);
+    if (!club) {
+      return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    const members = await prisma.clubMember.findMany({
+      where: { clubId: club.id, isBanned: false },
+      include: {
+        player: {
+          select: {
+            id: true,
+            userId: true,
+            nickname: true,
+            avatarUrl: true,
+            cardCount: true,
+          },
+        },
+      },
+    });
+
+    const rankings = members
+      .map((m) => ({
+        playerId: m.player?.id ?? null,
+        userId: m.player?.userId ?? null,
+        nickname: m.player?.nickname ?? '',
+        avatarUrl: m.player?.avatarUrl ?? null,
+        cardCount: m.player?.cardCount ?? 0,
+        role: m.role,
+      }))
+      .sort((a, b) => (b.cardCount || 0) - (a.cardCount || 0));
+
+    return successResponse(res, rankings);
+  } catch (error) {
+    console.error('[Clubs API] 獲取排行榜失敗:', error);
+    return errorResponse(res, '獲取排行榜失敗', error.message, 500);
+  }
+});
+
+/**
+ * GET /api/client/clubs/:clubId/match-history
+ * 獲取俱樂部戰績（以房間記錄作為簡化版戰績）
+ */
+router.get('/:clubId/match-history', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { clubId } = req.params;
+
+    const club = await findClub(prisma, clubId);
+    if (!club) {
+      return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    const rooms = await prisma.room.findMany({
+      where: { clubId: club.id },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      include: {
+        participants: {
+          include: {
+            player: {
+              select: {
+                id: true,
+                userId: true,
+                nickname: true,
+                avatarUrl: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const history = rooms.map((r) => ({
+      id: r.id,
+      roomId: r.roomId,
+      status: r.status,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+      participants: (r.participants || []).map((p) => ({
+        playerId: p.player?.id ?? p.playerId ?? null,
+        userId: p.player?.userId ?? null,
+        nickname: p.player?.nickname ?? '',
+        avatarUrl: p.player?.avatarUrl ?? null,
+        joinedAt: p.joinedAt,
+        leftAt: p.leftAt,
+      })),
+    }));
+
+    return successResponse(res, history);
+  } catch (error) {
+    console.error('[Clubs API] 獲取戰績失敗:', error);
+    return errorResponse(res, '獲取戰績失敗', error.message, 500);
+  }
+});
+
+/**
  * POST /api/client/clubs/:clubId/rooms
  * 創建房間
  */
@@ -534,6 +638,59 @@ router.delete('/:clubId/members', async (req, res) => {
   } catch (error) {
     console.error('[Clubs API] 退出俱樂部失敗:', error);
     return errorResponse(res, '退出俱樂部失敗', error.message, 500);
+  }
+});
+
+/**
+ * PUT /api/client/clubs/:clubId
+ * 更新俱樂部資訊（名稱/描述/Logo/房卡數）
+ */
+router.put('/:clubId', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { clubId } = req.params;
+    const { name, description, logoUrl, cardCount } = req.body || {};
+
+    if (
+      name === undefined &&
+      description === undefined &&
+      logoUrl === undefined &&
+      cardCount === undefined
+    ) {
+      return errorResponse(res, '請提供要更新的欄位', null, 400);
+    }
+
+    const club = await findClub(prisma, clubId);
+    if (!club) {
+      return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    const data = {};
+    if (name !== undefined) data.name = String(name).trim();
+    if (description !== undefined) data.description = String(description);
+    if (logoUrl !== undefined) data.logoUrl = logoUrl ? String(logoUrl) : null;
+    if (cardCount !== undefined) data.cardCount = Number(cardCount) || 0;
+
+    const updated = await prisma.club.update({
+      where: { id: club.id },
+      data,
+      select: {
+        id: true,
+        clubId: true,
+        name: true,
+        cardCount: true,
+        avatarUrl: true,
+        logoUrl: true,
+        description: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    return successResponse(res, updated, '俱樂部資訊已更新');
+  } catch (error) {
+    console.error('[Clubs API] 更新俱樂部資訊失敗:', error);
+    return errorResponse(res, '更新俱樂部資訊失敗', error.message, 500);
   }
 });
 
