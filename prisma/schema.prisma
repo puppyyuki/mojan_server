@@ -69,6 +69,7 @@ model Club {
   members      ClubMember[]
   rooms        Room[]
   joinRequests ClubJoinRequest[] @relation("ClubJoinRequests")
+  activities   ClubActivity[]
 
   @@map("clubs")
 }
