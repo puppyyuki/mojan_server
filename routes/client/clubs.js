@@ -779,6 +779,188 @@ router.delete('/:clubId/members', async (req, res) => {
   }
 });
 
+router.post('/:clubId/members/role', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { clubId } = req.params;
+    const { playerId, role } = req.body || {};
+
+    if (!playerId) {
+      return errorResponse(res, '請提供玩家ID', null, 400);
+    }
+
+    const nextRole = (role ?? '').toString().toUpperCase();
+    if (nextRole !== 'CO_LEADER' && nextRole !== 'MEMBER') {
+      return errorResponse(res, '無效的角色', null, 400);
+    }
+
+    const club = await findClub(prisma, clubId);
+    if (!club) {
+      return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    const member = await prisma.clubMember.findUnique({
+      where: { clubId_playerId: { clubId: club.id, playerId } },
+    });
+    if (!member) {
+      return errorResponse(res, '玩家不是俱樂部成員', null, 404);
+    }
+
+    const updated = await prisma.clubMember.update({
+      where: { clubId_playerId: { clubId: club.id, playerId } },
+      data: { role: nextRole },
+    });
+
+    return successResponse(res, updated, '更新成員角色成功');
+  } catch (error) {
+    console.error('[Clubs API] 更新成員角色失敗:', error);
+    return errorResponse(res, '更新成員角色失敗', error.message, 500);
+  }
+});
+
+router.post('/:clubId/members/ban', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { clubId } = req.params;
+    const { playerId } = req.body || {};
+
+    if (!playerId) {
+      return errorResponse(res, '請提供玩家ID', null, 400);
+    }
+
+    const club = await findClub(prisma, clubId);
+    if (!club) {
+      return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    const member = await prisma.clubMember.findUnique({
+      where: { clubId_playerId: { clubId: club.id, playerId } },
+    });
+    if (!member) {
+      return errorResponse(res, '玩家不是俱樂部成員', null, 404);
+    }
+
+    const updated = await prisma.clubMember.update({
+      where: { clubId_playerId: { clubId: club.id, playerId } },
+      data: { isBanned: true },
+    });
+
+    return successResponse(res, updated, '封禁成員成功');
+  } catch (error) {
+    console.error('[Clubs API] 封禁成員失敗:', error);
+    return errorResponse(res, '封禁成員失敗', error.message, 500);
+  }
+});
+
+router.post('/:clubId/members/unban', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { clubId } = req.params;
+    const { playerId } = req.body || {};
+
+    if (!playerId) {
+      return errorResponse(res, '請提供玩家ID', null, 400);
+    }
+
+    const club = await findClub(prisma, clubId);
+    if (!club) {
+      return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    const member = await prisma.clubMember.findUnique({
+      where: { clubId_playerId: { clubId: club.id, playerId } },
+    });
+    if (!member) {
+      return errorResponse(res, '玩家不是俱樂部成員', null, 404);
+    }
+
+    const updated = await prisma.clubMember.update({
+      where: { clubId_playerId: { clubId: club.id, playerId } },
+      data: { isBanned: false },
+    });
+
+    return successResponse(res, updated, '解禁成員成功');
+  } catch (error) {
+    console.error('[Clubs API] 解禁成員失敗:', error);
+    return errorResponse(res, '解禁成員失敗', error.message, 500);
+  }
+});
+
+router.post('/:clubId/members/score-limit', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { clubId } = req.params;
+    const { playerId, scoreLimit } = req.body || {};
+
+    if (!playerId) {
+      return errorResponse(res, '請提供玩家ID', null, 400);
+    }
+
+    const club = await findClub(prisma, clubId);
+    if (!club) {
+      return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    const member = await prisma.clubMember.findUnique({
+      where: { clubId_playerId: { clubId: club.id, playerId } },
+    });
+    if (!member) {
+      return errorResponse(res, '玩家不是俱樂部成員', null, 404);
+    }
+
+    const parsed =
+      scoreLimit === null || scoreLimit === undefined
+        ? null
+        : Number.isFinite(Number(scoreLimit))
+        ? Number(scoreLimit)
+        : null;
+
+    const updated = await prisma.clubMember.update({
+      where: { clubId_playerId: { clubId: club.id, playerId } },
+      data: { scoreLimit: parsed },
+    });
+
+    return successResponse(res, updated, '設定分數上限成功');
+  } catch (error) {
+    console.error('[Clubs API] 設定分數上限失敗:', error);
+    return errorResponse(res, '設定分數上限失敗', error.message, 500);
+  }
+});
+
+router.post('/:clubId/members/no-same-table', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { clubId } = req.params;
+    const { playerId, enabled } = req.body || {};
+
+    if (!playerId) {
+      return errorResponse(res, '請提供玩家ID', null, 400);
+    }
+
+    const club = await findClub(prisma, clubId);
+    if (!club) {
+      return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    const member = await prisma.clubMember.findUnique({
+      where: { clubId_playerId: { clubId: club.id, playerId } },
+    });
+    if (!member) {
+      return errorResponse(res, '玩家不是俱樂部成員', null, 404);
+    }
+
+    const updated = await prisma.clubMember.update({
+      where: { clubId_playerId: { clubId: club.id, playerId } },
+      data: { noSameTable: Boolean(enabled) },
+    });
+
+    return successResponse(res, updated, '設定禁止同桌成功');
+  } catch (error) {
+    console.error('[Clubs API] 設定禁止同桌失敗:', error);
+    return errorResponse(res, '設定禁止同桌失敗', error.message, 500);
+  }
+});
+
 /**
  * PUT /api/client/clubs/:clubId
  * 更新俱樂部資訊（名稱/描述/Logo/房卡數）
