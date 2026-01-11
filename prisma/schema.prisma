@@ -116,6 +116,29 @@ enum JoinRequestStatus {
   CANCELLED
 }
 
+enum ClubActivityType {
+  JOIN_APPROVED
+  JOIN_REJECTED
+  JOIN_REQUESTED
+  MEMBER_KICKED
+  MEMBER_LEFT
+}
+
+model ClubActivity {
+  id             String           @id @default(cuid())
+  clubId         String
+  club           Club             @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  type           ClubActivityType
+  actorPlayerId  String?
+  targetPlayerId String?
+  actorNickname  String?
+  targetNickname String?
+  createdAt      DateTime         @default(now())
+
+  @@index([clubId, createdAt])
+  @@map("club_activities")
+}
+
 model ClubMember {
   id          String     @id @default(cuid())
   clubId      String

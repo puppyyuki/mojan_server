@@ -22,6 +22,49 @@ async function findClub(prisma, clubId) {
   return club;
 }
 
+async function createClubActivity(prisma, clubId, type, options = {}) {
+  const {
+    actorPlayerId = null,
+    targetPlayerId = null,
+    actorNickname = null,
+    targetNickname = null,
+  } = options;
+
+  try {
+    let resolvedActorNickname = actorNickname;
+    let resolvedTargetNickname = targetNickname;
+
+    if (!resolvedActorNickname && actorPlayerId) {
+      const actor = await prisma.player.findUnique({
+        where: { id: actorPlayerId },
+        select: { nickname: true },
+      });
+      resolvedActorNickname = actor?.nickname ?? null;
+    }
+
+    if (!resolvedTargetNickname && targetPlayerId) {
+      const target = await prisma.player.findUnique({
+        where: { id: targetPlayerId },
+        select: { nickname: true },
+      });
+      resolvedTargetNickname = target?.nickname ?? null;
+    }
+
+    await prisma.clubActivity.create({
+      data: {
+        clubId,
+        type,
+        actorPlayerId,
+        targetPlayerId,
+        actorNickname: resolvedActorNickname,
+        targetNickname: resolvedTargetNickname,
+      },
+    });
+  } catch (e) {
+    console.error('[Clubs API] 寫入俱樂部動態失敗:', e);
+  }
+}
+
 /**
  * GET /api/client/clubs
  * 獲取所有俱樂部
@@ -287,10 +330,45 @@ router.post('/:clubId/join-requests', async (req, res) => {
       },
     });
 
+    await createClubActivity(prisma, club.id, 'JOIN_REQUESTED', {
+      actorPlayerId: playerId,
+      targetPlayerId: playerId,
+      actorNickname: request.player?.nickname ?? player.nickname ?? null,
+      targetNickname: request.player?.nickname ?? player.nickname ?? null,
+    });
+
     return successResponse(res, request, '加入申請已送出');
   } catch (error) {
     console.error('[Clubs API] 建立加入申請失敗:', error);
     return errorResponse(res, '加入申請失敗', error.message, 500);
+  }
+});
+
+router.get('/:clubId/activity', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { clubId } = req.params;
+    const limitRaw = req.query.limit;
+    const limitParsed = Number(limitRaw);
+    const limit = Number.isFinite(limitParsed)
+      ? Math.min(Math.max(limitParsed, 1), 200)
+      : 50;
+
+    const club = await findClub(prisma, clubId);
+    if (!club) {
+      return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    const rows = await prisma.clubActivity.findMany({
+      where: { clubId: club.id },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+
+    return successResponse(res, rows);
+  } catch (error) {
+    console.error('[Clubs API] 獲取俱樂部動態失敗:', error);
+    return errorResponse(res, '獲取俱樂部動態失敗', error.message, 500);
   }
 });
 
@@ -324,6 +402,7 @@ router.post('/:clubId/join-requests/:requestId', async (req, res) => {
     const { prisma } = req.app.locals;
     const { clubId, requestId } = req.params;
     const action = (req.query.action || '').toString().toLowerCase();
+    const { actorPlayerId } = req.body || {};
 
     const club = await findClub(prisma, clubId);
     if (!club) {
@@ -354,6 +433,10 @@ router.post('/:clubId/join-requests/:requestId', async (req, res) => {
         where: { id: request.id },
         data: { status: 'APPROVED' },
       });
+      await createClubActivity(prisma, club.id, 'JOIN_APPROVED', {
+        actorPlayerId: actorPlayerId ?? null,
+        targetPlayerId: request.playerId,
+      });
       return successResponse(res, null, '已批准加入申請');
     }
 
@@ -361,6 +444,10 @@ router.post('/:clubId/join-requests/:requestId', async (req, res) => {
       await prisma.clubJoinRequest.update({
         where: { id: request.id },
         data: { status: 'REJECTED' },
+      });
+      await createClubActivity(prisma, club.id, 'JOIN_REJECTED', {
+        actorPlayerId: actorPlayerId ?? null,
+        targetPlayerId: request.playerId,
       });
       return successResponse(res, null, '已拒絕加入申請');
     }
@@ -736,7 +823,7 @@ router.delete('/:clubId/members', async (req, res) => {
   try {
     const { prisma } = req.app.locals;
     const { clubId } = req.params;
-    const { playerId } = req.query;
+    const { playerId, actorPlayerId, action } = req.query;
 
     if (!playerId) {
       return errorResponse(res, '請提供玩家ID', null, 400);
@@ -770,6 +857,21 @@ router.delete('/:clubId/members', async (req, res) => {
           playerId: playerId,
         },
       },
+    });
+
+    const resolvedAction = (action || '').toString().toLowerCase();
+    const resolvedActorId =
+      actorPlayerId && actorPlayerId.toString().trim()
+        ? actorPlayerId.toString()
+        : playerId.toString();
+
+    const isKick =
+      resolvedAction === 'kick' ||
+      (resolvedActorId && resolvedActorId !== playerId.toString());
+
+    await createClubActivity(prisma, club.id, isKick ? 'MEMBER_KICKED' : 'MEMBER_LEFT', {
+      actorPlayerId: resolvedActorId,
+      targetPlayerId: playerId.toString(),
     });
 
     return successResponse(res, null, '退出俱樂部成功');
@@ -822,7 +924,7 @@ router.post('/:clubId/members/ban', async (req, res) => {
   try {
     const { prisma } = req.app.locals;
     const { clubId } = req.params;
-    const { playerId } = req.body || {};
+    const { playerId, actorPlayerId } = req.body || {};
 
     if (!playerId) {
       return errorResponse(res, '請提供玩家ID', null, 400);
@@ -843,6 +945,11 @@ router.post('/:clubId/members/ban', async (req, res) => {
     const updated = await prisma.clubMember.update({
       where: { clubId_playerId: { clubId: club.id, playerId } },
       data: { isBanned: true },
+    });
+
+    await createClubActivity(prisma, club.id, 'MEMBER_KICKED', {
+      actorPlayerId: actorPlayerId ?? null,
+      targetPlayerId: playerId,
     });
 
     return successResponse(res, updated, '封禁成員成功');
