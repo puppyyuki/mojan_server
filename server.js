@@ -1800,6 +1800,8 @@ function drawTile(tableId, playerId) {
           table.claimingState = {
              discardPlayerId: playerId,
              discardedTile: drawnTile,
+             claimType: 'selfKongDecision',
+             isSelfKongDecision: true,
              options: [{
                playerId: playerId,
                playerIndex: playerIndex,
@@ -3536,11 +3538,23 @@ function passClaim(tableId, playerId) {
     return;
   }
 
-  // 記錄玩家決策（選擇「過」）
-  if (table.claimingState.playerDecisions && table.claimingState.playerDecisions[playerId]) {
-    table.claimingState.playerDecisions[playerId].hasDecided = true;
-    table.claimingState.playerDecisions[playerId].decision = 'pass';
-    console.log(`>>> [決策追蹤] 玩家${playerId}選擇「過」`);
+  if (!table.claimingState.playerDecisions) return;
+
+  if (playerId) {
+    if (table.claimingState.playerDecisions[playerId]) {
+      table.claimingState.playerDecisions[playerId].hasDecided = true;
+      table.claimingState.playerDecisions[playerId].decision = 'pass';
+      console.log(`>>> [決策追蹤] 玩家${playerId}選擇「過」`);
+    }
+  } else {
+    Object.keys(table.claimingState.playerDecisions).forEach(pid => {
+      const decision = table.claimingState.playerDecisions[pid];
+      if (decision && decision.hasDecided !== true) {
+        decision.hasDecided = true;
+        decision.decision = 'pass';
+        console.log(`>>> [決策追蹤] 玩家${pid}超時，自動選擇「過」`);
+      }
+    });
   }
 
   // 保存 claimingState 信息（在清除前）
@@ -3550,12 +3564,6 @@ function passClaim(tableId, playerId) {
   const claimPlayer = claimPlayerIndex !== -1 ? table.players[claimPlayerIndex] : null;
   const isSelfDrawnHu = claimingState.claimType === 'selfDrawnHu';
   const discardedTile = claimingState.discardedTile;
-
-  // 清除計時器（但保留 claimingState，等待其他玩家決策）
-  if (table.claimingTimer) {
-    clearInterval(table.claimingTimer);
-    table.claimingTimer = null;
-  }
 
   // 檢查是否所有有決策權的玩家都已完成選擇
   checkAllPlayersDecided(tableId);
@@ -3581,6 +3589,11 @@ function checkAllPlayersDecided(tableId) {
 
   console.log(`>>> [決策追蹤] 所有玩家都已完成選擇，開始依權重順序決定最終行為`);
 
+  if (table.claimingTimer) {
+    clearInterval(table.claimingTimer);
+    table.claimingTimer = null;
+  }
+
   // 收集所有選擇「claim」的決策，並按優先級排序
   const claimDecisions = [];
   Object.keys(playerDecisions).forEach(playerId => {
@@ -3604,6 +3617,24 @@ function checkAllPlayersDecided(tableId) {
   // 如果沒有任何玩家選擇「claim」，所有玩家都選擇「過」
   if (claimDecisions.length === 0) {
     console.log(`>>> [決策追蹤] 所有玩家都選擇「過」，輪到下一家`);
+
+    const isSelfKongDecision =
+      claimingState.claimType === 'selfKongDecision' ||
+      claimingState.isSelfKongDecision === true;
+
+    if (isSelfKongDecision) {
+      const claimPlayerId = claimingState.discardPlayerId;
+      const claimPlayerIndex = table.players.findIndex(p => p.id === claimPlayerId);
+
+      table.claimingState = null;
+      table.gamePhase = GamePhase.PLAYING;
+
+      if (claimPlayerIndex !== -1) {
+        table.turn = claimPlayerIndex;
+        startTurnTimer(tableId, claimPlayerId);
+      }
+      return;
+    }
 
     // 處理搶槓的特殊情況
     const isQiangGang = claimingState.isQiangGang || false;
@@ -4962,6 +4993,11 @@ async function handlePlayerDisconnect(tableId, playerId, socketId) {
       // 如果該玩家正在等待吃碰槓，移除該選項
       table.claimingState.options = table.claimingState.options.filter(opt => opt.playerId !== playerId);
 
+      if (table.claimingState.playerDecisions && table.claimingState.playerDecisions[playerId]) {
+        table.claimingState.playerDecisions[playerId].hasDecided = true;
+        table.claimingState.playerDecisions[playerId].decision = 'pass';
+      }
+
       // 如果沒有其他選項了，清除吃碰槓狀態
       if (table.claimingState.options.length === 0) {
         if (table.claimingTimer) {
@@ -4970,6 +5006,8 @@ async function handlePlayerDisconnect(tableId, playerId, socketId) {
         }
         table.claimingState = null;
         table.gamePhase = GamePhase.PLAYING;
+      } else if (table.gamePhase === GamePhase.CLAIMING) {
+        checkAllPlayersDecided(tableId);
       }
     }
   }
@@ -5703,6 +5741,31 @@ io.on('connection', (socket) => {
     const playerIndex = table.players.findIndex(p => p.id === playerId);
     if (playerIndex === -1) return;
 
+    if (table.turn !== playerIndex) {
+      console.log(`自槓/補槓失敗：不是玩家${playerIndex + 1}的回合`);
+      return;
+    }
+
+    if (table.gamePhase === GamePhase.CLAIMING && table.claimingState) {
+      const options = table.claimingState.options || [];
+      const isSelfKongDecision =
+        table.claimingState.claimType === 'selfKongDecision' ||
+        table.claimingState.isSelfKongDecision === true ||
+        (options.length === 1 &&
+          options[0]?.playerId === playerId &&
+          options[0]?.claimType === ClaimType.KONG &&
+          Array.isArray(options[0]?.kongTiles));
+
+      if (isSelfKongDecision) {
+        table.claimingState = null;
+        table.gamePhase = GamePhase.PLAYING;
+        if (table.claimingTimer) {
+          clearInterval(table.claimingTimer);
+          table.claimingTimer = null;
+        }
+      }
+    }
+
     const hand = table.hiddenHands[playerId];
     if (!hand) return;
 
@@ -5896,6 +5959,9 @@ io.on('connection', (socket) => {
         console.log(`>>> [搶槓檢測] 沒有玩家可以搶槓，繼續補槓流程`);
       }
     }
+
+    table.gamePhase = GamePhase.PLAYING;
+    table.turn = playerIndex;
 
     // 標記玩家最近進行了補槓或自槓（用於槓上開花判斷）
     const player = table.players[playerIndex];
