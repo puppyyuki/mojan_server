@@ -1816,7 +1816,7 @@ function drawTile(tableId, playerId) {
           };
 
           // 發送自槓提示給客戶端
-          io.to(playerId).emit('selfKongAvailable', {
+          safeEmit(tableId, 'selfKongAvailable', {
             playerId: playerId,
             playerIndex: playerIndex,
             tiles: uniqueKongTiles // 可以自槓或補槓的牌列表
@@ -2134,7 +2134,7 @@ function handleFlowerTile(tableId, playerId, flower) {
 
           if (uniqueKongTiles.length > 0) {
             // 發送自槓提示給客戶端
-            io.to(playerId).emit('selfKongAvailable', {
+            safeEmit(tableId, 'selfKongAvailable', {
               playerId: playerId,
               playerIndex: playerIndex,
               tiles: uniqueKongTiles // 可以自槓或補槓的牌列表
@@ -2691,7 +2691,37 @@ async function endGame(tableId, reason, scores = null) {
 // 打牌函數
 function discardTile(tableId, playerId, tile) {
   const table = tables[tableId];
-  if (!table || table.gamePhase !== GamePhase.PLAYING) return;
+  if (!table) return;
+
+  if (table.gamePhase !== GamePhase.PLAYING) {
+    const claimingState = table.claimingState;
+    const isSelfDecision =
+      table.gamePhase === GamePhase.CLAIMING &&
+      claimingState &&
+      claimingState.discardPlayerId === playerId &&
+      (
+        claimingState.claimType === 'selfDrawnHu' ||
+        claimingState.claimType === 'selfKongDecision' ||
+        claimingState.isSelfKongDecision === true
+      );
+
+    if (!isSelfDecision) {
+      return;
+    }
+
+    if (claimingState?.playerDecisions?.[playerId]?.hasDecided !== true) {
+      claimingState.playerDecisions[playerId].hasDecided = true;
+      claimingState.playerDecisions[playerId].decision = 'pass';
+    }
+
+    if (table.claimingTimer) {
+      clearInterval(table.claimingTimer);
+      table.claimingTimer = null;
+    }
+
+    table.claimingState = null;
+    table.gamePhase = GamePhase.PLAYING;
+  }
 
   // 檢查是否輪到該玩家
   const playerIndex = table.players.findIndex(p => p.id === playerId);
