@@ -213,39 +213,6 @@ async function startGame(tableId) {
 
   console.log(`開始遊戲 - 房間: ${tableId}`);
 
-  // 設置遊戲狀態
-  table.started = true;
-  table.gamePhase = GamePhase.DEALING;
-
-  // 1. 隨機決定莊家（維持原有機制）
-  table.dealerIndex = Math.floor(Math.random() * 4);
-  
-  // 2. 伺服器產生 3 組介於 1～6 的隨機亂數（骰子點數）
-  const dice = [
-    Math.floor(Math.random() * 6) + 1,
-    Math.floor(Math.random() * 6) + 1,
-    Math.floor(Math.random() * 6) + 1
-  ];
-  const diceSum = dice.reduce((a, b) => a + b, 0);
-  
-  // 3. 決定東風位（windStart）
-  // 根據新規則：莊家必為東風
-  table.windStart = table.dealerIndex;
-  
-  table.turn = table.dealerIndex;
-
-  const windNames = ['東', '南', '西', '北'];
-  console.log(`>>> [遊戲開始] 骰子點數: [${dice.join(', ')}], 總和: ${diceSum} (不再影響風位)`);
-  console.log(`>>> [遊戲開始] 莊家: 玩家${table.dealerIndex + 1}, 東風位: 玩家${table.windStart + 1} (${windNames[0]}風)`);
-  console.log(`>>> [遊戲開始] 風位分配：座位${table.windStart}=${windNames[0]}風，座位${(table.windStart + 1) % 4}=${windNames[1]}風，座位${(table.windStart + 2) % 4}=${windNames[2]}風，座位${(table.windStart + 3) % 4}=${windNames[3]}風`);
-
-  // 初始化圈數和分數
-  table.round = 1; // 當前圈數 (1:東風圈, 2:南風圈...)
-  table.totalHands = 1; // 總局數
-  table.dealerCountInCircle = 0; // 當前圈已擔任過莊家的人數 (不含連莊)
-  table.dealerLianZhuangCount = 0; // 莊家連莊次數
-  table.roundHistory = [];
-
   // 確保 maxRounds 和 gameSettings 正確設置（從房間設定讀取）
   if (!table.maxRounds || table.maxRounds < 1 || !table.gameSettings) {
     try {
@@ -275,6 +242,13 @@ async function startGame(tableId) {
     }
   }
 
+  // 初始化圈數和分數
+  table.round = 1; // 當前圈數 (1:東風圈, 2:南風圈...)
+  table.totalHands = 1; // 總局數
+  table.dealerCountInCircle = 0; // 當前圈已擔任過莊家的人數 (不含連莊)
+  table.dealerLianZhuangCount = 0; // 莊家連莊次數
+  table.roundHistory = [];
+
   // 確保所有玩家分數為 0，並初始化統計資料
   table.players.forEach(player => {
     player.score = 0;
@@ -291,21 +265,41 @@ async function startGame(tableId) {
 
   console.log(`>>> [遊戲開始] 圈數設定: ${table.maxRounds} 圈，當前圈數: ${table.round}`);
 
-  // 執行扣卡邏輯（在遊戲開始時）
-  try {
-    const deduction = table.gameSettings?.deduction || 'AA_DEDUCTION';
-    const rounds = table.maxRounds || 1;
-    const cardsPerRound = 4; // 每圈需要4張房卡（4人各1張）
-    const totalCardsNeeded = rounds * cardsPerRound; // 總共需要的房卡數量
+  // 執行扣卡邏輯（在遊戲開始前）
+  const deduction = table.gameSettings?.deduction || 'AA_DEDUCTION';
+  const rounds = table.maxRounds || 1;
+  const cardsPerRound = 4; // 每圈需要4張房卡（4人各1張）
+  const totalCardsNeeded = rounds * cardsPerRound; // 總共需要的房卡數量
 
-    // 獲取房間資訊以找到房主
-    const room = await prisma.room.findUnique({
-      where: { roomId: tableId },
-      select: { creatorId: true },
+  const room = await prisma.room.findUnique({
+    where: { roomId: tableId },
+    select: { creatorId: true, clubId: true },
+  });
+
+  if (deduction === 'HOST_DEDUCTION' && room?.clubId) {
+    const club = await prisma.club.findUnique({
+      where: { id: room.clubId },
+      select: { cardCount: true },
     });
+    const clubCardBalance = club?.cardCount ?? 0;
 
-    if (deduction === 'HOST_DEDUCTION' && room && room.creatorId) {
-      // 房主扣卡：由房主扣除所有房卡
+    if (!club || clubCardBalance < totalCardsNeeded) {
+      const message = `俱樂部房卡不足，無法開始遊戲（需要 ${totalCardsNeeded} 張，目前 ${clubCardBalance} 張）`;
+      console.log(`>>> [扣卡] ${message}`);
+      table.started = false;
+      table.gamePhase = GamePhase.WAITING;
+      io.to(tableId).emit('gameCountdown', { countdown: null, message });
+      return;
+    }
+
+    await prisma.club.update({
+      where: { id: room.clubId },
+      data: { cardCount: { decrement: totalCardsNeeded } },
+    });
+    console.log(`>>> [扣卡] 俱樂部扣卡：扣除 ${totalCardsNeeded} 張房卡（${rounds}圈），俱樂部ID: ${room.clubId}`);
+  } else if (deduction === 'HOST_DEDUCTION' && room?.creatorId) {
+    // 房主扣卡：由房主扣除所有房卡
+    try {
       const hostPlayer = await prisma.player.findUnique({
         where: { id: room.creatorId },
         select: { cardCount: true },
@@ -339,54 +333,79 @@ async function startGame(tableId) {
       } else {
         console.log(`>>> [扣卡] 房主房卡不足：需要 ${totalCardsNeeded} 張，目前 ${hostPlayer?.cardCount || 0} 張`);
       }
-    } else if (deduction === 'AA_DEDUCTION') {
-      // AA扣卡：每位玩家各扣每圈1張（共 rounds 張）
-      const cardsPerPlayer = rounds; // 每位玩家需要扣的房卡數量
+    } catch (error) {
+      console.error(`>>> [扣卡] 房主扣卡邏輯執行失敗:`, error);
+    }
+  } else if (deduction === 'AA_DEDUCTION') {
+    // AA扣卡：每位玩家各扣每圈1張（共 rounds 張）
+    const cardsPerPlayer = rounds; // 每位玩家需要扣的房卡數量
 
-      for (const player of table.players) {
-        try {
-          const dbPlayer = await prisma.player.findUnique({
-            where: { id: player.id },
-            select: { cardCount: true },
-          });
+    for (const player of table.players) {
+      try {
+        const dbPlayer = await prisma.player.findUnique({
+          where: { id: player.id },
+          select: { cardCount: true },
+        });
 
-          if (dbPlayer && dbPlayer.cardCount >= cardsPerPlayer) {
-            const previousCount = dbPlayer.cardCount;
-            const newCount = previousCount - cardsPerPlayer;
+        if (dbPlayer && dbPlayer.cardCount >= cardsPerPlayer) {
+          const previousCount = dbPlayer.cardCount;
+          const newCount = previousCount - cardsPerPlayer;
 
-            await prisma.$transaction([
-              prisma.player.update({
-                where: { id: player.id },
-                data: {
-                  cardCount: {
-                    decrement: cardsPerPlayer,
-                  },
+          await prisma.$transaction([
+            prisma.player.update({
+              where: { id: player.id },
+              data: {
+                cardCount: {
+                  decrement: cardsPerPlayer,
                 },
-              }),
-              prisma.cardConsumptionRecord.create({
-                data: {
-                  playerId: player.id,
-                  roomId: tableId,
-                  amount: cardsPerPlayer,
-                  reason: 'game_start_aa_deduction',
-                  previousCount: previousCount,
-                  newCount: newCount,
-                },
-              }),
-            ]);
-            console.log(`>>> [扣卡] AA扣卡：玩家 ${player.name} 扣除 ${cardsPerPlayer} 張房卡（${rounds}圈），剩餘: ${newCount}`);
-          } else {
-            console.log(`>>> [扣卡] 玩家 ${player.name} 房卡不足：需要 ${cardsPerPlayer} 張，目前 ${dbPlayer?.cardCount || 0} 張`);
-          }
-        } catch (error) {
-          console.error(`>>> [扣卡] 扣除玩家 ${player.name} 房卡失敗:`, error);
+              },
+            }),
+            prisma.cardConsumptionRecord.create({
+              data: {
+                playerId: player.id,
+                roomId: tableId,
+                amount: cardsPerPlayer,
+                reason: 'game_start_aa_deduction',
+                previousCount: previousCount,
+                newCount: newCount,
+              },
+            }),
+          ]);
+          console.log(`>>> [扣卡] AA扣卡：玩家 ${player.name} 扣除 ${cardsPerPlayer} 張房卡（${rounds}圈），剩餘: ${newCount}`);
+        } else {
+          console.log(`>>> [扣卡] 玩家 ${player.name} 房卡不足：需要 ${cardsPerPlayer} 張，目前 ${dbPlayer?.cardCount || 0} 張`);
         }
+      } catch (error) {
+        console.error(`>>> [扣卡] 扣除玩家 ${player.name} 房卡失敗:`, error);
       }
     }
-  } catch (error) {
-    console.error(`>>> [扣卡] 扣卡邏輯執行失敗:`, error);
-    // 不影響遊戲開始流程，只記錄錯誤
   }
+
+  // 設置遊戲狀態
+  table.started = true;
+  table.gamePhase = GamePhase.DEALING;
+
+  // 1. 隨機決定莊家（維持原有機制）
+  table.dealerIndex = Math.floor(Math.random() * 4);
+  
+  // 2. 伺服器產生 3 組介於 1～6 的隨機亂數（骰子點數）
+  const dice = [
+    Math.floor(Math.random() * 6) + 1,
+    Math.floor(Math.random() * 6) + 1,
+    Math.floor(Math.random() * 6) + 1
+  ];
+  const diceSum = dice.reduce((a, b) => a + b, 0);
+  
+  // 3. 決定東風位（windStart）
+  // 根據新規則：莊家必為東風
+  table.windStart = table.dealerIndex;
+  
+  table.turn = table.dealerIndex;
+
+  const windNames = ['東', '南', '西', '北'];
+  console.log(`>>> [遊戲開始] 骰子點數: [${dice.join(', ')}], 總和: ${diceSum} (不再影響風位)`);
+  console.log(`>>> [遊戲開始] 莊家: 玩家${table.dealerIndex + 1}, 東風位: 玩家${table.windStart + 1} (${windNames[0]}風)`);
+  console.log(`>>> [遊戲開始] 風位分配：座位${table.windStart}=${windNames[0]}風，座位${(table.windStart + 1) % 4}=${windNames[1]}風，座位${(table.windStart + 2) % 4}=${windNames[2]}風，座位${(table.windStart + 3) % 4}=${windNames[3]}風`);
 
   // 設置莊家標記
   table.players.forEach((player, index) => {
@@ -5580,6 +5599,29 @@ io.on('connection', (socket) => {
       return;
     }
 
+    if (roomRecord.clubId) {
+      try {
+        const member = await prisma.clubMember.findFirst({
+          where: {
+            clubId: roomRecord.clubId,
+            playerId: playerId,
+          },
+          select: { isBanned: true },
+        });
+
+        if (member?.isBanned === true) {
+          socket.emit('joinTableError', {
+            success: false,
+            error: 'PLAYER_BANNED',
+            message: '您已被限制加入房間'
+          });
+          return;
+        }
+      } catch (err) {
+        console.error('[joinTable] 查詢俱樂部成員封禁狀態失敗:', err.message);
+      }
+    }
+
     if (!tables[tableId]) {
       tables[tableId] = {
         id: tableId,
@@ -6835,6 +6877,16 @@ console.log('[Server] Room cards routes mounted at /api/room-cards');
 const agentsRoutes = require('./routes/agents');
 app.use('/api/agents', agentsRoutes);
 console.log('[Server] Agents routes mounted at /api/agents');
+
+// 向後兼容：舊的 /api/agent-transfer-club-balance 映射到 /api/agents/transfer-club-balance
+app.post('/api/agent-transfer-club-balance', (req, res, next) => {
+  const originalUrl = req.url;
+  req.url = '/transfer-club-balance';
+  agentsRoutes(req, res, (err) => {
+    req.url = originalUrl;
+    if (err) next(err);
+  });
+});
 
 // 代理房卡路由（代理專用房卡操作）
 const agentRoomCardsRoutes = require('./routes/agentRoomCards');

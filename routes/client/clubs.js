@@ -728,6 +728,18 @@ router.post('/:clubId/rooms', async (req, res) => {
       return errorResponse(res, '創建者不存在', null, 404);
     }
 
+    const member = await prisma.clubMember.findFirst({
+      where: {
+        clubId: club.id,
+        playerId: roomCreatorId,
+      },
+      select: { isBanned: true },
+    });
+
+    if (member?.isBanned === true) {
+      return errorResponse(res, '您目前被禁止開房', null, 403);
+    }
+
     // 生成唯一的6位數字ID
     const roomId = await generateUniqueId(async (id) => {
       const exists = await prisma.room.findUnique({
@@ -758,6 +770,20 @@ router.post('/:clubId/rooms', async (req, res) => {
         ip_check: gameSettings.ip_check || false,
         gps_lock: gameSettings.gps_lock || false,
       };
+    }
+
+    if (finalGameSettings?.deduction === 'HOST_DEDUCTION') {
+      const rounds = finalGameSettings?.rounds || 1;
+      const requiredCards = rounds * 4;
+      const clubCardBalance = club?.cardCount ?? 0;
+      if (clubCardBalance < requiredCards) {
+        return errorResponse(
+          res,
+          `俱樂部房卡不足無法創建房間\n需要：${requiredCards} 張，目前：${clubCardBalance} 張`,
+          null,
+          400
+        );
+      }
     }
 
     // 創建房間

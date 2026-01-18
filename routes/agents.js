@@ -470,6 +470,115 @@ router.post('/sell-room-card', async (req, res) => {
 });
 
 /**
+ * POST /api/agents/transfer-club-balance
+ * 管理員/副會長將自身房卡轉入俱樂部房卡
+ */
+router.post('/transfer-club-balance', async (req, res) => {
+    try {
+        const { prisma } = req.app.locals;
+        const rawClubCode = req.body?.club_code ?? req.body?.clubCode;
+        const rawAmount = req.body?.room_card_amount ?? req.body?.roomCardAmount ?? req.body?.amount;
+        const actorPlayerId = req.body?.actorPlayerId ?? req.body?.playerId;
+
+        const clubCode = String(rawClubCode || '').trim();
+        const amount = Number(rawAmount);
+
+        const makeError = (message, statusCode) => {
+            const err = new Error(message);
+            err.statusCode = statusCode;
+            return err;
+        };
+
+        if (!clubCode) {
+            setCorsHeaders(res);
+            return res.status(400).json({ success: false, error: '缺少俱樂部代碼' });
+        }
+        if (!actorPlayerId) {
+            setCorsHeaders(res);
+            return res.status(400).json({ success: false, error: '缺少操作者ID' });
+        }
+        if (!Number.isFinite(amount) || amount <= 0) {
+            setCorsHeaders(res);
+            return res.status(400).json({ success: false, error: '補充數量必須大於 0' });
+        }
+
+        const result = await prisma.$transaction(async (tx) => {
+            const club = await tx.club.findFirst({
+                where: {
+                    OR: [{ clubId: clubCode }, { id: clubCode }],
+                },
+                select: { id: true, clubId: true, creatorId: true, cardCount: true },
+            });
+            if (!club) {
+                throw makeError('俱樂部不存在', 404);
+            }
+
+            const actor = await tx.player.findUnique({
+                where: { id: actorPlayerId },
+                select: { id: true, cardCount: true },
+            });
+            if (!actor) {
+                throw makeError('玩家不存在', 404);
+            }
+
+            const isOwner = club.creatorId === actorPlayerId;
+            if (!isOwner) {
+                const actorMember = await tx.clubMember.findUnique({
+                    where: { clubId_playerId: { clubId: club.id, playerId: actorPlayerId } },
+                    select: { role: true, isBanned: true },
+                });
+                if (!actorMember) {
+                    throw makeError('玩家不是俱樂部成員', 403);
+                }
+                if (actorMember.isBanned) {
+                    throw makeError('您目前被禁止操作', 403);
+                }
+                if (actorMember.role !== 'CO_LEADER') {
+                    throw makeError('沒有權限', 403);
+                }
+            }
+
+            if (actor.cardCount < amount) {
+                throw makeError(`房卡不足（目前：${actor.cardCount}）`, 400);
+            }
+
+            const updatedPlayer = await tx.player.update({
+                where: { id: actorPlayerId },
+                data: { cardCount: { decrement: amount } },
+                select: { id: true, cardCount: true },
+            });
+
+            const updatedClub = await tx.club.update({
+                where: { id: club.id },
+                data: { cardCount: { increment: amount } },
+                select: { id: true, clubId: true, cardCount: true },
+            });
+
+            return {
+                playerCardCount: updatedPlayer.cardCount,
+                clubCardCount: updatedClub.cardCount,
+                clubId: updatedClub.clubId,
+            };
+        });
+
+        setCorsHeaders(res);
+        return res.status(200).json({
+            success: true,
+            data: result,
+            message: '房卡補充成功',
+        });
+    } catch (error) {
+        console.error('[Agents API] Error transfer club balance:', error);
+        setCorsHeaders(res);
+        const statusCode = error.statusCode || 500;
+        return res.status(statusCode).json({
+            success: false,
+            error: error.message || '房卡補充失敗',
+        });
+    }
+});
+
+/**
  * POST /api/agents/sales-record
  * 獲取銷售記錄
  */
