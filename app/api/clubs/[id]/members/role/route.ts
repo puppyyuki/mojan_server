@@ -20,10 +20,16 @@ export async function POST(
 ) {
   try {
     const { id } = await params
-    const { playerId, role } = await request.json() // role: 'CO_LEADER' | 'MEMBER'
+    const { playerId, role, actorPlayerId } = await request.json() // role: 'CO_LEADER' | 'MEMBER'
     if (!playerId || !role) {
       return NextResponse.json(
         { success: false, error: '請提供玩家ID與角色' },
+        { status: 400, headers: corsHeaders() }
+      )
+    }
+    if (!actorPlayerId || typeof actorPlayerId !== 'string') {
+      return NextResponse.json(
+        { success: false, error: '請提供操作者ID' },
         { status: 400, headers: corsHeaders() }
       )
     }
@@ -35,15 +41,39 @@ export async function POST(
         { status: 404, headers: corsHeaders() }
       )
     }
+    if (club.creatorId !== actorPlayerId) {
+      return NextResponse.json(
+        { success: false, error: '沒有權限' },
+        { status: 403, headers: corsHeaders() }
+      )
+    }
     if (club.creatorId === playerId) {
       return NextResponse.json(
         { success: false, error: '不可更改擁有者角色' },
         { status: 400, headers: corsHeaders() }
       )
     }
+
+    const normalizedRole = String(role).toUpperCase()
+    const data: Record<string, unknown> = { role: normalizedRole }
+
+    if (normalizedRole === 'CO_LEADER') {
+      data.coLeaderPermissions = {
+        modifyClubRules: true,
+        approveJoinRequests: true,
+        kickMembers: true,
+        banMembers: true,
+        banSameTable: true,
+        setScoreLimit: true,
+        manageRoomCards: false,
+      }
+    } else {
+      data.coLeaderPermissions = null
+    }
+
     const member = await prisma.clubMember.update({
       where: { clubId_playerId: { clubId: id, playerId } },
-      data: { role },
+      data,
     })
     return NextResponse.json({ success: true, data: member }, { headers: corsHeaders() })
   } catch (error) {
@@ -54,4 +84,3 @@ export async function POST(
     )
   }
 }
-

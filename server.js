@@ -5008,6 +5008,26 @@ async function handlePlayerDisconnect(tableId, playerId, socketId) {
 
   console.log(`處理玩家離開：房間 ${tableId}，玩家 ${playerId}`);
 
+  try {
+    const room = await prisma.room.findUnique({
+      where: { roomId: tableId },
+      select: { id: true },
+    });
+
+    if (room) {
+      await prisma.roomParticipant.updateMany({
+        where: {
+          roomId: room.id,
+          playerId: playerId,
+          leftAt: null,
+        },
+        data: { leftAt: new Date() },
+      });
+    }
+  } catch (error) {
+    console.error(`更新房間參與者離開時間失敗（roomId=${tableId}, playerId=${playerId}）:`, error);
+  }
+
   // 找出玩家索引
   const playerIndex = table.players.findIndex(p => p.id === playerId);
 
@@ -5269,55 +5289,57 @@ io.on('connection', (socket) => {
       delete socketToPlayer[socket.id];
     }
 
-    // 根據暱稱獲取或生成玩家ID
-    const nickname = player.name || player.nickname || '玩家';
+    let nickname = player.name || player.nickname || '玩家';
     let playerId;
     let userId = null;
-    let avatarUrl = player.avatarUrl || null; // 從客戶端獲取頭像URL
-    let remark = null; // 備註內容
+    let avatarUrl = player.avatarUrl || null;
+    let remark = null;
 
-    // 嘗試從數據庫中查找玩家（使用 findFirst 因為現在允許暱稱重複）
+    const clientPlayerId = player.id || player.playerId || null;
+
     try {
-      const dbPlayer = await prisma.player.findFirst({
-        where: { nickname: nickname.trim() },
-        select: { id: true, userId: true, avatarUrl: true, bio: true }
-      });
+      let dbPlayer = null;
+
+      if (clientPlayerId) {
+        dbPlayer = await prisma.player.findUnique({
+          where: { id: clientPlayerId },
+          select: { id: true, userId: true, nickname: true, avatarUrl: true, bio: true },
+        });
+      }
+
+      if (!dbPlayer) {
+        dbPlayer = await prisma.player.findFirst({
+          where: { nickname: nickname.trim() },
+          select: { id: true, userId: true, nickname: true, avatarUrl: true, bio: true },
+        });
+      }
 
       if (dbPlayer) {
-        // 使用數據庫中的ID
         playerId = dbPlayer.id;
         userId = dbPlayer.userId;
-        // 如果客戶端沒有提供頭像URL，使用數據庫中的
+        nickname = dbPlayer.nickname || nickname;
         if (!avatarUrl && dbPlayer.avatarUrl) {
           avatarUrl = dbPlayer.avatarUrl;
         }
-        // 從數據庫獲取備註（使用 bio 字段）
         remark = dbPlayer.bio || null;
-        // 保存暱稱到ID的映射
         nicknameToPlayerId[nickname] = playerId;
-        // 只在第一次查詢時輸出日誌，避免重複日誌
         if (!existingMapping || existingMapping.tableId !== tableId) {
           console.log(`暱稱 "${nickname}" 已存在於數據庫，使用ID: ${playerId}, userId: ${userId}, remark: ${remark || '無'}`);
         }
       } else {
-        // 如果數據庫中不存在，檢查內存映射
         if (nicknameToPlayerId[nickname]) {
           playerId = nicknameToPlayerId[nickname];
           if (!existingMapping || existingMapping.tableId !== tableId) {
             console.log(`暱稱 "${nickname}" 已存在於內存映射，使用ID: ${playerId}`);
           }
         } else {
-          // 生成新的ID（使用簡單的哈希算法或時間戳）
-          // 這裡使用時間戳 + 隨機數生成唯一ID
           playerId = `player_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-          // 保存暱稱到ID的映射
           nicknameToPlayerId[nickname] = playerId;
           console.log(`新暱稱 "${nickname}"，生成新ID: ${playerId}`);
         }
       }
     } catch (error) {
       console.error(`查詢玩家失敗: ${error.message}`);
-      // 如果數據庫查詢失敗，使用內存映射或生成新ID
       if (nicknameToPlayerId[nickname]) {
         playerId = nicknameToPlayerId[nickname];
         if (!existingMapping || existingMapping.tableId !== tableId) {
@@ -5347,7 +5369,7 @@ io.on('connection', (socket) => {
     try {
       roomRecord = await prisma.room.findUnique({
         where: { roomId: tableId },
-        select: { gameSettings: true }
+        select: { id: true, clubId: true, gameSettings: true }
       });
       gameSettings = roomRecord?.gameSettings || null;
       manualStart = gameSettings?.manual_start === true;
@@ -5566,6 +5588,68 @@ io.on('connection', (socket) => {
       }
     }
 
+    if (!existingPlayer && roomRecord?.clubId && playerId) {
+      try {
+        const currentMember = await prisma.clubMember.findUnique({
+          where: {
+            clubId_playerId: {
+              clubId: roomRecord.clubId,
+              playerId: playerId
+            }
+          },
+          select: { bannedTablePlayers: true }
+        });
+        
+        const currentBannedList = currentMember?.bannedTablePlayers || [];
+        serverPlayer.bannedTablePlayers = currentBannedList;
+        
+        const existingPlayers = tables[tableId].players;
+        
+        for (const ep of existingPlayers) {
+          if (currentBannedList.includes(ep.id)) {
+            console.log(`[禁止同桌] 玩家 ${playerId} 禁止了現有玩家 ${ep.id}`);
+            socket.emit('joinTableError', {
+              success: false,
+              error: 'BANNED_RELATION',
+              message: '您與房內玩家有禁止同桌設定，無法加入'
+            });
+            return;
+          }
+          
+          let epBannedList = ep.bannedTablePlayers;
+          
+          if (!epBannedList) {
+            const epMember = await prisma.clubMember.findUnique({
+              where: {
+                clubId_playerId: {
+                  clubId: roomRecord.clubId,
+                  playerId: ep.id
+                }
+              },
+              select: { bannedTablePlayers: true }
+            });
+            epBannedList = epMember?.bannedTablePlayers || [];
+            ep.bannedTablePlayers = epBannedList;
+          }
+          
+          if (epBannedList.includes(playerId)) {
+             console.log(`[禁止同桌] 現有玩家 ${ep.id} 禁止了玩家 ${playerId}`);
+             socket.emit('joinTableError', {
+              success: false,
+              error: 'BANNED_RELATION',
+              message: '您與房內玩家有禁止同桌設定，無法加入'
+             });
+             return;
+          }
+        }
+        
+        console.log(`[禁止同桌] ✅ 玩家 ${playerId} 禁止同桌檢查通過`);
+        
+      } catch (err) {
+        console.error(`[禁止同桌] 檢查失敗:`, err);
+      }
+    }
+
     if (!existingPlayer) {
       // 獲取已使用的座位
       const usedSeats = tables[tableId].players.map(p => p.seat);
@@ -5608,6 +5692,27 @@ io.on('connection', (socket) => {
 
       tables[tableId].players.push(playerData);
 
+      if (roomRecord?.id && typeof playerId === 'string') {
+        try {
+          await prisma.roomParticipant.upsert({
+            where: {
+              roomId_playerId: {
+                roomId: roomRecord.id,
+                playerId: playerId,
+              },
+            },
+            update: { leftAt: null },
+            create: {
+              roomId: roomRecord.id,
+              playerId: playerId,
+              leftAt: null,
+            },
+          });
+        } catch (err) {
+          console.error(`寫入房間參與者失敗（roomId=${tableId}, playerId=${playerId}）:`, err);
+        }
+      }
+
       // 初始化玩家狀態
       tables[tableId].hands[playerId] = [];
       tables[tableId].hiddenHands[playerId] = [];
@@ -5624,6 +5729,20 @@ io.on('connection', (socket) => {
     } else {
       // 玩家已存在於房間中，可能是重連
       console.log('玩家已存在於房間中，更新 socket 映射:', tableId, playerId);
+
+      if (roomRecord?.id && typeof playerId === 'string') {
+        try {
+          await prisma.roomParticipant.updateMany({
+            where: {
+              roomId: roomRecord.id,
+              playerId: playerId,
+            },
+            data: { leftAt: null },
+          });
+        } catch (err) {
+          console.error(`更新房間參與者失敗（roomId=${tableId}, playerId=${playerId}）:`, err);
+        }
+      }
 
       // 如果玩家處於斷線狀態，恢復連線
       if (existingPlayer.isDisconnected) {

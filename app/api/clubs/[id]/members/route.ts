@@ -165,6 +165,8 @@ export async function DELETE(
     const { id } = await params
     const { searchParams } = new URL(request.url)
     const playerId = searchParams.get('playerId')
+    const action = searchParams.get('action')
+    const actorPlayerId = searchParams.get('actorPlayerId')
 
     if (!playerId) {
       return NextResponse.json(
@@ -173,9 +175,9 @@ export async function DELETE(
       )
     }
 
-    // 檢查俱樂部是否存在
     const club = await prisma.club.findUnique({
       where: { id },
+      select: { creatorId: true },
     })
 
     if (!club) {
@@ -183,6 +185,54 @@ export async function DELETE(
         { success: false, error: '俱樂部不存在' },
         { status: 404, headers: corsHeaders() }
       )
+    }
+
+    const resolvedAction = (action || '').toString().toLowerCase()
+    const resolvedActorId =
+      actorPlayerId && actorPlayerId.toString().trim()
+        ? actorPlayerId.toString()
+        : playerId.toString()
+
+    const isKick =
+      resolvedAction === 'kick' ||
+      (resolvedActorId && resolvedActorId !== playerId.toString())
+
+    if (resolvedAction === 'kick' && !actorPlayerId) {
+      return NextResponse.json(
+        { success: false, error: '請提供操作者ID' },
+        { status: 400, headers: corsHeaders() }
+      )
+    }
+
+    if (isKick) {
+      if (club.creatorId === playerId.toString()) {
+        return NextResponse.json(
+          { success: false, error: '不可移除擁有者' },
+          { status: 400, headers: corsHeaders() }
+        )
+      }
+
+      const isOwner = club.creatorId === resolvedActorId
+      if (!isOwner) {
+        const actorMember = await prisma.clubMember.findUnique({
+          where: {
+            clubId_playerId: { clubId: id, playerId: resolvedActorId },
+          },
+          select: { role: true, coLeaderPermissions: true },
+        })
+
+        const perms =
+          actorMember?.coLeaderPermissions as Record<string, unknown> | null
+        const canKick =
+          actorMember?.role === 'CO_LEADER' && perms?.kickMembers === true
+
+        if (!canKick) {
+          return NextResponse.json(
+            { success: false, error: '沒有權限' },
+            { status: 403, headers: corsHeaders() }
+          )
+        }
+      }
     }
 
     // 檢查成員是否存在
@@ -202,13 +252,30 @@ export async function DELETE(
       )
     }
 
-    // 刪除成員
     await prisma.clubMember.delete({
       where: {
         clubId_playerId: {
           clubId: id,
           playerId: playerId,
         },
+      },
+    })
+
+    const [actor, target] = await Promise.all([
+      resolvedActorId
+        ? prisma.player.findUnique({ where: { id: resolvedActorId } })
+        : null,
+      prisma.player.findUnique({ where: { id: playerId } }),
+    ])
+
+    await prisma.clubActivity.create({
+      data: {
+        clubId: id,
+        type: isKick ? 'MEMBER_KICKED' : 'MEMBER_LEFT',
+        actorPlayerId: resolvedActorId,
+        targetPlayerId: playerId.toString(),
+        actorNickname: actor?.nickname ?? null,
+        targetNickname: target?.nickname ?? null,
       },
     })
 
@@ -227,4 +294,3 @@ export async function DELETE(
     )
   }
 }
-

@@ -65,6 +65,60 @@ async function createClubActivity(prisma, clubId, type, options = {}) {
   }
 }
 
+function isNonEmptyString(value) {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function normalizeBoolPermissions(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const allowedKeys = [
+    'modifyClubRules',
+    'manageRoomCards',
+    'approveJoinRequests',
+    'kickMembers',
+    'banMembers',
+    'banSameTable',
+    'setScoreLimit',
+  ];
+  const out = {};
+  for (const key of allowedKeys) {
+    out[key] = raw[key] === true;
+  }
+  const anyTrue = allowedKeys.some(k => out[k] === true);
+  return anyTrue ? out : null;
+}
+
+function getCoLeaderPerms(member) {
+  const perms = member?.coLeaderPermissions;
+  if (!perms || typeof perms !== 'object') return null;
+  return perms;
+}
+
+async function requireClubOwnerOrPermission(prisma, clubInternalId, actorPlayerId, permissionKey) {
+  const club = await prisma.club.findUnique({
+    where: { id: clubInternalId },
+    select: { creatorId: true },
+  });
+  if (!club) {
+    return { ok: false, status: 404, error: '俱樂部不存在' };
+  }
+  const isOwner = club.creatorId === actorPlayerId;
+  if (isOwner) {
+    return { ok: true, clubCreatorId: club.creatorId };
+  }
+
+  const actorMember = await prisma.clubMember.findUnique({
+    where: { clubId_playerId: { clubId: clubInternalId, playerId: actorPlayerId } },
+    select: { role: true, coLeaderPermissions: true },
+  });
+  const perms = getCoLeaderPerms(actorMember);
+  const allowed = actorMember?.role === 'CO_LEADER' && perms?.[permissionKey] === true;
+  if (!allowed) {
+    return { ok: false, status: 403, error: '沒有權限' };
+  }
+  return { ok: true, clubCreatorId: club.creatorId };
+}
+
 /**
  * GET /api/client/clubs
  * 獲取所有俱樂部
@@ -92,6 +146,7 @@ router.get('/', async (req, res) => {
                 cardCount: true,
               },
             },
+            bannedTablePlayers: true,
           },
         },
       },
@@ -260,7 +315,7 @@ router.get('/:clubId', async (req, res) => {
 
 /**
  * GET /api/client/clubs/:clubId/rooms
- * 獲取俱樂部的房間列表
+ * 獲取俱樂部的房間列表（包含目前房間內的玩家資訊）
  */
 router.get('/:clubId/rooms', async (req, res) => {
   try {
@@ -276,9 +331,43 @@ router.get('/:clubId/rooms', async (req, res) => {
     const rooms = await prisma.room.findMany({
       where: { clubId: club.id },
       orderBy: { createdAt: 'desc' },
+      include: {
+        participants: {
+          where: { leftAt: null },
+          include: {
+            player: {
+              select: {
+                id: true,
+                userId: true,
+                nickname: true,
+                avatarUrl: true,
+              },
+            },
+          },
+        },
+      },
     });
 
-    return successResponse(res, rooms);
+    const data = rooms.map((room) => ({
+      id: room.id,
+      roomId: room.roomId,
+      status: room.status,
+      currentPlayers: room.currentPlayers,
+      maxPlayers: room.maxPlayers,
+      gameSettings: room.gameSettings,
+      createdAt: room.createdAt,
+      updatedAt: room.updatedAt,
+      players: (room.participants || []).map((p) => ({
+        id: p.player?.id ?? p.playerId ?? null,
+        userId: p.player?.userId ?? null,
+        name: p.player?.nickname ?? '',
+        avatarUrl: p.player?.avatarUrl ?? null,
+        joinedAt: p.joinedAt,
+        leftAt: p.leftAt,
+      })),
+    }));
+
+    return successResponse(res, data);
   } catch (error) {
     console.error('[Clubs API] 獲取房間列表失敗:', error);
     return errorResponse(res, '獲取房間列表失敗', null, 500);
@@ -377,13 +466,36 @@ router.get('/:clubId/join-requests', async (req, res) => {
     const { prisma } = req.app.locals;
     const { clubId } = req.params;
 
+    const actorPlayerId = req.query.actorPlayerId;
+    if (!isNonEmptyString(actorPlayerId)) {
+      return errorResponse(res, '請提供操作者ID', null, 400);
+    }
+
     const club = await findClub(prisma, clubId);
     if (!club) {
       return errorResponse(res, '俱樂部不存在', null, 404);
     }
 
+    const isOwner = club.creatorId === actorPlayerId;
+    if (!isOwner) {
+      const actorMember = await prisma.clubMember.findUnique({
+        where: { clubId_playerId: { clubId: club.id, playerId: actorPlayerId } },
+        select: { role: true, coLeaderPermissions: true },
+      });
+      const perms = getCoLeaderPerms(actorMember);
+      const canReview = actorMember?.role === 'CO_LEADER' && perms?.approveJoinRequests === true;
+      if (!canReview) {
+        return errorResponse(res, '沒有權限', null, 403);
+      }
+    }
+
+    const rawStatus = (req.query.status || 'PENDING').toString().toUpperCase();
+    const status = ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'].includes(rawStatus)
+      ? rawStatus
+      : 'PENDING';
+
     const requests = await prisma.clubJoinRequest.findMany({
-      where: { clubId: club.id },
+      where: { clubId: club.id, status },
       orderBy: { createdAt: 'desc' },
       include: {
         player: { select: { id: true, userId: true, nickname: true, avatarUrl: true } },
@@ -404,6 +516,10 @@ router.post('/:clubId/join-requests/:requestId', async (req, res) => {
     const action = (req.query.action || '').toString().toLowerCase();
     const { actorPlayerId } = req.body || {};
 
+    if (!isNonEmptyString(actorPlayerId)) {
+      return errorResponse(res, '請提供操作者ID', null, 400);
+    }
+
     const club = await findClub(prisma, clubId);
     if (!club) {
       return errorResponse(res, '俱樂部不存在', null, 404);
@@ -418,6 +534,30 @@ router.post('/:clubId/join-requests/:requestId', async (req, res) => {
 
     if (action !== 'approve' && action !== 'reject' && action !== 'cancel') {
       return errorResponse(res, '無效的操作', null, 400);
+    }
+
+    if (action === 'cancel') {
+      if (actorPlayerId !== request.playerId) {
+        return errorResponse(res, '沒有權限', null, 403);
+      }
+      await prisma.clubJoinRequest.update({
+        where: { id: request.id },
+        data: { status: 'CANCELLED' },
+      });
+      return successResponse(res, null, '已取消加入申請');
+    }
+
+    const isOwner = club.creatorId === actorPlayerId;
+    if (!isOwner) {
+      const actorMember = await prisma.clubMember.findUnique({
+        where: { clubId_playerId: { clubId: club.id, playerId: actorPlayerId } },
+        select: { role: true, coLeaderPermissions: true },
+      });
+      const perms = getCoLeaderPerms(actorMember);
+      const canReview = actorMember?.role === 'CO_LEADER' && perms?.approveJoinRequests === true;
+      if (!canReview) {
+        return errorResponse(res, '沒有權限', null, 403);
+      }
     }
 
     if (action === 'approve') {
@@ -451,12 +591,6 @@ router.post('/:clubId/join-requests/:requestId', async (req, res) => {
       });
       return successResponse(res, null, '已拒絕加入申請');
     }
-
-    await prisma.clubJoinRequest.update({
-      where: { id: request.id },
-      data: { status: 'CANCELLED' },
-    });
-    return successResponse(res, null, '已取消加入申請');
   } catch (error) {
     console.error('[Clubs API] 更新加入申請失敗:', error);
     return errorResponse(res, '更新加入申請失敗', error.message, 500);
@@ -683,13 +817,16 @@ router.get('/players/:playerId/clubs', async (req, res) => {
               },
             },
             members: {
-              include: {
+              select: {
+                id: true,
+                playerId: true,
+                role: true,
+                bannedTablePlayers: true,
                 player: {
                   select: {
                     id: true,
                     userId: true,
                     nickname: true,
-                    cardCount: true,
                   },
                 },
               },
@@ -829,10 +966,39 @@ router.delete('/:clubId/members', async (req, res) => {
       return errorResponse(res, '請提供玩家ID', null, 400);
     }
 
+    const resolvedAction = (action || '').toString().toLowerCase();
+    const actorId = isNonEmptyString(actorPlayerId) ? actorPlayerId.toString() : null;
+    const isKick = resolvedAction === 'kick' || (actorId && actorId !== playerId.toString());
+    if (isKick) {
+      if (!isNonEmptyString(actorId)) {
+        return errorResponse(res, '請提供操作者ID', null, 400);
+      }
+    } else {
+      if (actorId && actorId !== playerId.toString()) {
+        return errorResponse(res, '沒有權限', null, 403);
+      }
+    }
+
     const club = await findClub(prisma, clubId);
 
     if (!club) {
       return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    if (club.creatorId === playerId.toString()) {
+      return errorResponse(res, '不可移除擁有者', null, 400);
+    }
+
+    if (isKick) {
+      const authz = await requireClubOwnerOrPermission(
+        prisma,
+        club.id,
+        actorId,
+        'kickMembers'
+      );
+      if (!authz.ok) {
+        return errorResponse(res, authz.error, null, authz.status);
+      }
     }
 
     // 檢查成員是否存在
@@ -859,18 +1025,8 @@ router.delete('/:clubId/members', async (req, res) => {
       },
     });
 
-    const resolvedAction = (action || '').toString().toLowerCase();
-    const resolvedActorId =
-      actorPlayerId && actorPlayerId.toString().trim()
-        ? actorPlayerId.toString()
-        : playerId.toString();
-
-    const isKick =
-      resolvedAction === 'kick' ||
-      (resolvedActorId && resolvedActorId !== playerId.toString());
-
     await createClubActivity(prisma, club.id, isKick ? 'MEMBER_KICKED' : 'MEMBER_LEFT', {
-      actorPlayerId: resolvedActorId,
+      actorPlayerId: (actorId ?? playerId.toString()),
       targetPlayerId: playerId.toString(),
     });
 
@@ -885,10 +1041,14 @@ router.post('/:clubId/members/role', async (req, res) => {
   try {
     const { prisma } = req.app.locals;
     const { clubId } = req.params;
-    const { playerId, role } = req.body || {};
+    const { playerId, role, actorPlayerId } = req.body || {};
 
     if (!playerId) {
       return errorResponse(res, '請提供玩家ID', null, 400);
+    }
+
+    if (!isNonEmptyString(actorPlayerId)) {
+      return errorResponse(res, '請提供操作者ID', null, 400);
     }
 
     const nextRole = (role ?? '').toString().toUpperCase();
@@ -901,6 +1061,14 @@ router.post('/:clubId/members/role', async (req, res) => {
       return errorResponse(res, '俱樂部不存在', null, 404);
     }
 
+    if (club.creatorId !== actorPlayerId) {
+      return errorResponse(res, '沒有權限', null, 403);
+    }
+
+    if (club.creatorId === playerId) {
+      return errorResponse(res, '不可修改擁有者設定', null, 400);
+    }
+
     const member = await prisma.clubMember.findUnique({
       where: { clubId_playerId: { clubId: club.id, playerId } },
     });
@@ -910,7 +1078,7 @@ router.post('/:clubId/members/role', async (req, res) => {
 
     const updated = await prisma.clubMember.update({
       where: { clubId_playerId: { clubId: club.id, playerId } },
-      data: { role: nextRole },
+      data: nextRole === 'MEMBER' ? { role: nextRole, coLeaderPermissions: null } : { role: nextRole },
     });
 
     return successResponse(res, updated, '更新成員角色成功');
@@ -930,9 +1098,27 @@ router.post('/:clubId/members/ban', async (req, res) => {
       return errorResponse(res, '請提供玩家ID', null, 400);
     }
 
+    if (!isNonEmptyString(actorPlayerId)) {
+      return errorResponse(res, '請提供操作者ID', null, 400);
+    }
+
     const club = await findClub(prisma, clubId);
     if (!club) {
       return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    if (club.creatorId === playerId) {
+      return errorResponse(res, '不可封禁擁有者', null, 400);
+    }
+
+    const authz = await requireClubOwnerOrPermission(
+      prisma,
+      club.id,
+      actorPlayerId,
+      'banMembers'
+    );
+    if (!authz.ok) {
+      return errorResponse(res, authz.error, null, authz.status);
     }
 
     const member = await prisma.clubMember.findUnique({
@@ -963,15 +1149,33 @@ router.post('/:clubId/members/unban', async (req, res) => {
   try {
     const { prisma } = req.app.locals;
     const { clubId } = req.params;
-    const { playerId } = req.body || {};
+    const { playerId, actorPlayerId } = req.body || {};
 
     if (!playerId) {
       return errorResponse(res, '請提供玩家ID', null, 400);
     }
 
+    if (!isNonEmptyString(actorPlayerId)) {
+      return errorResponse(res, '請提供操作者ID', null, 400);
+    }
+
     const club = await findClub(prisma, clubId);
     if (!club) {
       return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    if (club.creatorId === playerId) {
+      return errorResponse(res, '不可修改擁有者設定', null, 400);
+    }
+
+    const authz = await requireClubOwnerOrPermission(
+      prisma,
+      club.id,
+      actorPlayerId,
+      'banMembers'
+    );
+    if (!authz.ok) {
+      return errorResponse(res, authz.error, null, authz.status);
     }
 
     const member = await prisma.clubMember.findUnique({
@@ -997,15 +1201,33 @@ router.post('/:clubId/members/score-limit', async (req, res) => {
   try {
     const { prisma } = req.app.locals;
     const { clubId } = req.params;
-    const { playerId, scoreLimit } = req.body || {};
+    const { playerId, scoreLimit, actorPlayerId } = req.body || {};
 
     if (!playerId) {
       return errorResponse(res, '請提供玩家ID', null, 400);
     }
 
+    if (!isNonEmptyString(actorPlayerId)) {
+      return errorResponse(res, '請提供操作者ID', null, 400);
+    }
+
     const club = await findClub(prisma, clubId);
     if (!club) {
       return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    if (club.creatorId === playerId) {
+      return errorResponse(res, '不可修改擁有者設定', null, 400);
+    }
+
+    const authz = await requireClubOwnerOrPermission(
+      prisma,
+      club.id,
+      actorPlayerId,
+      'setScoreLimit'
+    );
+    if (!authz.ok) {
+      return errorResponse(res, authz.error, null, authz.status);
     }
 
     const member = await prisma.clubMember.findUnique({
@@ -1038,15 +1260,33 @@ router.post('/:clubId/members/no-same-table', async (req, res) => {
   try {
     const { prisma } = req.app.locals;
     const { clubId } = req.params;
-    const { playerId, enabled } = req.body || {};
+    const { playerId, enabled, actorPlayerId } = req.body || {};
 
     if (!playerId) {
       return errorResponse(res, '請提供玩家ID', null, 400);
     }
 
+    if (!isNonEmptyString(actorPlayerId)) {
+      return errorResponse(res, '請提供操作者ID', null, 400);
+    }
+
     const club = await findClub(prisma, clubId);
     if (!club) {
       return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    if (club.creatorId === playerId) {
+      return errorResponse(res, '不可修改擁有者設定', null, 400);
+    }
+
+    const authz = await requireClubOwnerOrPermission(
+      prisma,
+      club.id,
+      actorPlayerId,
+      'banSameTable'
+    );
+    if (!authz.ok) {
+      return errorResponse(res, authz.error, null, authz.status);
     }
 
     const member = await prisma.clubMember.findUnique({
@@ -1076,15 +1316,33 @@ router.post('/:clubId/members/banned-table-players', async (req, res) => {
   try {
     const { prisma } = req.app.locals;
     const { clubId } = req.params;
-    const { playerId, bannedPlayerIds } = req.body || {};
+    const { playerId, bannedPlayerIds, actorPlayerId } = req.body || {};
 
     if (!playerId) {
       return errorResponse(res, '請提供玩家ID', null, 400);
     }
 
+    if (!isNonEmptyString(actorPlayerId)) {
+      return errorResponse(res, '請提供操作者ID', null, 400);
+    }
+
     const club = await findClub(prisma, clubId);
     if (!club) {
       return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    if (club.creatorId === playerId) {
+      return errorResponse(res, '不可修改擁有者設定', null, 400);
+    }
+
+    const authz = await requireClubOwnerOrPermission(
+      prisma,
+      club.id,
+      actorPlayerId,
+      'banSameTable'
+    );
+    if (!authz.ok) {
+      return errorResponse(res, authz.error, null, authz.status);
     }
 
     const member = await prisma.clubMember.findUnique({
@@ -1114,15 +1372,27 @@ router.post('/:clubId/members/co-leader-permissions', async (req, res) => {
   try {
     const { prisma } = req.app.locals;
     const { clubId } = req.params;
-    const { playerId, permissions } = req.body || {};
+    const { playerId, permissions, actorPlayerId } = req.body || {};
 
     if (!playerId) {
       return errorResponse(res, '請提供玩家ID', null, 400);
     }
 
+    if (!isNonEmptyString(actorPlayerId)) {
+      return errorResponse(res, '請提供操作者ID', null, 400);
+    }
+
     const club = await findClub(prisma, clubId);
     if (!club) {
       return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    if (club.creatorId !== actorPlayerId) {
+      return errorResponse(res, '沒有權限', null, 403);
+    }
+
+    if (club.creatorId === playerId) {
+      return errorResponse(res, '不可修改擁有者設定', null, 400);
     }
 
     const member = await prisma.clubMember.findUnique({
@@ -1132,9 +1402,15 @@ router.post('/:clubId/members/co-leader-permissions', async (req, res) => {
       return errorResponse(res, '玩家不是俱樂部成員', null, 404);
     }
 
+    if (member.role !== 'CO_LEADER') {
+      return errorResponse(res, '僅可設定副會長權限', null, 400);
+    }
+
+    const normalized = normalizeBoolPermissions(permissions);
+
     const updated = await prisma.clubMember.update({
       where: { clubId_playerId: { clubId: club.id, playerId } },
-      data: { coLeaderPermissions: permissions || null },
+      data: { coLeaderPermissions: normalized },
     });
 
     return successResponse(res, updated, '設定副會長權限成功');
@@ -1152,7 +1428,7 @@ router.put('/:clubId', async (req, res) => {
   try {
     const { prisma } = req.app.locals;
     const { clubId } = req.params;
-    const { name, description, logoUrl, cardCount } = req.body || {};
+    const { name, description, logoUrl, cardCount, actorPlayerId } = req.body || {};
 
     if (
       name === undefined &&
@@ -1166,6 +1442,29 @@ router.put('/:clubId', async (req, res) => {
     const club = await findClub(prisma, clubId);
     if (!club) {
       return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    if (!isNonEmptyString(actorPlayerId)) {
+      return errorResponse(res, '請提供操作者ID', null, 400);
+    }
+
+    const isOwner = club.creatorId === actorPlayerId;
+    if (!isOwner) {
+      const actorMember = await prisma.clubMember.findUnique({
+        where: { clubId_playerId: { clubId: club.id, playerId: actorPlayerId } },
+        select: { role: true, coLeaderPermissions: true },
+      });
+      const perms = getCoLeaderPerms(actorMember);
+      const needsModifyRules = name !== undefined || description !== undefined || logoUrl !== undefined;
+      const needsManageCards = cardCount !== undefined;
+      if (needsModifyRules) {
+        const canModify = actorMember?.role === 'CO_LEADER' && perms?.modifyClubRules === true;
+        if (!canModify) return errorResponse(res, '沒有權限', null, 403);
+      }
+      if (needsManageCards) {
+        const canManage = actorMember?.role === 'CO_LEADER' && perms?.manageRoomCards === true;
+        if (!canManage) return errorResponse(res, '沒有權限', null, 403);
+      }
     }
 
     const data = {};
@@ -1239,16 +1538,30 @@ router.put('/:clubId/game-settings', async (req, res) => {
   try {
     const { prisma } = req.app.locals;
     const { clubId } = req.params;
-    const { gameSettings } = req.body;
+    const { gameSettings, actorPlayerId } = req.body;
 
     if (!gameSettings) {
       return errorResponse(res, '請提供遊戲設定', null, 400);
+    }
+
+    if (!isNonEmptyString(actorPlayerId)) {
+      return errorResponse(res, '請提供操作者ID', null, 400);
     }
 
     const club = await findClub(prisma, clubId);
 
     if (!club) {
       return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    const authz = await requireClubOwnerOrPermission(
+      prisma,
+      club.id,
+      actorPlayerId,
+      'modifyClubRules'
+    );
+    if (!authz.ok) {
+      return errorResponse(res, authz.error, null, authz.status);
     }
 
     // 更新遊戲設定
@@ -1275,4 +1588,3 @@ router.put('/:clubId/game-settings', async (req, res) => {
 });
 
 module.exports = router;
-

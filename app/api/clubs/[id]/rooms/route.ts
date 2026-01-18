@@ -46,12 +46,46 @@ export async function GET(
     const rooms = await prisma.room.findMany({
       where: { clubId: club.id },
       orderBy: { createdAt: 'desc' },
+      include: {
+        participants: {
+          where: { leftAt: null },
+          include: {
+            player: {
+              select: {
+                id: true,
+                userId: true,
+                nickname: true,
+                avatarUrl: true,
+              },
+            },
+          },
+        },
+      },
     })
+
+    const data = rooms.map((room) => ({
+      id: room.id,
+      roomId: room.roomId,
+      status: room.status,
+      currentPlayers: room.currentPlayers,
+      maxPlayers: room.maxPlayers,
+      gameSettings: room.gameSettings,
+      createdAt: room.createdAt,
+      updatedAt: room.updatedAt,
+      players: (room.participants || []).map((p) => ({
+        id: p.player?.id ?? p.playerId ?? null,
+        userId: p.player?.userId ?? null,
+        name: p.player?.nickname ?? '',
+        avatarUrl: p.player?.avatarUrl ?? null,
+        joinedAt: p.joinedAt,
+        leftAt: p.leftAt,
+      })),
+    }))
 
     return NextResponse.json(
       {
         success: true,
-        data: rooms,
+        data,
       },
       { headers: corsHeaders() }
     )
@@ -192,4 +226,3 @@ export async function DELETE(
     )
   }
 }
-

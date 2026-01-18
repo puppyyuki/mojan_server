@@ -21,7 +21,48 @@ export async function GET(
   try {
     const { id } = await params
     const url = new URL(request.url)
+    const actorPlayerId = url.searchParams.get('actorPlayerId')
     const status = url.searchParams.get('status') || 'PENDING' // 預設只返回待審
+
+    if (!actorPlayerId || typeof actorPlayerId !== 'string') {
+      return NextResponse.json(
+        { success: false, error: '請提供操作者ID' },
+        { status: 400, headers: corsHeaders() }
+      )
+    }
+
+    const club = await prisma.club.findUnique({
+      where: { id },
+      select: { creatorId: true },
+    })
+
+    if (!club) {
+      return NextResponse.json(
+        { success: false, error: '俱樂部不存在' },
+        { status: 404, headers: corsHeaders() }
+      )
+    }
+
+    const isOwner = club.creatorId === actorPlayerId
+    if (!isOwner) {
+      const actorMember = await prisma.clubMember.findUnique({
+        where: { clubId_playerId: { clubId: id, playerId: actorPlayerId } },
+        select: { role: true, coLeaderPermissions: true },
+      })
+
+      const perms =
+        actorMember?.coLeaderPermissions as Record<string, unknown> | null
+      const canReview =
+        actorMember?.role === 'CO_LEADER' && perms?.approveJoinRequests === true
+
+      if (!canReview) {
+        return NextResponse.json(
+          { success: false, error: '沒有權限' },
+          { status: 403, headers: corsHeaders() }
+        )
+      }
+    }
+
     const where: any = { clubId: id }
     if (status && status !== 'ALL') {
       where.status = status
@@ -78,6 +119,9 @@ export async function POST(
     // 檢查是否已有待審申請
     const existingPending = await prisma.clubJoinRequest.findFirst({
       where: { clubId: id, playerId, status: 'PENDING' },
+      include: {
+        player: { select: { nickname: true } },
+      },
     })
     if (existingPending) {
       return NextResponse.json(
@@ -88,9 +132,26 @@ export async function POST(
     const req = await prisma.clubJoinRequest.create({
       data: { clubId: id, playerId, status: 'PENDING' },
       include: {
-        player: { select: { id: true, userId: true, nickname: true, avatarUrl: true } },
+        player: {
+          select: { id: true, userId: true, nickname: true, avatarUrl: true },
+        },
       },
     })
+
+    const nickname =
+      req.player?.nickname ?? existingPending?.player?.nickname ?? null
+
+    await prisma.clubActivity.create({
+      data: {
+        clubId: id,
+        type: 'JOIN_REQUESTED',
+        actorPlayerId: playerId,
+        targetPlayerId: playerId,
+        actorNickname: nickname,
+        targetNickname: nickname,
+      },
+    })
+
     return NextResponse.json(
       { success: true, data: req, message: '加入申請已送出' },
       { headers: corsHeaders() }

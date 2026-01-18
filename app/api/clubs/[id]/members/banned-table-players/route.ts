@@ -19,16 +19,20 @@ export async function POST(
 ) {
   try {
     const { id } = await params
-    const body = await request.json().catch(() => null as any)
-    const playerId: unknown = body?.playerId
-    const enabled: unknown = body?.enabled
-    const actorPlayerId: unknown = body?.actorPlayerId
+    const body = await request.json()
+    const playerId = body?.playerId
+    const actorPlayerId = body?.actorPlayerId
+    const bannedPlayerIds = Array.isArray(body?.bannedPlayerIds)
+      ? body.bannedPlayerIds.filter((x: unknown) => typeof x === 'string')
+      : []
+
     if (!playerId || typeof playerId !== 'string') {
       return NextResponse.json(
         { success: false, error: '請提供玩家ID' },
         { status: 400, headers: corsHeaders() }
       )
     }
+
     if (!actorPlayerId || typeof actorPlayerId !== 'string') {
       return NextResponse.json(
         { success: false, error: '請提供操作者ID' },
@@ -36,11 +40,7 @@ export async function POST(
       )
     }
 
-    const club = await prisma.club.findUnique({
-      where: { id },
-      select: { creatorId: true },
-    })
-
+    const club = await prisma.club.findUnique({ where: { id } })
     if (!club) {
       return NextResponse.json(
         { success: false, error: '俱樂部不存在' },
@@ -55,12 +55,17 @@ export async function POST(
       )
     }
 
-    const targetMember = await prisma.clubMember.findUnique({
-      where: { clubId_playerId: { clubId: id, playerId } },
+    const member = await prisma.clubMember.findUnique({
+      where: {
+        clubId_playerId: {
+          clubId: id,
+          playerId,
+        },
+      },
       select: { clubId: true, playerId: true },
     })
 
-    if (!targetMember) {
+    if (!member) {
       return NextResponse.json(
         { success: false, error: '玩家不是俱樂部成員' },
         { status: 404, headers: corsHeaders() }
@@ -75,10 +80,10 @@ export async function POST(
       })
 
       const perms = actorMember?.coLeaderPermissions as Record<string, unknown> | null
-      const canSetNoSameTable =
+      const canBanSameTable =
         actorMember?.role === 'CO_LEADER' && perms?.banSameTable === true
 
-      if (!canSetNoSameTable) {
+      if (!canBanSameTable) {
         return NextResponse.json(
           { success: false, error: '沒有權限' },
           { status: 403, headers: corsHeaders() }
@@ -86,16 +91,24 @@ export async function POST(
       }
     }
 
-    const member = await prisma.clubMember.update({
-      where: { clubId_playerId: { clubId: id, playerId } },
-      data: { noSameTable: enabled === true },
+    const updated = await prisma.clubMember.update({
+      where: {
+        clubId_playerId: {
+          clubId: id,
+          playerId,
+        },
+      },
+      data: {
+        bannedTablePlayers: bannedPlayerIds,
+      },
     })
+
     return NextResponse.json(
-      { success: true, data: member },
+      { success: true, data: updated, message: '設定禁止同桌玩家成功' },
       { headers: corsHeaders() }
     )
   } catch (error) {
-    console.error('設定禁止同桌失敗:', error)
+    console.error('設定禁止同桌玩家失敗:', error)
     return NextResponse.json(
       { success: false, error: '設定禁止同桌失敗' },
       { status: 500, headers: corsHeaders() }
