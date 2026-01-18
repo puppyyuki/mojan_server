@@ -1516,7 +1516,9 @@ function processPlayerFlowerReplacement(tableId, playerIndex) {
         flower: flower,
         newTile: newTile,
         isInitial: true,
-        deckCount: table.deck.length
+        deckCount: table.deck.length,
+        voiceSelection: typeof player.voiceSelection === 'number' ? player.voiceSelection : 0,
+        voiceLanguageSelection: typeof player.voiceLanguageSelection === 'number' ? player.voiceLanguageSelection : 0
       });
 
       // 如果補摸的仍是花牌，繼續補花
@@ -1995,7 +1997,9 @@ function handleFlowerTile(tableId, playerId, flower) {
       flower: flower,
       newTile: newTile,
       isInitial: false,
-      deckCount: table.deck.length
+      deckCount: table.deck.length,
+      voiceSelection: typeof player.voiceSelection === 'number' ? player.voiceSelection : 0,
+      voiceLanguageSelection: typeof player.voiceLanguageSelection === 'number' ? player.voiceLanguageSelection : 0
     });
 
     // 標記玩家最近進行了補花（用於槓上開花判斷）
@@ -2892,7 +2896,9 @@ function discardTile(tableId, playerId, tile) {
     playerId: playerId,
     playerIndex: playerIndex,
     tile: tile,
-    discardIndex: table.lastDiscard.index
+    discardIndex: table.lastDiscard.index,
+    voiceSelection: typeof table.players[playerIndex]?.voiceSelection === 'number' ? table.players[playerIndex].voiceSelection : 0,
+    voiceLanguageSelection: typeof table.players[playerIndex]?.voiceLanguageSelection === 'number' ? table.players[playerIndex].voiceLanguageSelection : 0
   });
 
   const updatedHand = table.hiddenHands[playerId];
@@ -2942,7 +2948,9 @@ function discardTile(tableId, playerId, tile) {
           playerId: playerId,
           playerIndex: playerIndex,
           isTianTing: wasFirstDealerDiscard || false,
-          isDiTing: isDiTingCandidate || false
+          isDiTing: isDiTingCandidate || false,
+          voiceSelection: typeof currentPlayer.voiceSelection === 'number' ? currentPlayer.voiceSelection : 0,
+          voiceLanguageSelection: typeof currentPlayer.voiceLanguageSelection === 'number' ? currentPlayer.voiceLanguageSelection : 0
         });
       }
     }
@@ -3604,7 +3612,9 @@ function executeClaim(tableId, playerId, claimType, tiles) {
     claimType: claimType,
     meld: meld,
     targetPlayer: discardPlayerIndex,
-    targetTile: discardedTile
+    targetTile: discardedTile,
+    voiceSelection: typeof table.players[playerIndex]?.voiceSelection === 'number' ? table.players[playerIndex].voiceSelection : 0,
+    voiceLanguageSelection: typeof table.players[playerIndex]?.voiceLanguageSelection === 'number' ? table.players[playerIndex].voiceLanguageSelection : 0
   });
 
   // 廣播所有玩家的手牌數量更新（讓其他玩家知道手牌數量變化）
@@ -4937,7 +4947,9 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
     targetPlayer: targetPlayer,
     scores: roundScores, // 該圈分數變化
     isTianTing: isTianTing, // 是否為天聽
-    isDiTing: isDiTing // 是否為地聽
+    isDiTing: isDiTing, // 是否為地聽
+    winnerVoiceSelection: typeof table.players[playerIndex]?.voiceSelection === 'number' ? table.players[playerIndex].voiceSelection : 0,
+    winnerVoiceLanguageSelection: typeof table.players[playerIndex]?.voiceLanguageSelection === 'number' ? table.players[playerIndex].voiceLanguageSelection : 0
   });
 
   // 判斷是否需要中間結算或最終結算
@@ -5040,7 +5052,9 @@ function getCleanTableData(table) {
         isDiTing: p.isDiTing || false,
         ipAddress: p.ipAddress || null,
         latitude: p.latitude || null,
-        longitude: p.longitude || null
+        longitude: p.longitude || null,
+        voiceSelection: typeof p.voiceSelection === 'number' ? p.voiceSelection : 0,
+        voiceLanguageSelection: typeof p.voiceLanguageSelection === 'number' ? p.voiceLanguageSelection : 0
       })) : [],
       hands: table.hands || {},
       // hiddenHands 不應該發送給所有玩家，只發送給自己
@@ -5504,12 +5518,21 @@ io.on('connection', (socket) => {
     }
 
     // 使用服務器端生成的ID，而不是客戶端發送的ID
+    const rawVoiceSelection = player.voiceSelection;
+    const rawVoiceLanguageSelection = player.voiceLanguageSelection;
+    const normalizedVoiceSelection =
+      (typeof rawVoiceSelection === 'number' ? rawVoiceSelection : Number(rawVoiceSelection)) === 1 ? 1 : 0;
+    const normalizedVoiceLanguageSelection =
+      (typeof rawVoiceLanguageSelection === 'number' ? rawVoiceLanguageSelection : Number(rawVoiceLanguageSelection)) === 1 ? 1 : 0;
+
     const serverPlayer = {
       id: playerId,
       name: nickname,
       userId: userId || null, // 添加6位數userId
       avatarUrl: avatarUrl || null, // 添加頭像URL
-      remark: remark || null // 添加備註
+      remark: remark || null, // 添加備註
+      voiceSelection: normalizedVoiceSelection,
+      voiceLanguageSelection: normalizedVoiceLanguageSelection
     };
 
     // 取得房間設定（特別是是否手動開始）
@@ -5881,6 +5904,9 @@ io.on('connection', (socket) => {
       // 玩家已存在於房間中，可能是重連
       console.log('玩家已存在於房間中，更新 socket 映射:', tableId, playerId);
 
+      existingPlayer.voiceSelection = serverPlayer.voiceSelection;
+      existingPlayer.voiceLanguageSelection = serverPlayer.voiceLanguageSelection;
+
       if (roomRecord?.id && typeof playerId === 'string') {
         try {
           await prisma.roomParticipant.updateMany({
@@ -6169,7 +6195,9 @@ io.on('connection', (socket) => {
       claimType: 'kong',
       meld: finalMeld,
       targetPlayer: playerIndex,
-      targetTile: tile
+      targetTile: tile,
+      voiceSelection: typeof table.players[playerIndex]?.voiceSelection === 'number' ? table.players[playerIndex].voiceSelection : 0,
+      voiceLanguageSelection: typeof table.players[playerIndex]?.voiceLanguageSelection === 'number' ? table.players[playerIndex].voiceLanguageSelection : 0
     });
 
     // 廣播手牌數量更新
@@ -6373,7 +6401,9 @@ io.on('connection', (socket) => {
       playerId: playerId,
       playerIndex: playerIndex,
       isTianTing: tingState.isTianTingCandidate || false,
-      isDiTing: tingState.isDiTingCandidate || false
+      isDiTing: tingState.isDiTingCandidate || false,
+      voiceSelection: typeof table.players[playerIndex]?.voiceSelection === 'number' ? table.players[playerIndex].voiceSelection : 0,
+      voiceLanguageSelection: typeof table.players[playerIndex]?.voiceLanguageSelection === 'number' ? table.players[playerIndex].voiceLanguageSelection : 0
     });
 
     table.gamePhase = GamePhase.PLAYING;
@@ -6578,6 +6608,25 @@ io.on('connection', (socket) => {
     io.to(tableId).emit('chatMessage', chatMessage);
   });
 
+  socket.on('updateVoiceSettings', ({ tableId, playerId, voiceSelection, voiceLanguageSelection }) => {
+    const table = tables[tableId];
+    if (!table) return;
+
+    const player = table.players.find(p => p.id === playerId);
+    if (!player) return;
+
+    const normalizedVoiceSelection =
+      (typeof voiceSelection === 'number' ? voiceSelection : Number(voiceSelection)) === 1 ? 1 : 0;
+    const normalizedVoiceLanguageSelection =
+      (typeof voiceLanguageSelection === 'number' ? voiceLanguageSelection : Number(voiceLanguageSelection)) === 1 ? 1 : 0;
+
+    player.voiceSelection = normalizedVoiceSelection;
+    player.voiceLanguageSelection = normalizedVoiceLanguageSelection;
+
+    const cleanTableData = getCleanTableData(table);
+    io.to(tableId).emit('tableUpdate', cleanTableData);
+  });
+
   // 發送快速聊天語音
   socket.on('sendQuickChatAudio', ({ tableId, playerId, audioIndex }) => {
     const table = tables[tableId];
@@ -6591,7 +6640,9 @@ io.on('connection', (socket) => {
     io.to(tableId).emit('quickChatAudio', {
       from: playerId,
       audioIndex: audioIndex,
-      displayName: player.name || '玩家'
+      displayName: player.name || '玩家',
+      voiceSelection: typeof player.voiceSelection === 'number' ? player.voiceSelection : 0,
+      voiceLanguageSelection: typeof player.voiceLanguageSelection === 'number' ? player.voiceLanguageSelection : 0
     });
   });
 
