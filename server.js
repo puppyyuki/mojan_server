@@ -1553,6 +1553,23 @@ function processPlayerFlowerReplacement(tableId, playerIndex) {
 }
 
 // 摸牌函數
+function getTingDiscardsFromDraw(hand, exposedMelds = 0) {
+  if (!Array.isArray(hand) || hand.length === 0) return [];
+  const uniqueTiles = [...new Set(hand)];
+  const result = [];
+
+  for (const tile of uniqueTiles) {
+    const idx = hand.indexOf(tile);
+    if (idx === -1) continue;
+    const remainingHand = hand.slice(0, idx).concat(hand.slice(idx + 1));
+    if (canTing(remainingHand, exposedMelds)) {
+      result.push(tile);
+    }
+  }
+
+  return result;
+}
+
 function drawTile(tableId, playerId) {
   const table = tables[tableId];
   if (!table || table.gamePhase !== GamePhase.PLAYING) return;
@@ -1817,6 +1834,35 @@ function drawTile(tableId, playerId) {
       // 保留天聽記錄（不在摸牌時清除）
       // 天聽記錄將在打牌時檢查，如果打出的牌改變了手牌組合才清除
       // 這樣如果玩家摸到牌後直接打出相同牌，手牌組合沒變，仍然是天聽
+
+      if (!player.isTing && !player.isTianTing && !player.isDiTing) {
+        const tingDiscards = getTingDiscardsFromDraw(hand, melds.length);
+
+        if (tingDiscards.length > 0) {
+          table.tingState = {
+            playerId: playerId,
+            playerIndex: playerIndex,
+            timer: 30,
+            isAfterDiscard: false,
+            requiresDiscard: true,
+            tingDiscards
+          };
+
+          table.gamePhase = GamePhase.CLAIMING;
+
+          setTimeout(() => {
+            io.to(tableId).emit('tingAvailable', {
+              playerId: playerId,
+              playerIndex: playerIndex,
+              requiresDiscard: true,
+              tingDiscards
+            });
+          }, 100);
+
+          startTingTimer(tableId);
+          return;
+        }
+      }
 
       // 如果玩家已經天聽或地聽，自動打出摸到的牌（延遲1.5秒）
       if (player.isTianTing || player.isDiTing) {
@@ -2110,6 +2156,34 @@ function handleFlowerTile(tableId, playerId, flower) {
               tiles: uniqueKongTiles // 可以自槓或補槓的牌列表
             });
             console.log(`>>> [補花後自槓檢測] 發送自槓/補槓提示給玩家${playerIndex + 1}，可自槓/補槓的牌：${uniqueKongTiles.join(',')}`);
+          }
+        }
+
+        if (player && !player.isTing && !player.isTianTing && !player.isDiTing) {
+          const tingDiscards = getTingDiscardsFromDraw(hand, melds.length);
+          if (tingDiscards.length > 0) {
+            table.tingState = {
+              playerId: playerId,
+              playerIndex: playerIndex,
+              timer: 30,
+              isAfterDiscard: false,
+              requiresDiscard: true,
+              tingDiscards
+            };
+
+            table.gamePhase = GamePhase.CLAIMING;
+
+            setTimeout(() => {
+              io.to(tableId).emit('tingAvailable', {
+                playerId: playerId,
+                playerIndex: playerIndex,
+                requiresDiscard: true,
+                tingDiscards
+              });
+            }, 100);
+
+            startTingTimer(tableId);
+            return;
           }
         }
 
@@ -2664,6 +2738,21 @@ function discardTile(tableId, playerId, tile) {
   if (!table) return;
 
   if (table.gamePhase !== GamePhase.PLAYING) {
+    const isTingDecision =
+      table.gamePhase === GamePhase.CLAIMING &&
+      table.tingState &&
+      table.tingState.playerId === playerId &&
+      table.tingState.isAfterDiscard !== true;
+
+    if (isTingDecision) {
+      if (table.tingTimer) {
+        clearInterval(table.tingTimer);
+        table.tingTimer = null;
+      }
+
+      table.tingState = null;
+      table.gamePhase = GamePhase.PLAYING;
+    } else {
     const claimingState = table.claimingState;
     const isSelfDecision =
       table.gamePhase === GamePhase.CLAIMING &&
@@ -2691,6 +2780,7 @@ function discardTile(tableId, playerId, tile) {
 
     table.claimingState = null;
     table.gamePhase = GamePhase.PLAYING;
+    }
   }
 
   // 檢查是否輪到該玩家
@@ -2805,65 +2895,56 @@ function discardTile(tableId, playerId, tile) {
     discardIndex: table.lastDiscard.index
   });
 
-  // 檢測是否聽牌（打牌後）
-  // 注意：hand 已經在第 537 行宣告，但打牌後手牌已更新，需要重新獲取
   const updatedHand = table.hiddenHands[playerId];
   const melds = table.melds[playerId] || [];
-  // console.log(`玩家${playerIndex + 1}打牌後手牌：${updatedHand.join(',')}，明牌數量：${melds.length}`);
 
-  // 優先檢測打牌玩家是否可以聽牌（打牌後）
   const currentPlayer = table.players[playerIndex];
-  if (currentPlayer && currentPlayer.id && !currentPlayer.isTing) {
-    // 檢測是否聽牌（打牌後）
-    const isTing = canTing(updatedHand, melds.length);
-    // console.log(`玩家${playerIndex + 1}打牌後聽牌檢測結果：${isTing}`);
+  if (currentPlayer && currentPlayer.pendingTing === true) {
+    const pendingTingDiscards = Array.isArray(currentPlayer.pendingTingDiscards)
+      ? [...new Set(currentPlayer.pendingTingDiscards)]
+      : null;
+    currentPlayer.pendingTing = false;
+    currentPlayer.pendingTingDiscards = null;
 
-    if (isTing) {
-      console.log(`玩家${playerIndex + 1}打牌後可以聽牌！`);
+    if (!currentPlayer.isTing) {
+      const isDiscardAllowedToTing =
+        !pendingTingDiscards ||
+        pendingTingDiscards.length === 0 ||
+        pendingTingDiscards.includes(tile);
 
-      // 使用之前記錄的 wasFirstDealerDiscard 標記
-      // 檢查地聽條件：第一圈、非莊家、摸牌打牌後聽牌、沒有其他玩家吃碰槓
-      const isDiTingCandidate = table.isFirstRound &&
-        playerIndex !== table.dealerIndex &&
-        !table.hasFirstRoundClaim &&
-        wasFirstDealerDiscard === false; // 莊家已經打過牌，輪到其他玩家
+      const isTingNow = isDiscardAllowedToTing
+        ? canTing(updatedHand, melds.length)
+        : false;
 
-      table.tingState = {
-        playerId: playerId,
-        playerIndex: playerIndex,
-        timer: 30,
-        isAfterDiscard: true,
-        isTianTingCandidate: wasFirstDealerDiscard || false, // 標記為天聽候選
-        isDiTingCandidate: isDiTingCandidate || false // 標記為地聽候選
-      };
+      if (isTingNow) {
+        const isDiTingCandidate = table.isFirstRound &&
+          playerIndex !== table.dealerIndex &&
+          !table.hasFirstRoundClaim &&
+          wasFirstDealerDiscard === false;
 
-      if (wasFirstDealerDiscard) {
-        console.log(`>>> [天聽檢測] 這是莊家第一次打牌後的聽牌，標記為天聽候選`);
-      }
+        currentPlayer.isTing = true;
 
-      if (isDiTingCandidate) {
-        console.log(`>>> [地聽檢測] 玩家${playerIndex + 1}在第一圈摸牌打牌後聽牌，且沒有其他玩家吃碰槓，標記為地聽候選`);
-      }
+        if (wasFirstDealerDiscard) {
+          currentPlayer.isTianTing = true;
+          currentPlayer.initialTingHand = [...updatedHand];
+          currentPlayer.initialTingMelds = melds.length;
+        }
 
-      // 設置聽牌等待狀態
-      table.gamePhase = GamePhase.CLAIMING;
+        if (isDiTingCandidate) {
+          currentPlayer.isDiTing = true;
+          currentPlayer.initialTingHand = [...updatedHand];
+          currentPlayer.initialTingMelds = melds.length;
+        }
 
-      // 通知客戶端可以聽牌（發送到整個房間，客戶端會判斷是否是自己）
-      // 延遲一小段時間，確保客戶端已經處理完打牌事件
-      setTimeout(() => {
-        io.to(tableId).emit('tingAvailable', {
+        console.log(`玩家${playerIndex + 1}宣告聽牌！`);
+
+        io.to(tableId).emit('tingDeclared', {
           playerId: playerId,
           playerIndex: playerIndex,
-          isTianTingCandidate: wasFirstDealerDiscard || false,
-          isDiTingCandidate: isDiTingCandidate || false
+          isTianTing: wasFirstDealerDiscard || false,
+          isDiTing: isDiTingCandidate || false
         });
-      }, 100);
-
-      // 開始聽牌倒計時
-      startTingTimer(tableId);
-
-      // 聽牌選項優先，不檢查其他玩家的吃碰槓（聽牌決策完成後再處理）
-      return;
+      }
     }
   }
 
@@ -6231,10 +6312,33 @@ io.on('connection', (socket) => {
       return;
     }
 
+    const tingState = table.tingState;
+
+    if (table.tingTimer) {
+      clearInterval(table.tingTimer);
+      table.tingTimer = null;
+    }
+
+    const requiresDiscard = tingState.requiresDiscard === true || tingState.isAfterDiscard !== true;
+
+    if (requiresDiscard) {
+      const p = table.players[playerIndex];
+      if (!p) return;
+
+      p.pendingTing = true;
+      p.pendingTingDiscards = Array.isArray(tingState.tingDiscards)
+        ? [...new Set(tingState.tingDiscards)]
+        : null;
+
+      table.tingState = null;
+      table.gamePhase = GamePhase.PLAYING;
+
+      startTurnTimer(tableId, playerId);
+      return;
+    }
+
     const hand = table.hiddenHands[playerId];
     const melds = table.melds[playerId] || [];
-
-    // 再次驗證是否聽牌
     const isTing = canTing(hand, melds.length);
 
     if (!isTing) {
@@ -6244,46 +6348,26 @@ io.on('connection', (socket) => {
 
     console.log(`玩家${playerIndex + 1}宣告聽牌！`);
 
-    // 保存 tingState 信息（在清除前）
-    const tingState = table.tingState;
-    const tingPlayerIndex = tingState.playerIndex;
-
-    // 清除聽牌計時器
-    if (table.tingTimer) {
-      clearInterval(table.tingTimer);
-      table.tingTimer = null;
-    }
-
-    // 設置聽牌狀態
     table.players[playerIndex].isTing = true;
 
-    // 如果是莊家第一次打牌後的天聽候選，標記為天聽
     if (tingState.isTianTingCandidate) {
-      const hand = table.hiddenHands[playerId];
-      const melds = table.melds[playerId] || [];
-      table.players[playerIndex].isTianTing = true; // 標記為天聽
-      table.players[playerIndex].initialTingHand = [...hand]; // 保存天聽時的手牌
-      table.players[playerIndex].initialTingMelds = melds.length; // 保存天聽時的明牌數量
+      table.players[playerIndex].isTianTing = true;
+      table.players[playerIndex].initialTingHand = [...hand];
+      table.players[playerIndex].initialTingMelds = melds.length;
       console.log(`>>> [天聽宣告] 玩家${playerIndex + 1}天聽！記錄初始手牌：${hand.join(',')}`);
       console.log(`>>> [天聽宣告] 玩家${playerIndex + 1}天聽！記錄初始明牌數量：${melds.length}`);
     }
 
-    // 如果是地聽候選，標記為地聽
     if (tingState.isDiTingCandidate) {
-      const hand = table.hiddenHands[playerId];
-      const melds = table.melds[playerId] || [];
-      table.players[playerIndex].isDiTing = true; // 標記為地聽
-      table.players[playerIndex].initialTingHand = [...hand]; // 保存地聽時的手牌
-      table.players[playerIndex].initialTingMelds = melds.length; // 保存地聽時的明牌數量
+      table.players[playerIndex].isDiTing = true;
+      table.players[playerIndex].initialTingHand = [...hand];
+      table.players[playerIndex].initialTingMelds = melds.length;
       console.log(`>>> [地聽宣告] 玩家${playerIndex + 1}地聽！記錄初始手牌：${hand.join(',')}`);
       console.log(`>>> [地聽宣告] 玩家${playerIndex + 1}地聽！記錄初始明牌數量：${melds.length}`);
     }
 
-    // 清除聽牌等待狀態
     table.tingState = null;
 
-    // 廣播聽牌宣告
-    // 廣播聽牌宣告給所有玩家（確保所有玩家都能聽到音效）
     console.log(`>>> [音效廣播] 廣播聽牌宣告事件給房間 ${tableId} 的所有玩家`);
     io.to(tableId).emit('tingDeclared', {
       playerId: playerId,
@@ -6292,29 +6376,20 @@ io.on('connection', (socket) => {
       isDiTing: tingState.isDiTingCandidate || false
     });
 
-    // 正常遊戲中的聽牌
     table.gamePhase = GamePhase.PLAYING;
 
-    // 繼續遊戲：如果是吃碰後聽牌，需要打牌；如果是打牌後聽牌，檢查其他玩家的吃碰槓機會
-    // 判斷方式：使用 tingState.isAfterDiscard 標記來區分
     if (tingState.isAfterDiscard) {
-      // 打牌後的聽牌，檢查其他玩家是否可以吃碰槓胡
-      // 使用最後打出的牌來檢查
       if (table.lastDiscard && table.lastDiscard.playerId) {
         const discardedTile = table.lastDiscard.tile;
         const discardPlayerId = table.lastDiscard.playerId;
         const hasClaims = checkClaims(tableId, discardPlayerId, discardedTile);
         if (!hasClaims) {
-          // 沒有吃碰槓機會，輪到下一家
           nextTurn(tableId);
         }
-        // 如果有吃碰槓機會，checkClaims 會設置 claimingState 並開始倒計時
       } else {
-        // 如果沒有最後打出的牌信息，直接輪到下一家
         nextTurn(tableId);
       }
     } else {
-      // 吃碰後的聽牌，需要打牌
       startTurnTimer(tableId, playerId);
     }
   });

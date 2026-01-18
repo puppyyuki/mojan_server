@@ -146,7 +146,6 @@ router.get('/', async (req, res) => {
                 cardCount: true,
               },
             },
-            bannedTablePlayers: true,
           },
         },
       },
