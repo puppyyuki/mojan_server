@@ -5008,6 +5008,37 @@ async function handlePlayerDisconnect(tableId, playerId, socketId) {
 
   console.log(`處理玩家離開：房間 ${tableId}，玩家 ${playerId}`);
 
+  if (table.disbandState && table.disbandState.active) {
+    const votes = table.disbandState.votes || {};
+    if (Object.prototype.hasOwnProperty.call(votes, playerId)) {
+      delete votes[playerId];
+    }
+
+    const voteValues = Object.values(votes);
+    if (voteValues.length === 0) {
+      table.disbandState = null;
+    } else if (voteValues.includes('reject')) {
+      safeEmit(tableId, 'disbandResult', {
+        tableId,
+        result: 'rejected',
+        votes: votes
+      });
+      table.disbandState = null;
+    } else if (voteValues.every(v => v === 'agree')) {
+      safeEmit(tableId, 'disbandResult', {
+        tableId,
+        result: 'passed',
+        votes: votes
+      });
+      table.disbandState = null;
+    } else {
+      safeEmit(tableId, 'disbandVoteUpdate', {
+        tableId,
+        votes: votes
+      });
+    }
+  }
+
   try {
     const room = await prisma.room.findUnique({
       where: { roomId: tableId },
@@ -6326,6 +6357,71 @@ io.on('connection', (socket) => {
     socket.emit('myHand', {
       hand: hand
     });
+  });
+
+  socket.on('requestDisband', ({ tableId, playerId }) => {
+    const table = tables[tableId];
+    if (!table) return;
+
+    const player = table.players.find(p => p.id === playerId);
+    if (!player) return;
+
+    if (table.disbandState && table.disbandState.active) {
+      return;
+    }
+
+    const votes = {};
+    table.players.forEach(p => {
+      votes[p.id] = p.id === playerId ? 'agree' : 'pending';
+    });
+
+    table.disbandState = {
+      active: true,
+      initiatorId: playerId,
+      votes: votes
+    };
+
+    safeEmit(tableId, 'disbandRequested', {
+      tableId,
+      requesterId: playerId,
+      votes: votes
+    });
+  });
+
+  socket.on('voteDisband', ({ tableId, playerId, agree }) => {
+    const table = tables[tableId];
+    if (!table || !table.disbandState || !table.disbandState.active) return;
+
+    const votes = table.disbandState.votes || {};
+    if (!Object.prototype.hasOwnProperty.call(votes, playerId)) return;
+
+    votes[playerId] = agree ? 'agree' : 'reject';
+
+    safeEmit(tableId, 'disbandVoteUpdate', {
+      tableId,
+      votes: votes
+    });
+
+    const voteValues = Object.values(votes);
+    if (voteValues.includes('reject')) {
+      safeEmit(tableId, 'disbandResult', {
+        tableId,
+        result: 'rejected',
+        votes: votes
+      });
+      table.disbandState = null;
+      return;
+    }
+
+    const allAgreed = voteValues.every(v => v === 'agree');
+    if (allAgreed) {
+      safeEmit(tableId, 'disbandResult', {
+        tableId,
+        result: 'passed',
+        votes: votes
+      });
+      table.disbandState = null;
+    }
   });
 
   // 發送聊天訊息
