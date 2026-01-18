@@ -33,6 +33,11 @@ model Player {
   lastLoginAt      DateTime? // 最後登入時間
   isAgent          Boolean   @default(false) // 是否為代理
   agentCardBalance Int       @default(0) // 代理房卡餘額
+  referrerId       String?   // 推薦人 ID (關聯到 id)
+  referrer         Player?   @relation("Referral", fields: [referrerId], references: [id])
+  referredPlayers  Player[]  @relation("Referral")
+  hasBoundReferrer Boolean   @default(false) // 是否已綁定推薦人 (並領取8張房卡)
+  referralCount    Int       @default(0)     // 成功推薦的人數 (用於升級代理)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 

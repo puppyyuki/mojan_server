@@ -7,6 +7,7 @@ import CreateUserModal from './components/CreateUserModal'
 import EditUserModal from './components/EditUserModal'
 import CardRechargeHistoryModal from './components/CardRechargeHistoryModal'
 import PlayerClubsModal from './components/PlayerClubsModal'
+import PlayerReferralsModal from './components/PlayerReferralsModal'
 import Image from 'next/image'
 
 interface Player {
@@ -22,6 +23,7 @@ interface Player {
   updatedAt: string
   totalRechargeAmount: number
   averageMonthlyRecharge: number
+  referralCount?: number
   currentClubs: Array<{
     id: string
     clubId: string
@@ -52,6 +54,10 @@ export default function UserManagementPage() {
     player: Player
     clubs: any[]
   } | null>(null)
+  
+  // Referral Modal
+  const [referralsModalOpen, setReferralsModalOpen] = useState(false)
+  const [viewingPlayerReferrals, setViewingPlayerReferrals] = useState<{id: string, name: string} | null>(null)
 
   // 獲取玩家列表
   const fetchPlayers = useCallback(async () => {
@@ -130,6 +136,12 @@ export default function UserManagementPage() {
       console.error('獲取玩家俱樂部列表失敗:', error)
       alert('獲取玩家俱樂部列表失敗')
     }
+  }
+  
+  // 查看推廣紀錄
+  const handleViewReferrals = (player: Player) => {
+    setViewingPlayerReferrals({ id: player.id, name: player.nickname })
+    setReferralsModalOpen(true)
   }
 
   // 刪除玩家
@@ -254,7 +266,7 @@ export default function UserManagementPage() {
       {/* 數據表格 */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1400px] divide-y divide-gray-200">
+          <table className="w-full min-w-[1500px] divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-center border-r border-gray-200 w-[60px]">
@@ -286,6 +298,9 @@ export default function UserManagementPage() {
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 whitespace-nowrap w-[200px]">
                   加入的俱樂部
                 </th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 whitespace-nowrap w-[100px]">
+                  推廣人數
+                </th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 whitespace-nowrap w-[120px]">
                   總補卡數
                 </th>
@@ -303,7 +318,7 @@ export default function UserManagementPage() {
             <tbody className="divide-y divide-gray-200">
               {loading && !dataLoaded ? (
                 <tr>
-                  <td colSpan={12} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={13} className="px-6 py-12 text-center text-gray-500">
                     <div className="flex items-center justify-center">
                       <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
                       <span className="ml-2">載入中...</span>
@@ -312,7 +327,7 @@ export default function UserManagementPage() {
                 </tr>
               ) : displayData.length === 0 ? (
                 <tr>
-                  <td colSpan={12} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={13} className="px-6 py-12 text-center text-gray-500">
                     暫無數據
                   </td>
                 </tr>
@@ -377,6 +392,16 @@ export default function UserManagementPage() {
                         >
                           <Users className="w-4 h-4" />
                           <span className="text-sm">{item.currentClubs.length} 個</span>
+                        </button>
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-center border-r border-gray-200">
+                      <div className="flex items-center justify-center">
+                        <button
+                          onClick={() => handleViewReferrals(item)}
+                          className="flex items-center justify-center gap-1 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded px-2 py-1 transition-colors font-medium hover:underline"
+                        >
+                          {item.referralCount || 0}
                         </button>
                       </div>
                     </td>
@@ -474,6 +499,17 @@ export default function UserManagementPage() {
         }}
         clubs={viewingPlayerClubs?.clubs || []}
         playerName={viewingPlayerClubs?.player.nickname || ''}
+      />
+      
+      {/* 推廣紀錄 Modal */}
+      <PlayerReferralsModal
+        isOpen={referralsModalOpen}
+        onClose={() => {
+          setReferralsModalOpen(false)
+          setViewingPlayerReferrals(null)
+        }}
+        playerId={viewingPlayerReferrals?.id || ''}
+        playerName={viewingPlayerReferrals?.name || ''}
       />
     </div>
   )

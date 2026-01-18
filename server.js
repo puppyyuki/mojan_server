@@ -6733,6 +6733,10 @@ const paymentsRoutes = require('./routes/client/payments');
 app.use('/api/client/payments', paymentsRoutes);
 console.log('[Server] Client payments routes mounted at /api/client/payments');
 
+const referralRoutes = require('./routes/client/referral');
+app.use('/api/client/referral', referralRoutes);
+console.log('[Server] Client referral routes mounted at /api/client/referral');
+
 // 後台 API 路由
 const adminRoomCardOrdersRoutes = require('./routes/admin/roomCardOrders');
 app.use('/api/admin', adminRoomCardOrdersRoutes);
