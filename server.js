@@ -1665,41 +1665,26 @@ function drawTile(tableId, playerId) {
 
       // 設置自摸胡牌等待狀態
       table.gamePhase = GamePhase.CLAIMING;
-      // 初始化玩家決策追蹤
-      const playerDecisions = {};
-      playerDecisions[playerId] = {
-        hasDecided: false,
-        decision: null
-      };
+      const options = [{
+        playerId: playerId,
+        playerIndex: playerIndex,
+        claimType: ClaimType.HU,
+        priority: 1
+      }];
 
       table.claimingState = {
-        discardPlayerId: playerId, // 自摸時，打出牌的玩家是自己
-        discardedTile: drawnTile, // 自摸時，目標牌是剛摸到的牌
-        claimType: 'selfDrawnHu', // 標記為自摸胡牌
-        options: [{
-          playerId: playerId,
-          playerIndex: playerIndex,
-          claimType: ClaimType.HU,
-          priority: 1
-        }],
+        discardPlayerId: playerId,
+        discardedTile: drawnTile,
+        claimType: 'selfDrawnHu',
+        options,
+        claimQueue: [1],
+        currentQueueIndex: 0,
+        currentPriority: 1,
         timer: 30,
-        playerDecisions: playerDecisions
+        playerDecisions: {}
       };
 
-      // 廣播自摸胡牌機會（使用與放槍胡牌相同的格式）
-      io.to(tableId).emit('claimRequest', {
-        discardPlayerId: playerId, // 自摸時，打出牌的玩家是自己
-        discardedTile: drawnTile, // 自摸時，目標牌是剛摸到的牌
-        options: [{
-          playerId: playerId,
-          playerIndex: playerIndex,
-          claimType: ClaimType.HU,
-          priority: 1
-        }]
-      });
-
-      // 開始倒計時
-      startClaimTimer(tableId);
+      startClaimTier(tableId);
     } else {
       // 不能自摸，檢測自槓（包括補槓）
       // console.log(`>>> [自槓檢測] 玩家${playerIndex + 1}摸牌：${drawnTile}`);
@@ -2010,42 +1995,27 @@ function handleFlowerTile(tableId, playerId, flower) {
 
         // 設置自摸胡牌等待狀態
         table.gamePhase = GamePhase.CLAIMING;
-        // 初始化玩家決策追蹤
-        const playerDecisions2 = {};
-        playerDecisions2[playerId] = {
-          hasDecided: false,
-          decision: null
-        };
+        const options = [{
+          playerId: playerId,
+          playerIndex: playerIndex,
+          claimType: ClaimType.HU,
+          priority: 1
+        }];
 
         table.claimingState = {
-          discardPlayerId: playerId, // 自摸時，打出牌的玩家是自己
-          discardedTile: newTile, // 自摸時，目標牌是補花後摸到的牌
-          claimType: 'selfDrawnHu', // 標記為自摸胡牌
-          options: [{
-            playerId: playerId,
-            playerIndex: playerIndex,
-            claimType: ClaimType.HU,
-            priority: 1
-          }],
+          discardPlayerId: playerId,
+          discardedTile: newTile,
+          claimType: 'selfDrawnHu',
+          options,
+          claimQueue: [1],
+          currentQueueIndex: 0,
+          currentPriority: 1,
           timer: 30,
-          playerDecisions: playerDecisions2
+          playerDecisions: {}
         };
 
-        // 廣播自摸胡牌機會（使用與放槍胡牌相同的格式）
-        io.to(tableId).emit('claimRequest', {
-          discardPlayerId: playerId, // 自摸時，打出牌的玩家是自己
-          discardedTile: newTile, // 自摸時，目標牌是補花後摸到的牌
-          options: [{
-            playerId: playerId,
-            playerIndex: playerIndex,
-            claimType: ClaimType.HU,
-            priority: 1
-          }]
-        });
-
-        // 開始倒計時
         setTimeout(() => {
-          startClaimTimer(tableId);
+          startClaimTier(tableId);
         }, 1500);
       } else {
         // 不能自摸，檢測自槓（包括補槓）
@@ -3035,41 +3005,86 @@ function checkClaims(tableId, discardPlayerId, discardedTile) {
 
     // 設置吃碰槓胡等待狀態
     table.gamePhase = GamePhase.CLAIMING;
-    // 初始化玩家決策追蹤：記錄每個有決策權的玩家ID
-    const playersWithOptions = [...new Set(claimOptions.map(opt => opt.playerId))];
-    const playerDecisions = {};
-    playersWithOptions.forEach(playerId => {
-      playerDecisions[playerId] = {
-        hasDecided: false,
-        decision: null // 'claim' 或 'pass'
-      };
-    });
+    const claimQueue = [...new Set(claimOptions.map(opt => opt.priority))].sort((a, b) => a - b);
 
     table.claimingState = {
       discardPlayerId: discardPlayerId,
       discardedTile: discardedTile,
       options: claimOptions,
-      timer: 30, // 30秒等待時間（給客戶端足夠的時間）
-      playerDecisions: playerDecisions // 追蹤每個玩家的決策狀態
+      claimQueue,
+      currentQueueIndex: 0,
+      currentPriority: claimQueue[0] ?? null,
+      timer: 30,
+      playerDecisions: {}
     };
 
     console.log(`檢測到吃碰槓胡機會: ${claimOptions.map(opt => `玩家${opt.playerIndex + 1}(${opt.claimType})`).join(', ')}`);
 
-    // 廣播吃碰槓胡等待
-    io.to(tableId).emit('claimRequest', {
-      discardPlayerId: discardPlayerId,
-      discardedTile: discardedTile,
-      options: claimOptions
-    });
-
-    // 開始倒計時（增加到30秒，給客戶端更多時間）
-    startClaimTimer(tableId);
+    startClaimTier(tableId);
     return true; // 有吃碰槓機會
   } else {
     // 沒有人要吃碰槓胡，輪到下一家
     // 注意：不在這裡調用 nextTurn，讓調用者決定是否立即輪到下一家
     return false; // 沒有吃碰槓機會
   }
+}
+
+function stopClaimTimer(tableId) {
+  const table = tables[tableId];
+  if (!table) return;
+  if (table.claimingTimer) {
+    clearInterval(table.claimingTimer);
+    table.claimingTimer = null;
+  }
+}
+
+function getTurnOrderPlayerIdsFromDiscarder(table, discardPlayerId) {
+  const discardIndex = table.players.findIndex(p => p.id === discardPlayerId);
+  if (discardIndex === -1) return [];
+  const order = [];
+  for (let step = 1; step < table.players.length; step++) {
+    const idx = (discardIndex + step) % table.players.length;
+    const pid = table.players[idx]?.id;
+    if (pid) order.push(pid);
+  }
+  return order;
+}
+
+function startClaimTier(tableId) {
+  const table = tables[tableId];
+  if (!table || !table.claimingState) return;
+  if (table.gamePhase === GamePhase.ENDED) return;
+
+  const state = table.claimingState;
+  if (!Array.isArray(state.options) || state.options.length === 0) return;
+
+  if (!Array.isArray(state.claimQueue) || state.claimQueue.length === 0) {
+    state.claimQueue = [...new Set(state.options.map(opt => opt.priority))].sort((a, b) => a - b);
+    state.currentQueueIndex = 0;
+  }
+
+  const priority = state.claimQueue[state.currentQueueIndex] ?? null;
+  state.currentPriority = priority;
+  state.timer = 30;
+
+  const tierOptions = state.options.filter(opt => opt.priority === priority);
+  const activePlayerIds = [...new Set(tierOptions.map(opt => opt.playerId))];
+  const playerDecisions = {};
+  activePlayerIds.forEach(pid => {
+    playerDecisions[pid] = { hasDecided: false, decision: null };
+  });
+  state.playerDecisions = playerDecisions;
+
+  stopClaimTimer(tableId);
+
+  io.to(tableId).emit('claimRequest', {
+    discardPlayerId: state.discardPlayerId,
+    discardedTile: state.discardedTile,
+    options: tierOptions,
+    isQiangGang: state.isQiangGang === true
+  });
+
+  startClaimTimer(tableId);
 }
 
 // 開始吃碰槓胡倒計時
@@ -3388,6 +3403,15 @@ function handleClaimRequest(tableId, playerId, claimType, tiles) {
     return;
   }
 
+  if (
+    table.claimingState.currentPriority != null &&
+    option.priority != null &&
+    option.priority !== table.claimingState.currentPriority
+  ) {
+    console.log(`玩家${playerId}嘗試在非當前權重階段執行${claimType}`);
+    return;
+  }
+
   // 記錄玩家決策
   if (table.claimingState.playerDecisions && table.claimingState.playerDecisions[playerId]) {
     table.claimingState.playerDecisions[playerId].hasDecided = true;
@@ -3395,17 +3419,6 @@ function handleClaimRequest(tableId, playerId, claimType, tiles) {
     table.claimingState.playerDecisions[playerId].claimType = claimType;
     table.claimingState.playerDecisions[playerId].tiles = tiles;
     console.log(`>>> [決策追蹤] 玩家${playerId}選擇${claimType}`);
-  }
-
-  // 如果是胡牌，直接宣告胡牌（胡牌優先級最高，不需要等待其他玩家）
-  if (claimType === ClaimType.HU || claimType === 'hu') {
-    const targetTile = table.claimingState.discardedTile || null;
-    const targetPlayer = table.claimingState.discardPlayerId
-      ? table.players.findIndex(p => p.id === table.claimingState.discardPlayerId)
-      : null;
-    const huType = table.claimingState.claimType === 'selfDrawnHu' ? 'selfDrawnHu' : 'hu';
-    declareHu(tableId, playerId, huType, targetTile, targetPlayer);
-    return;
   }
 
   // 檢查是否所有有決策權的玩家都已完成選擇
@@ -3617,145 +3630,157 @@ function checkAllPlayersDecided(tableId) {
     return; // 還有玩家未完成選擇，繼續等待
   }
 
-  console.log(`>>> [決策追蹤] 所有玩家都已完成選擇，開始依權重順序決定最終行為`);
+  console.log(`>>> [決策追蹤] 當前階段玩家都已完成選擇，開始決定最終行為`);
 
-  if (table.claimingTimer) {
-    clearInterval(table.claimingTimer);
-    table.claimingTimer = null;
-  }
+  stopClaimTimer(tableId);
 
-  // 收集所有選擇「claim」的決策，並按優先級排序
   const claimDecisions = [];
-  Object.keys(playerDecisions).forEach(playerId => {
-    const decision = playerDecisions[playerId];
-    if (decision.decision === 'claim') {
-      // 找到該玩家的選項以獲取優先級
-      const option = claimingState.options.find(opt =>
-        opt.playerId === playerId && opt.claimType === decision.claimType
-      );
-      if (option) {
-        claimDecisions.push({
-          playerId: playerId,
-          claimType: decision.claimType,
-          tiles: decision.tiles,
-          priority: option.priority
-        });
-      }
-    }
+  Object.keys(playerDecisions).forEach(pid => {
+    const decision = playerDecisions[pid];
+    if (decision?.decision !== 'claim') return;
+    const option = claimingState.options.find(opt =>
+      opt.playerId === pid && opt.claimType === decision.claimType
+    );
+    if (!option) return;
+    claimDecisions.push({
+      playerId: pid,
+      claimType: decision.claimType,
+      tiles: decision.tiles,
+      priority: option.priority
+    });
   });
 
-  // 如果沒有任何玩家選擇「claim」，所有玩家都選擇「過」
-  if (claimDecisions.length === 0) {
-    console.log(`>>> [決策追蹤] 所有玩家都選擇「過」，輪到下一家`);
+  if (claimDecisions.length > 0) {
+    claimDecisions.sort((a, b) => a.priority - b.priority);
+    const topPriority = claimDecisions[0].priority;
+    const topPriorityDecisions = claimDecisions.filter(d => d.priority === topPriority);
 
-    const isSelfKongDecision =
-      claimingState.claimType === 'selfKongDecision' ||
-      claimingState.isSelfKongDecision === true;
-
-    if (isSelfKongDecision) {
-      const claimPlayerId = claimingState.discardPlayerId;
-      const claimPlayerIndex = table.players.findIndex(p => p.id === claimPlayerId);
-
-      table.claimingState = null;
-      table.gamePhase = GamePhase.PLAYING;
-
-      if (claimPlayerIndex !== -1) {
-        table.turn = claimPlayerIndex;
-        startTurnTimer(tableId, claimPlayerId);
+    let finalDecision = topPriorityDecisions[0];
+    const order = getTurnOrderPlayerIdsFromDiscarder(table, claimingState.discardPlayerId);
+    for (const pid of order) {
+      const match = topPriorityDecisions.find(d => d.playerId === pid);
+      if (match) {
+        finalDecision = match;
+        break;
       }
+    }
+
+    console.log(`>>> [決策追蹤] 執行：玩家${finalDecision.playerId}的${finalDecision.claimType}（優先級：${finalDecision.priority}）`);
+
+    if (finalDecision.claimType === ClaimType.HU || finalDecision.claimType === 'hu') {
+      const isSelfDrawnHu = claimingState.claimType === 'selfDrawnHu';
+      const huType = isSelfDrawnHu ? 'selfDrawnHu' : 'hu';
+      const targetTile = claimingState.discardedTile || null;
+
+      let targetPlayer = null;
+      if (!isSelfDrawnHu && claimingState.discardPlayerId) {
+        const idx = table.players.findIndex(p => p.id === claimingState.discardPlayerId);
+        targetPlayer = idx !== -1 ? idx : null;
+      }
+
+      declareHu(tableId, finalDecision.playerId, huType, targetTile, targetPlayer);
       return;
     }
 
-    // 處理搶槓的特殊情況
-    const isQiangGang = claimingState.isQiangGang || false;
-    if (isQiangGang) {
-      console.log(`>>> [搶槓檢測] 所有玩家都選擇了「過」，恢復補槓流程`);
-      const kongPlayerId = claimingState.discardPlayerId;
-      const kongPlayerIndex = table.players.findIndex(p => p.id === kongPlayerId);
-
-      // 清除吃碰槓狀態
-      table.claimingState = null;
-      table.gamePhase = GamePhase.PLAYING;
-
-      if (kongPlayerIndex !== -1) {
-        console.log(`>>> [搶槓檢測] 恢復補槓流程：玩家${kongPlayerIndex + 1}補摸一張牌`);
-        setTimeout(() => {
-          drawTile(tableId, kongPlayerId);
-        }, 800);
-        return;
-      }
-    }
-
-    // 處理自摸胡牌放棄的情況
-    const isSelfDrawnHu = claimingState.claimType === 'selfDrawnHu';
-    const claimPlayerId = claimingState.discardPlayerId;
-    const claimPlayerIndex = table.players.findIndex(p => p.id === claimPlayerId);
-    const claimPlayer = claimPlayerIndex !== -1 ? table.players[claimPlayerIndex] : null;
-    const discardedTile = claimingState.discardedTile;
-
-    // 清除吃碰槓狀態
-    table.claimingState = null;
-    table.gamePhase = GamePhase.PLAYING;
-
-    if (isSelfDrawnHu && claimPlayer) {
-      // 如果是天聽/地聽玩家放棄自摸胡牌，自動打出摸到的牌（延遲1.5秒）
-      if (claimPlayer.isTianTing || claimPlayer.isDiTing) {
-        const tingType = claimPlayer.isTianTing ? '天聽' : '地聽';
-        console.log(`>>> [${tingType}自動打牌] 玩家${claimPlayerIndex + 1}${tingType}且放棄自摸胡牌，將自動打出摸到的牌：${discardedTile}`);
-        setTimeout(() => {
-          const currentTable = tables[tableId];
-          if (!currentTable) return;
-          const currentPlayer = currentTable.players[claimPlayerIndex];
-          if (!currentPlayer || (!currentPlayer.isTianTing && !currentPlayer.isDiTing)) {
-            const tingType = currentPlayer && currentPlayer.isTianTing ? '天聽' : (currentPlayer && currentPlayer.isDiTing ? '地聽' : '聽牌');
-            console.log(`>>> [${tingType}自動打牌] 玩家${claimPlayerIndex + 1}已不再${tingType}，進入正常打牌流程`);
-            table.turn = claimPlayerIndex;
-            startTurnTimer(tableId, claimPlayerId);
-            return;
-          }
-          const currentHand = currentTable.hiddenHands[claimPlayerId];
-          const tingType = currentPlayer.isTianTing ? '天聽' : '地聽';
-          if (currentHand && currentHand.includes(discardedTile)) {
-            console.log(`>>> [${tingType}自動打牌] 玩家${claimPlayerIndex + 1}自動打出：${discardedTile}`);
-            discardTile(tableId, claimPlayerId, discardedTile);
-          } else {
-            if (currentHand && currentHand.length > 0) {
-              console.log(`>>> [${tingType}自動打牌] 玩家${claimPlayerIndex + 1}手牌中沒有摸到的牌，自動打出第一張牌：${currentHand[0]}`);
-              discardTile(tableId, claimPlayerId, currentHand[0]);
-            } else {
-              table.turn = claimPlayerIndex;
-              startTurnTimer(tableId, claimPlayerId);
-            }
-          }
-        }, 1500);
-        return;
-      } else {
-        // 普通玩家放棄自摸胡牌，需要打出一張牌
-        console.log(`>>> [放棄自摸胡牌] 玩家${claimPlayerIndex + 1}放棄自摸胡牌，需要打出一張牌`);
-        table.turn = claimPlayerIndex;
-        startTurnTimer(tableId, claimPlayerId);
-        return;
-      }
-    }
-
-    // 一般情況：輪到下一家
-    nextTurn(tableId);
+    executeClaim(tableId, finalDecision.playerId, finalDecision.claimType, finalDecision.tiles);
     return;
   }
 
-  // 依權重順序排序（優先級數字越小，優先級越高）
-  claimDecisions.sort((a, b) => a.priority - b.priority);
+  if (Array.isArray(claimingState.claimQueue) && typeof claimingState.currentQueueIndex === 'number') {
+    claimingState.currentQueueIndex++;
+    if (claimingState.currentQueueIndex < claimingState.claimQueue.length) {
+      startClaimTier(tableId);
+      return;
+    }
+  }
 
-  // 執行最高優先級的決策
-  const finalDecision = claimDecisions[0];
-  console.log(`>>> [決策追蹤] 依權重順序決定執行：玩家${finalDecision.playerId}的${finalDecision.claimType}（優先級：${finalDecision.priority}）`);
+  console.log(`>>> [決策追蹤] 所有階段都選擇「過」，繼續流程`);
 
-  // 清除吃碰槓狀態
+  const isSelfKongDecision =
+    claimingState.claimType === 'selfKongDecision' ||
+    claimingState.isSelfKongDecision === true;
+
+  if (isSelfKongDecision) {
+    const claimPlayerId = claimingState.discardPlayerId;
+    const claimPlayerIndex = table.players.findIndex(p => p.id === claimPlayerId);
+
+    table.claimingState = null;
+    table.gamePhase = GamePhase.PLAYING;
+
+    if (claimPlayerIndex !== -1) {
+      table.turn = claimPlayerIndex;
+      startTurnTimer(tableId, claimPlayerId);
+    }
+    return;
+  }
+
+  const isQiangGang = claimingState.isQiangGang || false;
+  if (isQiangGang) {
+    console.log(`>>> [搶槓檢測] 所有玩家都選擇了「過」，恢復補槓流程`);
+    const kongPlayerId = claimingState.discardPlayerId;
+    const kongPlayerIndex = table.players.findIndex(p => p.id === kongPlayerId);
+
+    table.claimingState = null;
+    table.gamePhase = GamePhase.PLAYING;
+
+    if (kongPlayerIndex !== -1) {
+      console.log(`>>> [搶槓檢測] 恢復補槓流程：玩家${kongPlayerIndex + 1}補摸一張牌`);
+      setTimeout(() => {
+        drawTile(tableId, kongPlayerId);
+      }, 800);
+      return;
+    }
+  }
+
+  const isSelfDrawnHu = claimingState.claimType === 'selfDrawnHu';
+  const claimPlayerId = claimingState.discardPlayerId;
+  const claimPlayerIndex = table.players.findIndex(p => p.id === claimPlayerId);
+  const claimPlayer = claimPlayerIndex !== -1 ? table.players[claimPlayerIndex] : null;
+  const discardedTile = claimingState.discardedTile;
+
   table.claimingState = null;
   table.gamePhase = GamePhase.PLAYING;
 
-  // 執行決策
-  executeClaim(tableId, finalDecision.playerId, finalDecision.claimType, finalDecision.tiles);
+  if (isSelfDrawnHu && claimPlayer) {
+    if (claimPlayer.isTianTing || claimPlayer.isDiTing) {
+      const tingType = claimPlayer.isTianTing ? '天聽' : '地聽';
+      console.log(`>>> [${tingType}自動打牌] 玩家${claimPlayerIndex + 1}${tingType}且放棄自摸胡牌，將自動打出摸到的牌：${discardedTile}`);
+      setTimeout(() => {
+        const currentTable = tables[tableId];
+        if (!currentTable) return;
+        const currentPlayer = currentTable.players[claimPlayerIndex];
+        if (!currentPlayer || (!currentPlayer.isTianTing && !currentPlayer.isDiTing)) {
+          const tingType = currentPlayer && currentPlayer.isTianTing ? '天聽' : (currentPlayer && currentPlayer.isDiTing ? '地聽' : '聽牌');
+          console.log(`>>> [${tingType}自動打牌] 玩家${claimPlayerIndex + 1}已不再${tingType}，進入正常打牌流程`);
+          table.turn = claimPlayerIndex;
+          startTurnTimer(tableId, claimPlayerId);
+          return;
+        }
+        const currentHand = currentTable.hiddenHands[claimPlayerId];
+        const tingType = currentPlayer.isTianTing ? '天聽' : '地聽';
+        if (currentHand && currentHand.includes(discardedTile)) {
+          console.log(`>>> [${tingType}自動打牌] 玩家${claimPlayerIndex + 1}自動打出：${discardedTile}`);
+          discardTile(tableId, claimPlayerId, discardedTile);
+        } else {
+          if (currentHand && currentHand.length > 0) {
+            console.log(`>>> [${tingType}自動打牌] 玩家${claimPlayerIndex + 1}手牌中沒有摸到的牌，自動打出第一張牌：${currentHand[0]}`);
+            discardTile(tableId, claimPlayerId, currentHand[0]);
+          } else {
+            table.turn = claimPlayerIndex;
+            startTurnTimer(tableId, claimPlayerId);
+          }
+        }
+      }, 1500);
+      return;
+    }
+
+    console.log(`>>> [放棄自摸胡牌] 玩家${claimPlayerIndex + 1}放棄自摸胡牌，需要打出一張牌`);
+    table.turn = claimPlayerIndex;
+    startTurnTimer(tableId, claimPlayerId);
+    return;
+  }
+
+  nextTurn(tableId);
 }
 
 // 放棄聽牌
@@ -4178,6 +4203,16 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
     console.log(`>>> [胡牌驗證] 手牌：${hand.join(',')}，手牌數量：${hand.length}`);
     console.log(`>>> [胡牌驗證] 明牌數量：${melds.length}`);
     return;
+  }
+
+  stopClaimTimer(tableId);
+  if (table.turnTimer) {
+    clearInterval(table.turnTimer);
+    table.turnTimer = null;
+  }
+  if (table.tingTimer) {
+    clearInterval(table.tingTimer);
+    table.tingTimer = null;
   }
 
   // 檢查是否為天聽或地聽
@@ -4896,6 +4931,10 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
   table.roundContinueReady = new Set(); // 追蹤哪些玩家已確認繼續
   table.isLastRound = isLastRound; // 標記是否為最後一圈
   console.log(`>>> [圈數管理] 等待玩家確認繼續，是否最後一圈: ${isLastRound}`);
+
+  table.claimingState = null;
+  table.tingState = null;
+  table.gamePhase = GamePhase.ENDED;
 }
 
 // 清理資料，確保可序列化（移除函數、循環引用等）
@@ -6103,35 +6142,19 @@ io.on('connection', (socket) => {
 
         // 設置搶槓等待狀態
         table.gamePhase = GamePhase.CLAIMING;
-        // 初始化玩家決策追蹤：記錄每個有決策權的玩家ID
-        const playersWithOptions3 = [...new Set(claimOptions.map(opt => opt.playerId))];
-        const playerDecisions3 = {};
-        playersWithOptions3.forEach(playerId => {
-          playerDecisions3[playerId] = {
-            hasDecided: false,
-            decision: null
-          };
-        });
-
         table.claimingState = {
-          discardPlayerId: playerId, // 補槓的玩家
-          discardedTile: tile, // 補槓的牌
-          options: claimOptions,
-          timer: 30,
-          isQiangGang: true, // 標記為搶槓
-          playerDecisions: playerDecisions3
-        };
-
-        // 廣播搶槓胡牌等待
-        io.to(tableId).emit('claimRequest', {
           discardPlayerId: playerId,
           discardedTile: tile,
           options: claimOptions,
-          isQiangGang: true // 標記為搶槓
-        });
+          claimQueue: [1],
+          currentQueueIndex: 0,
+          currentPriority: 1,
+          timer: 30,
+          isQiangGang: true,
+          playerDecisions: {}
+        };
 
-        // 開始倒計時
-        startClaimTimer(tableId);
+        startClaimTier(tableId);
 
         // 搶槓時不補摸牌，等待搶槓決策
         return;
@@ -6305,6 +6328,30 @@ io.on('connection', (socket) => {
   socket.on('declareHu', ({ tableId, playerId, huType, targetTile, targetPlayer }) => {
     const table = tables[tableId];
     if (!table) return;
+
+    if (table.gamePhase === GamePhase.CLAIMING && table.claimingState) {
+      const state = table.claimingState;
+      const option = (state.options || []).find(opt =>
+        opt.playerId === playerId && (opt.claimType === ClaimType.HU || opt.claimType === 'hu')
+      );
+
+      if (option) {
+        if (state.currentPriority != null && option.priority != null && option.priority !== state.currentPriority) {
+          console.log(`玩家${playerId}嘗試在非當前權重階段宣告胡牌`);
+          return;
+        }
+
+        if (state.playerDecisions && state.playerDecisions[playerId]) {
+          state.playerDecisions[playerId].hasDecided = true;
+          state.playerDecisions[playerId].decision = 'claim';
+          state.playerDecisions[playerId].claimType = ClaimType.HU;
+          state.playerDecisions[playerId].tiles = [];
+          console.log(`>>> [決策追蹤] 玩家${playerId}宣告胡牌（記錄決策，等待同層級玩家）`);
+          checkAllPlayersDecided(tableId);
+          return;
+        }
+      }
+    }
 
     // 優先使用 claimingState 中的 claimType，確保自摸/放槍判斷正確
     // 只有在 claimingState 不存在時才使用前端傳來的 huType

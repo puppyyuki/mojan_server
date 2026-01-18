@@ -7,6 +7,8 @@
     "start": "node server.js",
     "dev": "next dev",
     "build": "next build",
+    "lint": "next lint",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
     "admin:dev": "next dev -p 3001",
     "admin:build": "next build",
     "admin:start": "next start -p 3001",
