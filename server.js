@@ -1818,37 +1818,12 @@ function drawTile(tableId, playerId) {
         const uniqueKongTiles = [...new Set(kongTiles)];
 
         if (uniqueKongTiles.length > 0) {
-          // 確保等待時間
-          table.gamePhase = GamePhase.CLAIMING;
-          table.claimingState = {
-             discardPlayerId: playerId,
-             discardedTile: drawnTile,
-             claimType: 'selfKongDecision',
-             isSelfKongDecision: true,
-             options: [{
-               playerId: playerId,
-               playerIndex: playerIndex,
-               claimType: ClaimType.KONG,
-               priority: 2,
-               kongTiles: uniqueKongTiles
-             }],
-             timer: 30,
-             playerDecisions: {
-               [playerId]: { hasDecided: false, decision: null }
-             }
-          };
-
-          // 發送自槓提示給客戶端
           safeEmit(tableId, 'selfKongAvailable', {
             playerId: playerId,
             playerIndex: playerIndex,
             tiles: uniqueKongTiles // 可以自槓或補槓的牌列表
           });
           console.log(`>>> [自槓檢測] 發送自槓/補槓提示給玩家${playerIndex + 1}，可自槓/補槓的牌：${uniqueKongTiles.join(',')}`);
-
-          // 開始倒計時
-          startClaimTimer(tableId);
-          return; // 已經進入 CLAIMING 狀態，不再啟動普通出牌計時器
         }
       }
 
@@ -2211,23 +2186,23 @@ function handleFlowerTile(tableId, playerId, flower) {
         }
 
         // 如果玩家已經天聽或地聽，自動打出補花後摸到的牌（延遲1.5秒）
-        const player = table.players[playerIndex];
-        if (player && (player.isTianTing || player.isDiTing)) {
-          const tingType = player.isTianTing ? '天聽' : '地聽';
+        const currentPlayer = table.players[playerIndex];
+        if (currentPlayer && (currentPlayer.isTianTing || currentPlayer.isDiTing)) {
+          const tingType = currentPlayer.isTianTing ? '天聽' : '地聽';
           console.log(`>>> [${tingType}自動打牌] 玩家${playerIndex + 1}已${tingType}，補花後將自動打出摸到的牌：${newTile}`);
           setTimeout(() => {
             // 再次檢查玩家是否仍然天聽且手牌中包含這張牌
             const currentTable = tables[tableId];
             if (!currentTable) return;
-            const currentPlayer = currentTable.players[playerIndex];
-            if (!currentPlayer || (!currentPlayer.isTianTing && !currentPlayer.isDiTing)) {
-              const tingType = currentPlayer && currentPlayer.isTianTing ? '天聽' : (currentPlayer && currentPlayer.isDiTing ? '地聽' : '聽牌');
+            const latestPlayer = currentTable.players[playerIndex];
+            if (!latestPlayer || (!latestPlayer.isTianTing && !latestPlayer.isDiTing)) {
+              const tingType = latestPlayer && latestPlayer.isTianTing ? '天聽' : (latestPlayer && latestPlayer.isDiTing ? '地聽' : '聽牌');
               console.log(`>>> [${tingType}自動打牌] 玩家${playerIndex + 1}已不再${tingType}，取消自動打牌`);
               startTurnTimer(tableId, playerId);
               return;
             }
             const currentHand = currentTable.hiddenHands[playerId];
-            const tingType = currentPlayer.isTianTing ? '天聽' : '地聽';
+            const tingType = latestPlayer.isTianTing ? '天聽' : '地聽';
             if (currentHand && currentHand.includes(newTile)) {
               console.log(`>>> [${tingType}自動打牌] 玩家${playerIndex + 1}自動打出：${newTile}`);
               discardTile(tableId, playerId, newTile);
