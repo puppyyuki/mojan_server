@@ -11,6 +11,7 @@
     "lint": "next lint",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test:protocol-engine": "node scripts/protocol_engine_smoke_test.js",
+    "test:start-protocol": "node scripts/smoke_start_protocol.js",
     "load:engine": "node scripts/load_test_engine_750_tables.js",
     "admin:dev": "next dev -p 3001",
     "admin:build": "next build",

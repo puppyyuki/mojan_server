@@ -1660,6 +1660,22 @@ function getTingDiscardsFromDraw(hand, exposedMelds = 0) {
   return result;
 }
 
+function emitMyHandToPlayer(tableId, playerId, extra = {}) {
+  const table = tables[tableId];
+  if (!table) return;
+  const hand = table.hiddenHands?.[playerId];
+  if (!Array.isArray(hand)) return;
+  const sids = Object.keys(socketToPlayer).filter((sid) => {
+    const m = socketToPlayer[sid];
+    return m?.tableId === tableId && m?.playerId === playerId;
+  });
+  for (const sid of sids) {
+    const socket = io.sockets.sockets.get(sid);
+    if (!socket) continue;
+    socket.emit('myHand', { hand, ...extra });
+  }
+}
+
 function drawTile(tableId, playerId) {
   const table = tables[tableId];
   if (!table || table.gamePhase !== GamePhase.PLAYING) return;
@@ -1714,6 +1730,8 @@ function drawTile(tableId, playerId) {
     tile: drawnTile,
     deckCount: table.deck.length
   });
+
+  emitMyHandToPlayer(tableId, playerId, { deckCount: table.deck.length });
 
   // 檢查是否為花牌
   if (isFlowerTile(drawnTile)) {
@@ -2901,6 +2919,7 @@ function discardTile(tableId, playerId, tile) {
   // 從手牌移除並加入打出牌
   hand.splice(tileIndex, 1);
   table.discards[playerId].push(tile);
+  emitMyHandToPlayer(tableId, playerId);
 
   // 如果玩家曾經開局聽牌（天聽或地聽），檢查打牌後手牌是否改變
   if (player.initialTingHand) {
@@ -3626,6 +3645,7 @@ function executeClaim(tableId, playerId, claimType, tiles) {
   console.log(`創建${claimType}牌組: ${meld.tiles.join(',')} (共${meld.tiles.length}張)`);
 
   table.melds[playerId].push(meld);
+  emitMyHandToPlayer(tableId, playerId);
 
   // 如果玩家曾經開局聽牌，檢查手牌是否變化（天聽/地聽判斷）
   if (table.players[playerIndex].initialTingHand) {
@@ -3730,7 +3750,7 @@ function passClaim(tableId, playerId) {
     console.log('>>> 遊戲已結束，無法放棄吃碰槓');
     // 清除計時器
     if (table.claimingTimer) {
-      clearInterval(table.claimingTimer);
+      clearTimeout(table.claimingTimer);
       table.claimingTimer = null;
     }
     return;
