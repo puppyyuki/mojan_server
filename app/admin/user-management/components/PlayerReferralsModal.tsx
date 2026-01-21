@@ -21,27 +21,26 @@ export default function PlayerReferralsModal({
 
   useEffect(() => {
     if (isOpen && playerId) {
+      const fetchReferrals = async () => {
+        setLoading(true)
+        try {
+          const response = await apiGet(`/api/client/referral/info?playerId=${playerId}`)
+          if (response.ok) {
+            const result = await response.json()
+            if (result.success) {
+              setReferrals(result.data.referredPlayers || [])
+              setReferralStats(result.data)
+            }
+          }
+        } catch (error) {
+          console.error('Fetch referrals failed', error)
+        } finally {
+          setLoading(false)
+        }
+      }
       fetchReferrals()
     }
   }, [isOpen, playerId])
-
-  const fetchReferrals = async () => {
-    setLoading(true)
-    try {
-      const response = await apiGet(`/api/client/referral/info?playerId=${playerId}`)
-      if (response.ok) {
-        const result = await response.json()
-        if (result.success) {
-            setReferrals(result.data.referredPlayers || [])
-            setReferralStats(result.data)
-        }
-      }
-    } catch (error) {
-      console.error('Fetch referrals failed', error)
-    } finally {
-      setLoading(false)
-    }
-  }
 
   if (!isOpen) return null
 

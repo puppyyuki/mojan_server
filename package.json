@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "start:protocol": "cross-env USE_PROTOCOL_ENGINE=1 node server.js",
+    "start:protocol": "node scripts/start_protocol.js",
     "dev": "next dev",
     "build": "next build",
     "lint": "next lint",
