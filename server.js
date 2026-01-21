@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const mahjongLogic = require('./mahjong_logic');
+const { calculateTai: calculateTaiCore } = require('./packages/rules-tw16/scoring/calculateTai');
 const { PrismaClient } = require('@prisma/client');
 const multer = require('multer');
 const path = require('path');
@@ -59,6 +60,15 @@ const upload = multer({
 
 const server = http.createServer(app);
 const io = new Server(server, socketConfig);
+const useProtocolEngine = process.env.USE_PROTOCOL_ENGINE === '1';
+console.log(`[ProtocolEngine] enabled=${useProtocolEngine} (USE_PROTOCOL_ENGINE=${process.env.USE_PROTOCOL_ENGINE ?? ''})`);
+let protocolEngineRegistry = null;
+let createLegacySocketHandler = null;
+if (useProtocolEngine) {
+  ({ TableEngineRegistry: protocolEngineRegistry } = require('./packages/engine'));
+  ({ createLegacySocketHandler } = require('./apps/table-server/legacySocketAdapter'));
+  protocolEngineRegistry = new protocolEngineRegistry();
+}
 
 // 台灣麻將完整牌組（包含花牌）
 const allTiles = [
@@ -3923,298 +3933,7 @@ function passTing(tableId, playerId) {
 // 計算台數和收集牌型
 // 返回 { totalTai: number, patterns: string[], patternNames: string[] }
 function calculateTai(table, player, playerIndex, huType, winningTile) {
-  const hand = table.hiddenHands[player.id] || [];
-  const melds = table.melds[player.id] || [];
-  const hasNoMelds = melds.length === 0; // 門清：沒有吃碰槓
-  const isSelfDrawnHu = huType === 'selfDrawnHu';
-  const isDealer = player.isDealer || false;
-
-  let totalTai = 0;
-  const patterns = []; // 牌型名稱列表
-  const patternNames = []; // 用於顯示的牌型名稱（中文）
-
-  const tilesForTai = [...hand];
-  if (!isSelfDrawnHu && winningTile) {
-    tilesForTai.push(winningTile);
-  }
-
-  // 計算玩家的風位（根據windStart和玩家座位）
-  const windStart = table.windStart || 0;
-  const playerWindIndex = (playerIndex - windStart + 4) % 4; // 玩家的風位索引：0=東, 1=南, 2=西, 3=北
-  const windNames = ['東', '南', '西', '北'];
-  const playerWindTile = windNames[playerWindIndex]; // 玩家對應的風牌名稱
-
-  // 計算當前風圈（使用 table.wind，如果沒有則根據圈數計算）
-  const currentRoundWindIndex = table.wind !== undefined ? table.wind : Math.floor((table.round - 1) / 4) % 4;
-  const roundWindTile = windNames[currentRoundWindIndex];
-
-  // 檢查門風台：手牌有3張以上對應自己風位的風牌，或有碰槓對應的風牌
-  const windTileCountInHand = tilesForTai.filter(tile => tile === playerWindTile).length;
-  const hasWindTileInMelds = melds.some(meld => {
-    if (meld.type === 'pong' || meld.type === 'kong') {
-      return meld.tiles && meld.tiles.includes(playerWindTile);
-    }
-    return false;
-  });
-  if (windTileCountInHand >= 3 || hasWindTileInMelds) {
-    totalTai += 1;
-    patterns.push('menFengTai');
-    patternNames.push('門風台');
-  }
-
-  // 檢查圈風台：手牌有3張以上對應風圈的風牌，或有碰槓對應的風牌
-  const roundWindTileCountInHand = tilesForTai.filter(tile => tile === roundWindTile).length;
-  const hasRoundWindTileInMelds = melds.some(meld => {
-    if (meld.type === 'pong' || meld.type === 'kong') {
-      return meld.tiles && meld.tiles.includes(roundWindTile);
-    }
-    return false;
-  });
-  if (roundWindTileCountInHand >= 3 || hasRoundWindTileInMelds) {
-    totalTai += 1;
-    patterns.push('quanFengTai');
-    patternNames.push('圈風台');
-  }
-
-  // 檢查三元台：手牌有3張以上的"中、發、白"，或是有碰槓對應的"中、發、白"
-  const dragonTiles = ['中', '發', '白'];
-  let sanYuanTaiCount = 0;
-  dragonTiles.forEach(dragonTile => {
-    const dragonTileCountInHand = tilesForTai.filter(tile => tile === dragonTile).length;
-    const hasDragonTileInMelds = melds.some(meld => {
-      if (meld.type === 'pong' || meld.type === 'kong') {
-        return meld.tiles && meld.tiles.includes(dragonTile);
-      }
-      return false;
-    });
-    if (dragonTileCountInHand >= 3 || hasDragonTileInMelds) {
-      sanYuanTaiCount++;
-    }
-  });
-  if (sanYuanTaiCount > 0) {
-    totalTai += sanYuanTaiCount;
-    patterns.push('sanYuanTai');
-    patternNames.push(`三元台(${sanYuanTaiCount})`);
-  }
-
-  // 檢查花牌：胡牌後玩家身上的補花若有跟自身座位風向對應的花牌
-  const playerFlowers = table.flowers[player.id] || [];
-  const windFlowerMap = {
-    0: ['春', '梅'], // 東
-    1: ['夏', '蘭'], // 南
-    2: ['秋', '菊'], // 西
-    3: ['冬', '竹']  // 北
-  };
-  const playerWindFlowers = windFlowerMap[playerWindIndex] || [];
-  let flowerTaiCount = 0;
-  playerWindFlowers.forEach(flowerTile => {
-    if (playerFlowers.includes(flowerTile)) {
-      flowerTaiCount++;
-    }
-  });
-  if (flowerTaiCount > 0) {
-    totalTai += flowerTaiCount;
-    patterns.push('flowerTai');
-    patternNames.push(`花牌(${flowerTaiCount})`);
-  }
-
-  // 1台牌型
-  if (isDealer) {
-    totalTai += 1;
-    patterns.push('dealer');
-    patternNames.push('莊家');
-  }
-
-  // 檢查門清自摸（需要同時有門清和自摸）
-  if (hasNoMelds && isSelfDrawnHu) {
-    // 門清自摸是3台
-    totalTai += 3;
-    patterns.push('menQingSelfDraw');
-    patternNames.push('門清自摸');
-  } else {
-    // 分別處理自摸和門清
-    if (isSelfDrawnHu) {
-      totalTai += 1;
-      patterns.push('selfDraw');
-      patternNames.push('自摸');
-    }
-
-    if (hasNoMelds) {
-      totalTai += 1; // 門清單獨1台
-      patterns.push('menQing');
-      patternNames.push('門清');
-    }
-  }
-
-  if (player.isDuTing) {
-    totalTai += 1;
-    patterns.push('duTing');
-    patternNames.push('獨聽');
-  }
-
-  if (player.isQiangGang) {
-    totalTai += 1;
-    patterns.push('qiangGang');
-    patternNames.push('搶槓');
-  }
-
-  if (player.isGangShangKaiHua) {
-    totalTai += 1;
-    patterns.push('gangShangKaiHua');
-    patternNames.push('槓上開花');
-  }
-
-  if (player.isHaiDiLaoYue) {
-    totalTai += 1;
-    patterns.push('haiDiLaoYue');
-    patternNames.push('海底撈月');
-  }
-
-  if (player.isHaiDiLaoYu) {
-    totalTai += 1;
-    patterns.push('haiDiLaoYu');
-    patternNames.push('海底撈魚');
-  }
-
-  // 2台牌型
-  if (player.isHuaGang) {
-    totalTai += 2;
-    patterns.push('huaGang');
-    patternNames.push('花槓');
-  }
-
-  if (player.isQuanQiu) {
-    totalTai += 2;
-    patterns.push('quanQiu');
-    patternNames.push('全求');
-  }
-
-  if (player.isSanAnKe) {
-    totalTai += 2;
-    patterns.push('sanAnKe');
-    patternNames.push('三暗刻');
-  }
-
-  // 4台牌型
-  if (player.isPengPengHu) {
-    totalTai += 4;
-    patterns.push('pengPengHu');
-    patternNames.push('碰碰胡');
-  }
-
-  if (player.isHunYiSe) {
-    totalTai += 4;
-    patterns.push('hunYiSe');
-    patternNames.push('混一色');
-  }
-
-  if (player.isXiaoSanYuan) {
-    totalTai += 4;
-    patterns.push('xiaoSanYuan');
-    patternNames.push('小三元');
-  }
-
-  // 5台牌型
-  if (player.isSiAnKe) {
-    totalTai += 5;
-    patterns.push('siAnKe');
-    patternNames.push('四暗刻');
-  }
-
-  // 8台牌型
-  if (player.isDiTing) {
-    totalTai += 8;
-    patterns.push('diTing');
-    patternNames.push('地聽');
-  }
-
-  if (player.isWuAnKe) {
-    totalTai += 8;
-    patterns.push('wuAnKe');
-    patternNames.push('五暗刻');
-  }
-
-  if (player.isQingYiSe) {
-    totalTai += 8;
-    patterns.push('qingYiSe');
-    patternNames.push('清一色');
-  }
-
-  if (player.isZiYiSe) {
-    totalTai += 8;
-    patterns.push('ziYiSe');
-    patternNames.push('字一色');
-  }
-
-  if (player.isDaSanYuan) {
-    totalTai += 8;
-    patterns.push('daSanYuan');
-    patternNames.push('大三元');
-  }
-
-  if (player.isXiaoSiXi) {
-    totalTai += 8;
-    patterns.push('xiaoSiXi');
-    patternNames.push('小四喜');
-  }
-
-  if (player.isLiGuLiGu) {
-    totalTai += 8;
-    patterns.push('liGuLiGu');
-    patternNames.push('嚦咕嚦咕');
-  }
-
-  if (player.isBaXianGuoHai) {
-    totalTai += 8;
-    patterns.push('baXianGuoHai');
-    patternNames.push('八仙過海');
-  }
-
-  // 16台牌型
-  if (player.isTianTing) {
-    totalTai += 16;
-    patterns.push('tianTing');
-    patternNames.push('天聽');
-  }
-
-  if (player.isDaSiXi) {
-    totalTai += 16;
-    patterns.push('daSiXi');
-    patternNames.push('大四喜');
-  }
-
-  // 套用封頂限制
-  const pointCap = table.gameSettings?.point_cap || 'UP_TO_8_POINTS';
-  let finalTai = totalTai;
-
-  // 莊家台和連莊台不計入封頂限制（但我們這裡沒有連莊台，所以只考慮莊家台）
-  // 根據規則，封頂只限制牌型台數，不限制莊家台
-  // 但為了簡化，我們先計算所有台數，然後套用封頂
-  // 如果設定封頂，需要將莊家台分開計算
-  const dealerTai = isDealer ? 1 : 0;
-  const patternTai = totalTai - dealerTai; // 牌型台數（不含莊家台）
-
-  if (pointCap === 'UP_TO_4_POINTS') {
-    finalTai = dealerTai + Math.min(patternTai, 4);
-  } else if (pointCap === 'UP_TO_8_POINTS') {
-    finalTai = dealerTai + Math.min(patternTai, 8);
-  } else if (pointCap === 'NO_LIMIT' || pointCap === 'UNLIMITED_POINTS' || pointCap === 'UNLIMITED') {
-    // 無限制，不套用封頂
-    finalTai = totalTai;
-  } else {
-    // 預設為8台滿
-    finalTai = dealerTai + Math.min(patternTai, 8);
-  }
-
-  console.log(`>>> [台數計算] 玩家${playerIndex + 1} 總台數: ${totalTai}, 牌型台數: ${patternTai}, 莊家台: ${dealerTai}, 封頂後: ${finalTai}`);
-  console.log(`>>> [台數計算] 牌型: ${patternNames.join('、')}`);
-
-  return {
-    totalTai: finalTai,
-    originalTai: totalTai,
-    patterns: patterns,
-    patternNames: patternNames
-  };
+  return calculateTaiCore(table, player, playerIndex, huType, winningTile);
 }
 
 // 宣告胡牌
@@ -5056,7 +4775,7 @@ function getCleanTableData(table) {
       melds: table.melds || {},
       discards: table.discards || {},
       flowers: table.flowers || {},
-      deck: table.deck || [],
+      wallRemaining: Array.isArray(table.deck) ? table.deck.length : 0,
       turn: table.turn,
       windStart: table.windStart,
       dealerIndex: table.dealerIndex,
@@ -5436,6 +5155,26 @@ function canSelfKong(hand, newTile) {
 
 io.on('connection', (socket) => {
   console.log('有玩家連線', socket.id);
+  let protocolDeps = null;
+  if (useProtocolEngine && protocolEngineRegistry && createLegacySocketHandler) {
+    protocolDeps = {
+      socketIdsByPlayerId: (pid) => Object.keys(socketToPlayer).filter((sid) => socketToPlayer[sid]?.playerId === pid),
+      getTable: (tableId) => tables[tableId],
+      legacyActions: {
+        discardTile: (tableId, playerId, tile) => discardTile(tableId, playerId, tile),
+        executeClaim: (tableId, playerId, claimType, tiles) => executeClaim(tableId, playerId, claimType, tiles),
+        passClaim: (tableId, playerId) => passClaim(tableId, playerId)
+      }
+    };
+    const h = createLegacySocketHandler({ io, registry: protocolEngineRegistry, deps: protocolDeps, socket });
+    socket.onAny(h.handle);
+
+    socket.on('requestTableSnapshot', ({ tableId, playerId }) => {
+      const engine = protocolEngineRegistry.getOrCreate(tableId, { deps: protocolDeps });
+      const snapshotEvent = engine.snapshotFor(playerId);
+      socket.emit('tableSnapshot', snapshotEvent);
+    });
+  }
 
   socket.on('joinTable', async ({ tableId, player }) => {
     // 檢查該 socket 是否已經在其他房間，如果是，先清理舊的映射
@@ -5976,6 +5715,10 @@ io.on('connection', (socket) => {
       nickname: nickname,
       userId: userId // 添加 userId（6位數字）
     });
+    if (useProtocolEngine && protocolEngineRegistry && protocolDeps) {
+      const engine = protocolEngineRegistry.getOrCreate(tableId, { deps: protocolDeps });
+      socket.emit('tableSnapshot', engine.snapshotFor(playerId));
+    }
 
     // 四人到齊自動開始（僅非手動開始房間）
     if (
@@ -6053,29 +5796,32 @@ io.on('connection', (socket) => {
   });
 
   // 打牌事件
-  socket.on('discardTile', ({ tableId, playerId, tile }) => {
-    discardTile(tableId, playerId, tile);
-  });
+  if (!useProtocolEngine) {
+    socket.on('discardTile', ({ tableId, playerId, tile }) => {
+      discardTile(tableId, playerId, tile);
+    });
+  }
 
   // 吃碰槓請求事件
-  socket.on('claimTile', ({ tableId, playerId, claimType, tiles }) => {
-    handleClaimRequest(tableId, playerId, claimType, tiles);
-  });
+  if (!useProtocolEngine) {
+    socket.on('claimTile', ({ tableId, playerId, claimType, tiles }) => {
+      handleClaimRequest(tableId, playerId, claimType, tiles);
+    });
+  }
 
   // 執行吃碰槓事件（僅由服務器端調用，客戶端不應直接調用）
   // 客戶端應該使用 claimTile 來記錄決策，等待所有玩家決策完畢後由服務器依權重執行
-  socket.on('executeClaim', ({ tableId, playerId, claimType, tiles, targetPlayer }) => {
-    // 檢查是否在決策等待狀態中
-    const table = tables[tableId];
-    if (table && table.claimingState && table.claimingState.playerDecisions) {
-      // 如果在決策等待狀態中，將 executeClaim 視為 claimTile（記錄決策）
-      console.log(`>>> [警告] 客戶端直接發送 executeClaim，轉換為 claimTile 記錄決策`);
-      handleClaimRequest(tableId, playerId, claimType, tiles);
-      return;
-    }
-    // 如果不在決策等待狀態中，直接執行（用於特殊情況，如服務器端調用）
-    executeClaim(tableId, playerId, claimType, tiles);
-  });
+  if (!useProtocolEngine) {
+    socket.on('executeClaim', ({ tableId, playerId, claimType, tiles, targetPlayer }) => {
+      const table = tables[tableId];
+      if (table && table.claimingState && table.claimingState.playerDecisions) {
+        console.log(`>>> [警告] 客戶端直接發送 executeClaim，轉換為 claimTile 記錄決策`);
+        handleClaimRequest(tableId, playerId, claimType, tiles);
+        return;
+      }
+      executeClaim(tableId, playerId, claimType, tiles);
+    });
+  }
 
   // 執行自槓事件（新增，包括補槓）
   socket.on('executeSelfKong', ({ tableId, playerId, tile }) => {
@@ -6303,14 +6049,18 @@ io.on('connection', (socket) => {
   });
 
   // 吃碰槓超時事件（新增）
-  socket.on('claimTimeout', ({ tableId, playerId }) => {
-    passClaim(tableId, playerId);
-  });
+  if (!useProtocolEngine) {
+    socket.on('claimTimeout', ({ tableId, playerId }) => {
+      passClaim(tableId, playerId);
+    });
+  }
 
   // 放棄吃碰槓事件
-  socket.on('passClaim', ({ tableId, playerId }) => {
-    passClaim(tableId, playerId);
-  });
+  if (!useProtocolEngine) {
+    socket.on('passClaim', ({ tableId, playerId }) => {
+      passClaim(tableId, playerId);
+    });
+  }
 
   // 檢測聽牌事件
   socket.on('checkTing', ({ tableId, playerId }) => {
