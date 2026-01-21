@@ -95,7 +95,8 @@ const ClaimWindow = z.object({
   type: z.literal('CLAIM_WINDOW'),
   serverSeq: z.number().int().nonnegative(),
   optionsForMe: z.array(z.object({ claim: ClaimType, tiles: z.array(TileCode).default([]) })).default([]),
-  deadlinePolicy: z.enum(['NONE', 'SERVER_IDLE_RECYCLE']).default('NONE')
+  deadlinePolicy: z.enum(['NONE', 'SERVER_IDLE_RECYCLE']).default('NONE'),
+  deadlineAtMs: z.number().int().nonnegative().optional()
 });
 
 const ClaimResolved = z.object({

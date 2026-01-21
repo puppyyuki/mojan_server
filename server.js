@@ -8,6 +8,11 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
+const QUIET_GAME_LOGS = process.env.QUIET_GAME_LOGS === '1';
+const gameLog = (...args) => {
+  if (!QUIET_GAME_LOGS) console.log(...args);
+};
+
 // 引入配置和中間件
 const corsMiddleware = require('./middleware/cors');
 const errorHandler = require('./middleware/errorHandler');
@@ -75,7 +80,7 @@ if (useProtocolEngine) {
     getTable: (tableId) => tables[tableId],
     legacyActions: {
       discardTile: (tableId, playerId, tile) => discardTile(tableId, playerId, tile),
-      executeClaim: (tableId, playerId, claimType, tiles) => executeClaim(tableId, playerId, claimType, tiles),
+      handleClaimRequest: (tableId, playerId, claimType, tiles) => handleClaimRequest(tableId, playerId, claimType, tiles),
       passClaim: (tableId, playerId) => passClaim(tableId, playerId)
     }
   };
@@ -86,23 +91,37 @@ function emitProtocolTableSnapshotToAllPlayers(tableId) {
   const table = tables[tableId];
   if (!table || !Array.isArray(table.players)) return;
   const engine = protocolEngineRegistry.getOrCreate(tableId, { deps: protocolDepsGlobal });
-  for (const p of table.players) {
-    const sids = protocolDepsGlobal.socketIdsByPlayerId(p.id);
-    if (!sids || sids.length === 0) continue;
-    const ev = engine.snapshotFor(p.id);
-    for (const sid of sids) {
-      io.to(sid).emit('tableSnapshot', ev);
-      io.to(sid).emit('serverEvent', ev);
+  engine.enqueue(() => {
+    for (const p of table.players) {
+      const sids = protocolDepsGlobal.socketIdsByPlayerId(p.id);
+      if (!sids || sids.length === 0) continue;
+      const ev = engine.snapshotFor(p.id);
+      for (const sid of sids) {
+        io.to(sid).emit('tableSnapshot', ev);
+        io.to(sid).emit('serverEvent', ev);
+      }
     }
-  }
+  });
 }
 
 function emitProtocolTurnStart(tableId, currentSeat) {
   if (!useProtocolEngine || !protocolEngineRegistry || !protocolDepsGlobal) return;
   const engine = protocolEngineRegistry.getOrCreate(tableId, { deps: protocolDepsGlobal });
-  const ev = engine.bump({ type: 'TURN_START', currentSeat, legalDiscards: [], legalClaims: [] });
-  io.to(tableId).emit('turnStart', ev);
-  io.to(tableId).emit('serverEvent', ev);
+  engine.enqueue(() => {
+    const ev = engine.bump({ type: 'TURN_START', currentSeat, legalDiscards: [], legalClaims: [] });
+    io.to(tableId).emit('turnStart', ev);
+    io.to(tableId).emit('serverEvent', ev);
+  });
+}
+
+function emitProtocolClaimResolved(tableId, resolution) {
+  if (!useProtocolEngine || !protocolEngineRegistry || !protocolDepsGlobal) return;
+  const engine = protocolEngineRegistry.getOrCreate(tableId, { deps: protocolDepsGlobal });
+  engine.enqueue(() => {
+    const ev = engine.bump({ type: 'CLAIM_RESOLVED', resolution });
+    io.to(tableId).emit('claimResolved', ev);
+    io.to(tableId).emit('serverEvent', ev);
+  });
 }
 
 // 台灣麻將完整牌組（包含花牌）
@@ -2299,6 +2318,9 @@ function startTurnTimer(tableId, playerId) {
 
   console.log(`開始回合計時：玩家${table.turn + 1}，房間${tableId}`);
 
+  table.turnHasDiscarded = false;
+  table.turnNonce = (typeof table.turnNonce === 'number' ? table.turnNonce : 0) + 1;
+
   table.timer = 30; // 30秒倒計時
 
   // 廣播輪次更新
@@ -2850,6 +2872,11 @@ function discardTile(tableId, playerId, tile) {
     return;
   }
 
+  if (table.turnHasDiscarded === true) {
+    console.log(`>>> 已經在此回合打過牌，拒絕再次打牌`);
+    return;
+  }
+
   // 檢查手牌是否存在
   const hand = table.hiddenHands[playerId];
   if (!hand) {
@@ -2868,6 +2895,8 @@ function discardTile(tableId, playerId, tile) {
     clearInterval(table.turnTimer);
     table.turnTimer = null;
   }
+
+  table.turnHasDiscarded = true;
 
   // 從手牌移除並加入打出牌
   hand.splice(tileIndex, 1);
@@ -2931,11 +2960,11 @@ function discardTile(tableId, playerId, tile) {
     table.isFirstDealerDiscard = false;
   }
 
-  console.log(`玩家${playerIndex + 1}打出: ${tile}`);
+  gameLog(`玩家${playerIndex + 1}打出: ${tile}`);
 
   // 廣播打牌事件
   // 廣播打牌事件給所有玩家（確保所有玩家都能聽到打牌音效）
-  console.log(`>>> [音效廣播] 廣播打牌事件給房間 ${tableId} 的所有玩家，玩家${playerIndex + 1}打出：${tile}`);
+  gameLog(`>>> [音效廣播] 廣播打牌事件給房間 ${tableId} 的所有玩家，玩家${playerIndex + 1}打出：${tile}`);
   io.to(tableId).emit('playerDiscard', {
     playerId: playerId,
     playerIndex: playerIndex,
@@ -3148,6 +3177,8 @@ function checkClaims(tableId, discardPlayerId, discardedTile) {
       currentQueueIndex: 0,
       currentPriority: claimQueue[0] ?? null,
       timer: 30,
+      resolved: false,
+      processing: false,
       playerDecisions: {}
     };
 
@@ -3166,7 +3197,7 @@ function stopClaimTimer(tableId) {
   const table = tables[tableId];
   if (!table) return;
   if (table.claimingTimer) {
-    clearInterval(table.claimingTimer);
+    clearTimeout(table.claimingTimer);
     table.claimingTimer = null;
   }
 }
@@ -3189,6 +3220,8 @@ function startClaimTier(tableId) {
   if (table.gamePhase === GamePhase.ENDED) return;
 
   const state = table.claimingState;
+  state.processing = false;
+  state.resolved = false;
   if (!Array.isArray(state.options) || state.options.length === 0) return;
 
   if (!Array.isArray(state.claimQueue) || state.claimQueue.length === 0) {
@@ -3199,6 +3232,7 @@ function startClaimTier(tableId) {
   const priority = state.claimQueue[state.currentQueueIndex] ?? null;
   state.currentPriority = priority;
   state.timer = 30;
+  state.deadlineAtMs = Date.now() + state.timer * 1000;
 
   const tierOptions = state.options.filter(opt => opt.priority === priority);
   const activePlayerIds = [...new Set(tierOptions.map(opt => opt.playerId))];
@@ -3210,12 +3244,19 @@ function startClaimTier(tableId) {
 
   stopClaimTimer(tableId);
 
-  io.to(tableId).emit('claimRequest', {
-    discardPlayerId: state.discardPlayerId,
-    discardedTile: state.discardedTile,
-    options: tierOptions,
-    isQiangGang: state.isQiangGang === true
-  });
+  for (const pid of activePlayerIds) {
+    const myOptions = tierOptions.filter((opt) => opt.playerId === pid);
+    const sids = Object.keys(socketToPlayer).filter((sid) => socketToPlayer[sid]?.playerId === pid);
+    for (const sid of sids) {
+      io.to(sid).emit('claimRequest', {
+        discardPlayerId: state.discardPlayerId,
+        discardedTile: state.discardedTile,
+        options: myOptions,
+        isQiangGang: state.isQiangGang === true,
+        deadlineAtMs: state.deadlineAtMs
+      });
+    }
+  }
 
   startClaimTimer(tableId);
 }
@@ -3231,44 +3272,23 @@ function startClaimTimer(tableId) {
     return;
   }
 
-  const claimTimer = setInterval(() => {
-    // 檢查房間是否仍然存在
+  const durationMs = Math.max(0, (table.claimingState.timer ?? 0) * 1000);
+  const claimTimer = setTimeout(() => {
     const currentTable = tables[tableId];
-    if (!currentTable) {
-      clearInterval(claimTimer);
-      return;
-    }
-
-    // 檢查遊戲是否已結束
+    if (!currentTable) return;
     if (currentTable.gamePhase === GamePhase.ENDED) {
-      clearInterval(claimTimer);
       currentTable.claimingTimer = null;
-      console.log('>>> 遊戲已結束，停止吃碰槓倒計時');
       return;
     }
-
-    // 檢查 claimingState 是否仍然存在
     if (!currentTable.claimingState) {
-      clearInterval(claimTimer);
       currentTable.claimingTimer = null;
       return;
     }
 
-    currentTable.claimingState.timer--;
-
-    // 廣播倒計時
-    safeEmit(tableId, 'claimTimerUpdate', {
-      timeLeft: currentTable.claimingState.timer
-    });
-
-    if (currentTable.claimingState.timer <= 0) {
-      clearInterval(claimTimer);
-      currentTable.claimingTimer = null;
-      // 時間到，自動放棄吃碰槓
-      console.log('>>> 吃碰槓超時（30秒），自動放棄');
-      passClaim(tableId, null);
-    }
-  }, 1000);
+    currentTable.claimingState.timer = 0;
+    currentTable.claimingTimer = null;
+    passClaim(tableId, null);
+  }, durationMs);
 
   table.claimingTimer = claimTimer;
 }
@@ -3753,6 +3773,7 @@ function checkAllPlayersDecided(tableId) {
   if (!table || !table.claimingState || !table.claimingState.playerDecisions) return;
 
   const claimingState = table.claimingState;
+  if (claimingState.processing === true || claimingState.resolved === true) return;
   const playerDecisions = claimingState.playerDecisions;
 
   // 檢查是否所有有決策權的玩家都已完成選擇
@@ -3764,6 +3785,8 @@ function checkAllPlayersDecided(tableId) {
     console.log(`>>> [決策追蹤] 還有玩家未完成選擇，繼續等待...`);
     return; // 還有玩家未完成選擇，繼續等待
   }
+
+  claimingState.processing = true;
 
   console.log(`>>> [決策追蹤] 當前階段玩家都已完成選擇，開始決定最終行為`);
 
@@ -3802,6 +3825,32 @@ function checkAllPlayersDecided(tableId) {
 
     console.log(`>>> [決策追蹤] 執行：玩家${finalDecision.playerId}的${finalDecision.claimType}（優先級：${finalDecision.priority}）`);
 
+    const winnerSeatRaw = table.players.find(p => p.id === finalDecision.playerId)?.seat;
+    const winnerSeat = typeof winnerSeatRaw === 'number'
+      ? winnerSeatRaw
+      : table.players.findIndex(p => p.id === finalDecision.playerId);
+
+    const discardSeatRaw = table.players.find(p => p.id === claimingState.discardPlayerId)?.seat;
+    const discardSeat = typeof discardSeatRaw === 'number'
+      ? discardSeatRaw
+      : table.players.findIndex(p => p.id === claimingState.discardPlayerId);
+
+    const claimProtocol =
+      finalDecision.claimType === ClaimType.CHI ? 'CHI'
+        : finalDecision.claimType === ClaimType.PONG ? 'PON'
+          : finalDecision.claimType === ClaimType.KONG ? 'KAN'
+            : finalDecision.claimType === ClaimType.HU ? 'HU'
+              : 'PASS';
+
+    claimingState.resolved = true;
+    emitProtocolClaimResolved(tableId, {
+      winnerSeat: winnerSeat >= 0 ? winnerSeat : undefined,
+      claim: claimProtocol,
+      tiles: Array.isArray(finalDecision.tiles) ? finalDecision.tiles : [],
+      discardSeat: discardSeat >= 0 ? discardSeat : undefined,
+      discardTile: claimingState.discardedTile ?? undefined
+    });
+
     if (finalDecision.claimType === ClaimType.HU || finalDecision.claimType === 'hu') {
       const isSelfDrawnHu = claimingState.claimType === 'selfDrawnHu';
       const huType = isSelfDrawnHu ? 'selfDrawnHu' : 'hu';
@@ -3824,6 +3873,7 @@ function checkAllPlayersDecided(tableId) {
   if (Array.isArray(claimingState.claimQueue) && typeof claimingState.currentQueueIndex === 'number') {
     claimingState.currentQueueIndex++;
     if (claimingState.currentQueueIndex < claimingState.claimQueue.length) {
+      claimingState.processing = false;
       startClaimTier(tableId);
       return;
     }
@@ -5136,6 +5186,8 @@ function nextTurn(tableId) {
   }
 
   table.turn = (table.turn + 1) % table.players.length;
+  table.turnHasDiscarded = false;
+  table.turnNonce = (typeof table.turnNonce === 'number' ? table.turnNonce : 0) + 1;
 
   // 檢查第一圈是否結束（如果回到莊家，且莊家已經打過牌，則第一圈結束）
   if (table.isFirstRound && table.turn === table.dealerIndex && table.isFirstDealerDiscard === false) {
@@ -5210,7 +5262,7 @@ io.on('connection', (socket) => {
       getTable: (tableId) => tables[tableId],
       legacyActions: {
         discardTile: (tableId, playerId, tile) => discardTile(tableId, playerId, tile),
-        executeClaim: (tableId, playerId, claimType, tiles) => executeClaim(tableId, playerId, claimType, tiles),
+        handleClaimRequest: (tableId, playerId, claimType, tiles) => handleClaimRequest(tableId, playerId, claimType, tiles),
         passClaim: (tableId, playerId) => passClaim(tableId, playerId)
       }
     };
@@ -5219,8 +5271,11 @@ io.on('connection', (socket) => {
 
     socket.on('requestTableSnapshot', ({ tableId, playerId }) => {
       const engine = protocolEngineRegistry.getOrCreate(tableId, { deps: protocolDeps });
-      const snapshotEvent = engine.snapshotFor(playerId);
-      socket.emit('tableSnapshot', snapshotEvent);
+      engine.enqueue(() => {
+        const snapshotEvent = engine.snapshotFor(playerId);
+        socket.emit('tableSnapshot', snapshotEvent);
+        socket.emit('serverEvent', snapshotEvent);
+      });
     });
   }
 

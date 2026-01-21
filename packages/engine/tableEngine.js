@@ -106,6 +106,17 @@ class TableEngine {
     this.tableId = tableId;
     this.ctx = ctx;
     this.serverSeq = 0;
+    this._queue = Promise.resolve();
+    this._lastByPlayerId = new Map();
+  }
+
+  enqueue(work) {
+    this._queue = this._queue
+      .then(() => Promise.resolve().then(work))
+      .catch((err) => {
+        console.error('[TableEngine] queue error', err);
+      });
+    return this._queue;
   }
 
   snapshotFor(playerId) {
@@ -124,22 +135,59 @@ class TableEngine {
 
   applyIntent(playerId, intent) {
     const type = intent?.type;
+    const clientSeq = intent?.clientSeq;
+    if (typeof clientSeq === 'number') {
+      const last = this._lastByPlayerId.get(playerId);
+      if (last && clientSeq === last.clientSeq) return last.events;
+      if (last && clientSeq < last.clientSeq) {
+        return [this.bump({ type: 'REJECTED', clientSeq, code: 'DUPLICATE', message: 'Duplicate intent' })];
+      }
+    }
+
     const deps = this.ctx?.deps;
     const table = deps?.getTable?.(this.tableId);
     const seat = table?.players?.find?.((p) => p.id === playerId)?.seat;
 
     if (!table || typeof seat !== 'number') {
-      return [this.bump({ type: 'REJECTED', clientSeq: intent?.clientSeq, code: 'NOT_IN_TABLE', message: 'Player not in table' })];
+      const events = [this.bump({ type: 'REJECTED', clientSeq, code: 'NOT_IN_TABLE', message: 'Player not in table' })];
+      if (typeof clientSeq === 'number') this._lastByPlayerId.set(playerId, { clientSeq, events });
+      return events;
     }
 
     if (type === 'DISCARD_INTENT') {
       const tile = intent.tile;
       const hand = table.hiddenHands?.[playerId] || [];
+      if (table.gamePhase !== 'playing') {
+        const events = [
+          this.bump({ type: 'REJECTED', clientSeq, code: 'NOT_PLAYING_TURN', message: 'Not in playing turn' }),
+          this.snapshotFor(playerId)
+        ];
+        if (typeof clientSeq === 'number') this._lastByPlayerId.set(playerId, { clientSeq, events });
+        return events;
+      }
       if (table.turn !== seat) {
-        return [this.bump({ type: 'REJECTED', clientSeq: intent.clientSeq, code: 'NOT_YOUR_TURN', message: 'Not your turn' })];
+        const events = [
+          this.bump({ type: 'REJECTED', clientSeq, code: 'NOT_YOUR_TURN', message: 'Not your turn' }),
+          this.snapshotFor(playerId)
+        ];
+        if (typeof clientSeq === 'number') this._lastByPlayerId.set(playerId, { clientSeq, events });
+        return events;
+      }
+      if (table.turnHasDiscarded === true) {
+        const events = [
+          this.bump({ type: 'REJECTED', clientSeq, code: 'ALREADY_DISCARDED', message: 'Already discarded this turn' }),
+          this.snapshotFor(playerId)
+        ];
+        if (typeof clientSeq === 'number') this._lastByPlayerId.set(playerId, { clientSeq, events });
+        return events;
       }
       if (!Array.isArray(hand) || !hand.includes(tile)) {
-        return [this.bump({ type: 'REJECTED', clientSeq: intent.clientSeq, code: 'TILE_NOT_IN_HAND', message: 'Tile not in hand' })];
+        const events = [
+          this.bump({ type: 'REJECTED', clientSeq, code: 'TILE_NOT_IN_HAND', message: 'Tile not in hand' }),
+          this.snapshotFor(playerId)
+        ];
+        if (typeof clientSeq === 'number') this._lastByPlayerId.set(playerId, { clientSeq, events });
+        return events;
       }
 
       deps?.legacyActions?.discardTile?.(this.tableId, playerId, tile);
@@ -151,37 +199,50 @@ class TableEngine {
         this.bump({ type: 'HAND_SYNC', myHand: priv.myHand, myFlowers: priv.myFlowers }),
         this.bump({ type: 'TABLE_SNAPSHOT', players: buildPlayers(after), publicState: buildPublicState(after), myPrivate: priv })
       ];
+      if (typeof clientSeq === 'number') this._lastByPlayerId.set(playerId, { clientSeq, events });
       return events;
     }
 
     if (type === 'CLAIM_INTENT') {
+      if (table.gamePhase !== 'claiming' || !table.claimingState) {
+        const events = [
+          this.bump({ type: 'REJECTED', clientSeq, code: 'NOT_CLAIMING', message: 'Not in claiming phase' }),
+          this.snapshotFor(playerId)
+        ];
+        if (typeof clientSeq === 'number') this._lastByPlayerId.set(playerId, { clientSeq, events });
+        return events;
+      }
+      if (table.claimingState?.resolved === true) {
+        const events = [
+          this.bump({ type: 'REJECTED', clientSeq, code: 'CLAIM_ALREADY_RESOLVED', message: 'Claim already resolved' }),
+          this.snapshotFor(playerId)
+        ];
+        if (typeof clientSeq === 'number') this._lastByPlayerId.set(playerId, { clientSeq, events });
+        return events;
+      }
       const legacyClaim = legacyClaimFromProtocol(intent.claim);
-      const ld = table?.lastDiscard;
-      const discardTile = ld?.tile;
-      const discardSeat = (() => {
-        const pid = ld?.playerId;
-        if (!pid) return undefined;
-        const s = table?.players?.find?.((p) => p.id === pid)?.seat;
-        return typeof s === 'number' ? s : undefined;
-      })();
       if (legacyClaim === 'pass') {
         deps?.legacyActions?.passClaim?.(this.tableId, playerId);
       } else {
-        deps?.legacyActions?.executeClaim?.(this.tableId, playerId, legacyClaim, intent.tiles ?? []);
+        deps?.legacyActions?.handleClaimRequest?.(this.tableId, playerId, legacyClaim, intent.tiles ?? []);
       }
 
       const after = deps?.getTable?.(this.tableId);
       const priv = buildPrivateState(after, playerId);
       const events = [
-        this.bump({ type: 'CLAIM_RESOLVED', resolution: { winnerSeat: seat, claim: intent.claim, tiles: intent.tiles ?? [], discardSeat, discardTile } }),
-        this.bump({ type: 'TURN_START', currentSeat: typeof after?.turn === 'number' ? after.turn : seat, legalDiscards: [], legalClaims: [] }),
         this.bump({ type: 'HAND_SYNC', myHand: priv.myHand, myFlowers: priv.myFlowers }),
         this.bump({ type: 'TABLE_SNAPSHOT', players: buildPlayers(after), publicState: buildPublicState(after), myPrivate: priv })
       ];
+      if (typeof clientSeq === 'number') this._lastByPlayerId.set(playerId, { clientSeq, events });
       return events;
     }
 
-    return [this.bump({ type: 'REJECTED', clientSeq: intent?.clientSeq, code: 'UNSUPPORTED_INTENT', message: `Unsupported intent ${type}` })];
+    const events = [
+      this.bump({ type: 'REJECTED', clientSeq, code: 'UNSUPPORTED_INTENT', message: `Unsupported intent ${type}` }),
+      this.snapshotFor(playerId)
+    ];
+    if (typeof clientSeq === 'number') this._lastByPlayerId.set(playerId, { clientSeq, events });
+    return events;
   }
 
   bump(e) {
