@@ -30,7 +30,13 @@ function buildPublicState(table) {
       const raw = table.melds[p.id];
       if (Array.isArray(raw)) {
         melds[seatKey] = raw
-          .map((m) => (Array.isArray(m) ? m.filter((t) => typeof t === 'string') : []))
+          .map((m) => {
+            if (Array.isArray(m)) return m.filter((t) => typeof t === 'string');
+            if (m && typeof m === 'object' && Array.isArray(m.tiles)) {
+              return m.tiles.filter((t) => typeof t === 'string');
+            }
+            return [];
+          })
           .filter((m) => m.length > 0);
       } else {
         melds[seatKey] = [];
@@ -142,7 +148,6 @@ class TableEngine {
       const priv = buildPrivateState(after, playerId);
       const events = [
         this.bump({ type: 'DISCARDED', seat, tile }),
-        this.bump({ type: 'TURN_START', currentSeat: typeof after?.turn === 'number' ? after.turn : seat, legalDiscards: [], legalClaims: [] }),
         this.bump({ type: 'HAND_SYNC', myHand: priv.myHand, myFlowers: priv.myFlowers }),
         this.bump({ type: 'TABLE_SNAPSHOT', players: buildPlayers(after), publicState: buildPublicState(after), myPrivate: priv })
       ];
@@ -151,6 +156,14 @@ class TableEngine {
 
     if (type === 'CLAIM_INTENT') {
       const legacyClaim = legacyClaimFromProtocol(intent.claim);
+      const ld = table?.lastDiscard;
+      const discardTile = ld?.tile;
+      const discardSeat = (() => {
+        const pid = ld?.playerId;
+        if (!pid) return undefined;
+        const s = table?.players?.find?.((p) => p.id === pid)?.seat;
+        return typeof s === 'number' ? s : undefined;
+      })();
       if (legacyClaim === 'pass') {
         deps?.legacyActions?.passClaim?.(this.tableId, playerId);
       } else {
@@ -160,7 +173,7 @@ class TableEngine {
       const after = deps?.getTable?.(this.tableId);
       const priv = buildPrivateState(after, playerId);
       const events = [
-        this.bump({ type: 'CLAIM_RESOLVED', resolution: { winnerSeat: seat, claim: intent.claim, tiles: intent.tiles ?? [] } }),
+        this.bump({ type: 'CLAIM_RESOLVED', resolution: { winnerSeat: seat, claim: intent.claim, tiles: intent.tiles ?? [], discardSeat, discardTile } }),
         this.bump({ type: 'TURN_START', currentSeat: typeof after?.turn === 'number' ? after.turn : seat, legalDiscards: [], legalClaims: [] }),
         this.bump({ type: 'HAND_SYNC', myHand: priv.myHand, myFlowers: priv.myFlowers }),
         this.bump({ type: 'TABLE_SNAPSHOT', players: buildPlayers(after), publicState: buildPublicState(after), myPrivate: priv })

@@ -64,10 +64,45 @@ const useProtocolEngine = process.env.USE_PROTOCOL_ENGINE === '1';
 console.log(`[ProtocolEngine] enabled=${useProtocolEngine} (USE_PROTOCOL_ENGINE=${process.env.USE_PROTOCOL_ENGINE ?? ''})`);
 let protocolEngineRegistry = null;
 let createLegacySocketHandler = null;
+let protocolDepsGlobal = null;
 if (useProtocolEngine) {
   ({ TableEngineRegistry: protocolEngineRegistry } = require('./packages/engine'));
   ({ createLegacySocketHandler } = require('./apps/table-server/legacySocketAdapter'));
   protocolEngineRegistry = new protocolEngineRegistry();
+  protocolDepsGlobal = {
+    socketIdsByPlayerId: (pid) =>
+      Object.keys(socketToPlayer).filter((sid) => socketToPlayer[sid]?.playerId === pid),
+    getTable: (tableId) => tables[tableId],
+    legacyActions: {
+      discardTile: (tableId, playerId, tile) => discardTile(tableId, playerId, tile),
+      executeClaim: (tableId, playerId, claimType, tiles) => executeClaim(tableId, playerId, claimType, tiles),
+      passClaim: (tableId, playerId) => passClaim(tableId, playerId)
+    }
+  };
+}
+
+function emitProtocolTableSnapshotToAllPlayers(tableId) {
+  if (!useProtocolEngine || !protocolEngineRegistry || !protocolDepsGlobal) return;
+  const table = tables[tableId];
+  if (!table || !Array.isArray(table.players)) return;
+  const engine = protocolEngineRegistry.getOrCreate(tableId, { deps: protocolDepsGlobal });
+  for (const p of table.players) {
+    const sids = protocolDepsGlobal.socketIdsByPlayerId(p.id);
+    if (!sids || sids.length === 0) continue;
+    const ev = engine.snapshotFor(p.id);
+    for (const sid of sids) {
+      io.to(sid).emit('tableSnapshot', ev);
+      io.to(sid).emit('serverEvent', ev);
+    }
+  }
+}
+
+function emitProtocolTurnStart(tableId, currentSeat) {
+  if (!useProtocolEngine || !protocolEngineRegistry || !protocolDepsGlobal) return;
+  const engine = protocolEngineRegistry.getOrCreate(tableId, { deps: protocolDepsGlobal });
+  const ev = engine.bump({ type: 'TURN_START', currentSeat, legalDiscards: [], legalClaims: [] });
+  io.to(tableId).emit('turnStart', ev);
+  io.to(tableId).emit('serverEvent', ev);
 }
 
 // 台灣麻將完整牌組（包含花牌）
@@ -404,6 +439,7 @@ async function startGame(tableId) {
     Math.floor(Math.random() * 6) + 1,
     Math.floor(Math.random() * 6) + 1
   ];
+  table.dice = dice;
   const diceSum = dice.reduce((a, b) => a + b, 0);
   
   // 3. 決定東風位（windStart）
@@ -981,6 +1017,7 @@ async function startGame(tableId) {
     round: table.round || 1,
     maxRounds: table.maxRounds || 1
   });
+  emitProtocolTableSnapshotToAllPlayers(tableId);
 
   // 同步最新桌狀態（確保有玩家漏掉 startGame 事件時仍能收到 started 狀態）
   const cleanTableData = getCleanTableData(table);
@@ -1151,6 +1188,7 @@ function startNextRound(tableId) {
     Math.floor(Math.random() * 6) + 1,
     Math.floor(Math.random() * 6) + 1
   ];
+  table.dice = nextRoundDice;
   const nextRoundDiceSum = nextRoundDice.reduce((a, b) => a + b, 0);
   // table.windStart 不變
   console.log(`>>> [下一圈] 骰子點數: [${nextRoundDice.join(', ')}], 總和: ${nextRoundDiceSum} (不影響風位)`);
@@ -1184,6 +1222,7 @@ function startNextRound(tableId) {
     round: table.round,
     maxRounds: table.maxRounds
   });
+  emitProtocolTableSnapshotToAllPlayers(tableId);
 
   // 同步最新桌狀態
   const cleanTableData = getCleanTableData(table);
@@ -1295,6 +1334,7 @@ function processPlayerFlowerReplacement(tableId, playerIndex) {
           turn: currentTable.turn,
           message: '遊戲開始！'
         });
+        emitProtocolTableSnapshotToAllPlayers(tableId);
 
         // 補花完成後，再次同步所有玩家的手牌給前端，確保補花後的手牌狀態一致
         console.log(`>>> [補花完成] 同步所有玩家的手牌給前端`);
@@ -4812,6 +4852,14 @@ function safeEmit(room, event, data) {
     }
 
     io.to(room).emit(event, data);
+    if (event === 'turnUpdate') {
+      const turnValue = data?.turn;
+      const currentSeat = typeof turnValue === 'number' ? turnValue : Number(turnValue);
+      if (!Number.isNaN(currentSeat)) {
+        emitProtocolTurnStart(room, currentSeat);
+        emitProtocolTableSnapshotToAllPlayers(room);
+      }
+    }
   } catch (error) {
     console.error(`發送資料到 ${event} 時發生錯誤:`, error);
     // 不拋出錯誤，避免伺服器崩潰
