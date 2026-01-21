@@ -2403,7 +2403,7 @@ async function endGame(tableId, reason, scores = null) {
 
   // 清除所有計時器
   if (table.claimingTimer) {
-    clearInterval(table.claimingTimer);
+    clearTimeout(table.claimingTimer);
     table.claimingTimer = null;
     console.log('>>> 清除吃碰槓計時器');
   }
@@ -2844,7 +2844,7 @@ function discardTile(tableId, playerId, tile) {
     }
 
     if (table.claimingTimer) {
-      clearInterval(table.claimingTimer);
+      clearTimeout(table.claimingTimer);
       table.claimingTimer = null;
     }
 
@@ -3698,7 +3698,7 @@ function executeClaim(tableId, playerId, claimType, tiles) {
 
   // 清除吃碰槓計時器
   if (table.claimingTimer) {
-    clearInterval(table.claimingTimer);
+    clearTimeout(table.claimingTimer);
     table.claimingTimer = null;
   }
 
@@ -5027,7 +5027,7 @@ async function handlePlayerDisconnect(tableId, playerId, socketId) {
       // 如果沒有其他選項了，清除吃碰槓狀態
       if (table.claimingState.options.length === 0) {
         if (table.claimingTimer) {
-          clearInterval(table.claimingTimer);
+        clearTimeout(table.claimingTimer);
           table.claimingTimer = null;
         }
         table.claimingState = null;
@@ -5952,7 +5952,7 @@ io.on('connection', (socket) => {
         table.claimingState = null;
         table.gamePhase = GamePhase.PLAYING;
         if (table.claimingTimer) {
-          clearInterval(table.claimingTimer);
+          clearTimeout(table.claimingTimer);
           table.claimingTimer = null;
         }
       }

@@ -78,10 +78,22 @@ function run() {
   assert.equal(r3[0].code, 'ALREADY_DISCARDED');
   assert.equal(r3[1].type, 'TABLE_SNAPSHOT');
 
+  const r4 = engine.applyIntent('p1', { type: 'CLAIM_INTENT', claim: 'PASS', tiles: [], clientSeq: 4 });
+  assert.equal(r4[0].type, 'REJECTED');
+  assert.equal(r4[0].code, 'NOT_CLAIMING');
+  assert.equal(r4[1].type, 'TABLE_SNAPSHOT');
+
+  table.gamePhase = 'claiming';
+  table.claimingState = { resolved: true, processing: false };
+  const r5 = engine.applyIntent('p1', { type: 'CLAIM_INTENT', claim: 'PASS', tiles: [], clientSeq: 5 });
+  assert.equal(r5[0].type, 'REJECTED');
+  assert.equal(r5[0].code, 'CLAIM_ALREADY_RESOLVED');
+  assert.equal(r5[1].type, 'TABLE_SNAPSHOT');
+
   const snap = engine.snapshotFor('p1');
   assert.equal(snap.type, 'TABLE_SNAPSHOT');
   assert.ok(typeof snap.serverSeq === 'number');
-  assert.equal(snap.publicState.handCounts.p1, 0);
+  assert.equal(snap.publicState.handCounts.p1, 1);
 }
 
 run();
