@@ -2984,16 +2984,14 @@ function discardTile(tableId, playerId, tile) {
   // 廣播打牌事件
   // 廣播打牌事件給所有玩家（確保所有玩家都能聽到打牌音效）
   gameLog(`>>> [音效廣播] 廣播打牌事件給房間 ${tableId} 的所有玩家，玩家${playerIndex + 1}打出：${tile}`);
-  if (!useProtocolEngine) {
-    io.to(tableId).emit('playerDiscard', {
-      playerId: playerId,
-      playerIndex: playerIndex,
-      tile: tile,
-      discardIndex: table.lastDiscard.index,
-      voiceSelection: typeof table.players[playerIndex]?.voiceSelection === 'number' ? table.players[playerIndex].voiceSelection : 0,
-      voiceLanguageSelection: typeof table.players[playerIndex]?.voiceLanguageSelection === 'number' ? table.players[playerIndex].voiceLanguageSelection : 0
-    });
-  }
+  io.to(tableId).emit('playerDiscard', {
+    playerId: playerId,
+    playerIndex: playerIndex,
+    tile: tile,
+    discardIndex: table.lastDiscard.index,
+    voiceSelection: typeof table.players[playerIndex]?.voiceSelection === 'number' ? table.players[playerIndex].voiceSelection : 0,
+    voiceLanguageSelection: typeof table.players[playerIndex]?.voiceLanguageSelection === 'number' ? table.players[playerIndex].voiceLanguageSelection : 0
+  });
 
   const updatedHand = table.hiddenHands[playerId];
   const melds = table.melds[playerId] || [];
