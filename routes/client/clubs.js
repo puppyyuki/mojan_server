@@ -708,7 +708,7 @@ router.post('/:clubId/rooms', async (req, res) => {
   try {
     const { prisma } = req.app.locals;
     const { clubId } = req.params;
-    const { maxPlayers, creatorId, gameSettings } = req.body;
+    const { maxPlayers, creatorId, gameSettings, multiplayerVersion } = req.body;
 
     const club = await findClub(prisma, clubId);
 
@@ -747,6 +747,11 @@ router.post('/:clubId/rooms', async (req, res) => {
       });
       return !exists;
     });
+
+    const normalizedMultiplayerVersion =
+      multiplayerVersion === 'v2' || multiplayerVersion === 'V2'
+        ? 'V2'
+        : 'V1';
 
     // 構建完整的遊戲設定
     let finalGameSettings = gameSettings || club.gameSettings || {};
@@ -795,6 +800,7 @@ router.post('/:clubId/rooms', async (req, res) => {
         currentPlayers: 0,
         maxPlayers: maxPlayers || 4,
         status: 'WAITING',
+        multiplayerVersion: normalizedMultiplayerVersion,
         gameSettings: finalGameSettings,
       },
     });

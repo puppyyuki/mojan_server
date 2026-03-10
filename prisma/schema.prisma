@@ -130,6 +130,11 @@ enum ClubActivityType {
   MEMBER_LEFT
 }
 
+enum MultiplayerVersion {
+  V1
+  V2
+}
+
 model ClubActivity {
   id             String           @id @default(cuid())
   clubId         String
@@ -177,6 +182,7 @@ model Room {
   currentPlayers Int               @default(0)
   maxPlayers     Int               @default(4)
   status         String            @default("WAITING") // WAITING, PLAYING, FINISHED
+  multiplayerVersion MultiplayerVersion @default(V1)
   gameSettings   Json? // 遊戲設定（JSON格式）
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt

@@ -10,7 +10,7 @@ const { generateUniqueId } = require('../../utils/idGenerator');
 router.post('/', async (req, res) => {
   try {
     const { prisma } = req.app.locals;
-    const { maxPlayers, creatorId, gameSettings } = req.body;
+    const { maxPlayers, creatorId, gameSettings, multiplayerVersion } = req.body;
 
     if (!creatorId) {
       return errorResponse(res, '請提供創建者ID', null, 400);
@@ -27,6 +27,11 @@ router.post('/', async (req, res) => {
       const exists = await prisma.room.findUnique({ where: { roomId: id } });
       return !exists;
     });
+
+    const normalizedMultiplayerVersion =
+      multiplayerVersion === 'v2' || multiplayerVersion === 'V2'
+        ? 'V2'
+        : 'V1';
 
     let finalGameSettings = gameSettings || {};
     if (gameSettings) {
@@ -58,6 +63,7 @@ router.post('/', async (req, res) => {
         currentPlayers: 0,
         maxPlayers: maxPlayers || 4,
         status: 'WAITING',
+        multiplayerVersion: normalizedMultiplayerVersion,
         gameSettings: finalGameSettings,
       },
     });
@@ -86,6 +92,7 @@ router.get('/:roomId', async (req, res) => {
         currentPlayers: true,
         maxPlayers: true,
         status: true,
+        multiplayerVersion: true,
         gameSettings: true,
         createdAt: true,
       },

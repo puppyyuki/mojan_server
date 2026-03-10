@@ -5399,7 +5399,7 @@ io.on('connection', (socket) => {
     try {
       roomRecord = await prisma.room.findUnique({
         where: { roomId: tableId },
-        select: { id: true, clubId: true, gameSettings: true }
+        select: { id: true, clubId: true, gameSettings: true, multiplayerVersion: true }
       });
       gameSettings = roomRecord?.gameSettings || null;
       manualStart = gameSettings?.manual_start === true;
@@ -5432,6 +5432,15 @@ io.on('connection', (socket) => {
         success: false,
         error: 'ROOM_NOT_FOUND',
         message: '房間不存在或已結束'
+      });
+      return;
+    }
+
+    if (roomRecord.multiplayerVersion === 'V2') {
+      socket.emit('joinTableError', {
+        success: false,
+        error: 'ROOM_IS_V2',
+        message: '此房間為多人遊玩頁面_v2 房間，請使用 v2 流程加入'
       });
       return;
     }
