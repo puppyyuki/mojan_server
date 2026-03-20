@@ -75,6 +75,7 @@ model Club {
   rooms        Room[]
   joinRequests ClubJoinRequest[] @relation("ClubJoinRequests")
   activities   ClubActivity[]
+  gameResults  ClubGameResult[]
 
   @@map("clubs")
 }
@@ -163,6 +164,8 @@ model ClubMember {
   noSameTable         Boolean    @default(false)
   clubScore           Int        @default(0) // 俱樂部內分數
   totalGames          Int        @default(0) // 俱樂部內總局數
+  bigWinnerCount      Int        @default(0) // 俱樂部內大贏家次數
+  roomCardConsumed    Int        @default(0) // 俱樂部內房卡消耗
   hostCount           Int        @default(0) // 俱樂部內房主次數
   lastGameTime        DateTime? // 最近遊戲時間
   bannedTablePlayers  String[]   @default([]) // 禁止同桌的玩家ID列表
@@ -170,6 +173,27 @@ model ClubMember {
 
   @@unique([clubId, playerId])
   @@map("club_members")
+}
+
+model ClubGameResult {
+  id                    String            @id @default(cuid())
+  clubId                String
+  club                  Club              @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  roomId                String            @unique
+  roomInternalId        String?
+  multiplayerVersion    MultiplayerVersion @default(V2)
+  totalRounds           Int               @default(1)
+  deduction             String            @default("AA_DEDUCTION")
+  roomCardConsumedTotal Int               @default(0)
+  bigWinnerPlayerIds    String[]          @default([])
+  scoresBySeat          Json?
+  players               Json?
+  endedAt               DateTime          @default(now())
+  createdAt             DateTime          @default(now())
+  updatedAt             DateTime          @updatedAt
+
+  @@index([clubId, endedAt])
+  @@map("club_game_results")
 }
 
 model Room {

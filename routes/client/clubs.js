@@ -94,6 +94,127 @@ function getCoLeaderPerms(member) {
   return perms;
 }
 
+function normalizeRoomGameSettings(raw) {
+  const input = raw && typeof raw === 'object' ? raw : {};
+  const special = input.special_rules && typeof input.special_rules === 'object'
+    ? input.special_rules
+    : {};
+  const deductionRaw = String(input.deduction || 'AA_DEDUCTION').toUpperCase();
+  const deduction = ['AA_DEDUCTION', 'HOST_DEDUCTION', 'CLUB_DEDUCTION'].includes(deductionRaw)
+    ? deductionRaw
+    : 'AA_DEDUCTION';
+  const roundsNum = Number(input.rounds);
+  const rounds = [1, 2, 4].includes(roundsNum) ? roundsNum : 1;
+  const gameTypeRaw = String(input.game_type || 'NORTHERN').toUpperCase();
+  const game_type = gameTypeRaw === 'SOUTHERN' ? 'SOUTHERN' : 'NORTHERN';
+  const pointCapRaw = String(input.point_cap || 'UP_TO_8_POINTS').toUpperCase();
+  const point_cap = ['UP_TO_4_POINTS', 'UP_TO_8_POINTS', 'NO_LIMIT'].includes(pointCapRaw)
+    ? pointCapRaw
+    : 'UP_TO_8_POINTS';
+  const basePointsNum = Number(input.base_points);
+  const scoringUnitNum = Number(input.scoring_unit);
+  return {
+    base_points: Number.isFinite(basePointsNum) ? Math.max(0, Math.floor(basePointsNum)) : 100,
+    scoring_unit: Number.isFinite(scoringUnitNum) ? Math.max(0, Math.floor(scoringUnitNum)) : 20,
+    rounds,
+    game_type,
+    special_rules: {
+      li_gu: special.li_gu === true,
+      eye_tile_feature: special.eye_tile_feature === true,
+      forced_win: special.forced_win === true,
+      no_points_dealer: special.no_points_dealer === true,
+    },
+    point_cap,
+    deduction,
+    manual_start: input.manual_start === true,
+    ip_check: input.ip_check === true,
+    gps_lock: input.gps_lock === true || input.location_check === true,
+  };
+}
+
+function applyClubGameSettingsPolicy(clubSettingsRaw, requestedRaw) {
+  const requested = normalizeRoomGameSettings(requestedRaw);
+  const clubSettings = clubSettingsRaw && typeof clubSettingsRaw === 'object' ? clubSettingsRaw : null;
+  if (!clubSettings) return requested;
+  const mode = String(clubSettings.global_settings || '').toUpperCase();
+  const isForced = mode === 'FORCED';
+  const specialRulePolicy = clubSettings.special_rules && typeof clubSettings.special_rules === 'object'
+    ? clubSettings.special_rules
+    : {};
+
+  const out = { ...requested, special_rules: { ...requested.special_rules } };
+
+  const lockOrValidateEnum = (key, value, allowed) => {
+    if (isForced) {
+      if (value != null) out[key] = value;
+      return;
+    }
+    if (!Array.isArray(allowed) || allowed.length === 0) return;
+    if (!allowed.includes(out[key])) out[key] = allowed[0];
+  };
+
+  if (clubSettings.game_type) {
+    out.game_type = String(clubSettings.game_type).toUpperCase() === 'SOUTHERN' ? 'SOUTHERN' : 'NORTHERN';
+  }
+
+  if (isForced) {
+    if (clubSettings.base_points != null) out.base_points = Number(clubSettings.base_points) || out.base_points;
+    if (clubSettings.scoring_unit != null) out.scoring_unit = Number(clubSettings.scoring_unit) || out.scoring_unit;
+    if (clubSettings.rounds != null) out.rounds = Number(clubSettings.rounds) || out.rounds;
+    if (clubSettings.point_cap != null) out.point_cap = String(clubSettings.point_cap);
+  } else {
+    const minBase = Number(clubSettings.minimum_base_point);
+    const maxBase = Number(clubSettings.maximum_base_point);
+    if (Number.isFinite(minBase)) out.base_points = Math.max(out.base_points, minBase);
+    if (Number.isFinite(maxBase)) out.base_points = Math.min(out.base_points, maxBase);
+    const minUnit = Number(clubSettings.minimum_scoring_unit);
+    const maxUnit = Number(clubSettings.maximum_scoring_unit);
+    if (Number.isFinite(minUnit)) out.scoring_unit = Math.max(out.scoring_unit, minUnit);
+    if (Number.isFinite(maxUnit)) out.scoring_unit = Math.min(out.scoring_unit, maxUnit);
+    lockOrValidateEnum('rounds', out.rounds, clubSettings.rounds);
+    lockOrValidateEnum('point_cap', out.point_cap, clubSettings.point_cap);
+  }
+
+  const deductionPolicy = clubSettings.deduction && typeof clubSettings.deduction === 'object'
+    ? clubSettings.deduction
+    : null;
+  if (deductionPolicy) {
+    const allowAA = deductionPolicy.aa_deduction === true;
+    const allowHost = deductionPolicy.host_deduction === true;
+    if (isForced) {
+      if (allowHost && !allowAA) out.deduction = 'HOST_DEDUCTION';
+      else if (allowAA && !allowHost) out.deduction = 'AA_DEDUCTION';
+      else if (!allowAA && !allowHost) out.deduction = 'CLUB_DEDUCTION';
+    } else {
+      if (out.deduction === 'AA_DEDUCTION' && !allowAA) {
+        out.deduction = allowHost ? 'HOST_DEDUCTION' : 'CLUB_DEDUCTION';
+      } else if (out.deduction === 'HOST_DEDUCTION' && !allowHost) {
+        out.deduction = allowAA ? 'AA_DEDUCTION' : 'CLUB_DEDUCTION';
+      }
+    }
+  }
+
+  for (const key of ['li_gu', 'eye_tile_feature', 'forced_win', 'no_points_dealer']) {
+    const policy = specialRulePolicy[key];
+    if (isForced) {
+      if (policy != null) out.special_rules[key] = policy === true;
+    } else if (policy === false) {
+      out.special_rules[key] = false;
+    }
+  }
+
+  for (const key of ['manual_start', 'ip_check', 'gps_lock']) {
+    const policy = clubSettings[key];
+    if (isForced) {
+      if (typeof policy === 'boolean') out[key] = policy;
+    } else if (policy === false) {
+      out[key] = false;
+    }
+  }
+
+  return normalizeRoomGameSettings(out);
+}
+
 async function requireClubOwnerOrPermission(prisma, clubInternalId, actorPlayerId, permissionKey) {
   const club = await prisma.club.findUnique({
     where: { id: clubInternalId },
@@ -347,20 +468,46 @@ router.get('/:clubId/rooms', async (req, res) => {
       },
     });
 
-    const data = rooms.map((room) => ({
+    // 舊資料或異常中斷可能留下「無人在房但房間仍存在」的殘留房。
+    // 對 WAITING 且無活躍 participants 的房間做即時清理，避免列表卡住。
+    const staleRoomIds = rooms
+      .filter((room) => {
+        const activeCount = Array.isArray(room.participants)
+          ? room.participants.length
+          : 0;
+        return room.status === 'WAITING' && activeCount <= 0;
+      })
+      .map((room) => room.id);
+
+    if (staleRoomIds.length > 0) {
+      await prisma.room.deleteMany({
+        where: { id: { in: staleRoomIds } },
+      });
+    }
+
+    const visibleRooms = rooms.filter((room) => !staleRoomIds.includes(room.id));
+
+    const data = visibleRooms.map((room) => ({
       id: room.id,
       roomId: room.roomId,
+      multiplayerVersion: room.multiplayerVersion,
       status: room.status,
       currentPlayers: room.currentPlayers,
       maxPlayers: room.maxPlayers,
       gameSettings: room.gameSettings,
+      game_settings: room.gameSettings,
       createdAt: room.createdAt,
       updatedAt: room.updatedAt,
       players: (room.participants || []).map((p) => ({
         id: p.player?.id ?? p.playerId ?? null,
+        playerId: p.player?.id ?? p.playerId ?? null,
         userId: p.player?.userId ?? null,
+        user_id: p.player?.userId ?? null,
+        nickname: p.player?.nickname ?? '',
+        display_name: p.player?.nickname ?? '',
         name: p.player?.nickname ?? '',
         avatarUrl: p.player?.avatarUrl ?? null,
+        profile_picture_url: p.player?.avatarUrl ?? null,
         joinedAt: p.joinedAt,
         leftAt: p.leftAt,
       })),
@@ -598,7 +745,7 @@ router.post('/:clubId/join-requests/:requestId', async (req, res) => {
 
 /**
  * GET /api/client/clubs/:clubId/rankings
- * 獲取俱樂部排行榜（暫以會員房卡數排序）
+ * 獲取俱樂部排行榜（可依日期區間聚合）
  */
 router.get('/:clubId/rankings', async (req, res) => {
   try {
@@ -608,6 +755,28 @@ router.get('/:clubId/rankings', async (req, res) => {
     const club = await findClub(prisma, clubId);
     if (!club) {
       return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    const startDateRaw = req.query.startDate?.toString?.() ?? '';
+    const endDateRaw = req.query.endDate?.toString?.() ?? '';
+    const hasDateFilter = !!(startDateRaw || endDateRaw);
+    const parseDateMaybe = (raw, isEnd) => {
+      if (!raw) return null;
+      const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(raw);
+      const dt = new Date(raw);
+      if (Number.isNaN(dt.getTime())) return null;
+      if (isDateOnly && isEnd) {
+        dt.setHours(23, 59, 59, 999);
+      }
+      return dt;
+    };
+    const startDate = parseDateMaybe(startDateRaw, false);
+    const endDate = parseDateMaybe(endDateRaw, true);
+    if ((startDateRaw && !startDate) || (endDateRaw && !endDate)) {
+      return errorResponse(res, '日期格式錯誤，請使用 YYYY-MM-DD', null, 400);
+    }
+    if (startDate && endDate && startDate > endDate) {
+      return errorResponse(res, '開始日期不可晚於結束日期', null, 400);
     }
 
     const members = await prisma.clubMember.findMany({
@@ -625,16 +794,82 @@ router.get('/:clubId/rankings', async (req, res) => {
       },
     });
 
-    const rankings = members
-      .map((m) => ({
-        playerId: m.player?.id ?? null,
+    const byPlayerId = new Map();
+    for (const m of members) {
+      const pid = m.player?.id ?? null;
+      if (!pid) continue;
+      byPlayerId.set(pid, {
+        playerId: pid,
         userId: m.player?.userId ?? null,
         nickname: m.player?.nickname ?? '',
         avatarUrl: m.player?.avatarUrl ?? null,
-        cardCount: m.player?.cardCount ?? 0,
         role: m.role,
-      }))
-      .sort((a, b) => (b.cardCount || 0) - (a.cardCount || 0));
+        clubScore: m.clubScore ?? 0,
+        totalGames: m.totalGames ?? 0,
+        bigWinnerCount: m.bigWinnerCount ?? 0,
+        roomCardConsumed: m.roomCardConsumed ?? 0,
+        lastGameTime: m.lastGameTime ?? null,
+      });
+    }
+
+    if (hasDateFilter) {
+      for (const row of byPlayerId.values()) {
+        row.clubScore = 0;
+        row.totalGames = 0;
+        row.bigWinnerCount = 0;
+        row.roomCardConsumed = 0;
+        row.lastGameTime = null;
+      }
+
+      const where = {
+        clubId: club.id,
+      };
+      if (startDate || endDate) {
+        where.endedAt = {};
+        if (startDate) where.endedAt.gte = startDate;
+        if (endDate) where.endedAt.lte = endDate;
+      }
+      const gameResults = await prisma.clubGameResult.findMany({
+        where,
+        select: {
+          endedAt: true,
+          players: true,
+        },
+      });
+
+      for (const game of gameResults) {
+        const players = Array.isArray(game.players) ? game.players : [];
+        for (const p of players) {
+          const pid = p?.playerId?.toString?.() ?? '';
+          if (!pid || !byPlayerId.has(pid)) continue;
+          const row = byPlayerId.get(pid);
+          row.clubScore += Number(p?.score ?? 0) || 0;
+          row.totalGames += 1;
+          if (p?.isBigWinner === true) row.bigWinnerCount += 1;
+          row.roomCardConsumed += Number(p?.roomCardConsumed ?? 0) || 0;
+          row.lastGameTime =
+            !row.lastGameTime || row.lastGameTime < game.endedAt
+              ? game.endedAt
+              : row.lastGameTime;
+        }
+      }
+    }
+
+    const rankings = Array.from(byPlayerId.values())
+      .filter((r) => !hasDateFilter || r.totalGames > 0)
+      .sort((a, b) => {
+        if ((b.clubScore || 0) !== (a.clubScore || 0)) {
+          return (b.clubScore || 0) - (a.clubScore || 0);
+        }
+        if ((b.bigWinnerCount || 0) !== (a.bigWinnerCount || 0)) {
+          return (b.bigWinnerCount || 0) - (a.bigWinnerCount || 0);
+        }
+        return (b.totalGames || 0) - (a.totalGames || 0);
+      })
+      .map((r, idx) => ({
+        rank: idx + 1,
+        ...r,
+      }));
 
     return successResponse(res, rankings);
   } catch (error) {
@@ -716,8 +951,10 @@ router.post('/:clubId/rooms', async (req, res) => {
       return errorResponse(res, '俱樂部不存在', null, 404);
     }
 
-    // 如果沒有提供 creatorId，使用俱樂部的創建者
-    const roomCreatorId = creatorId || club.creatorId;
+    if (!isNonEmptyString(creatorId)) {
+      return errorResponse(res, '請提供開房玩家ID', null, 400);
+    }
+    const roomCreatorId = creatorId.toString();
 
     // 驗證創建者是否存在
     const creator = await prisma.player.findUnique({
@@ -728,16 +965,27 @@ router.post('/:clubId/rooms', async (req, res) => {
       return errorResponse(res, '創建者不存在', null, 404);
     }
 
-    const member = await prisma.clubMember.findFirst({
+    const member = await prisma.clubMember.findUnique({
       where: {
-        clubId: club.id,
-        playerId: roomCreatorId,
+        clubId_playerId: {
+          clubId: club.id,
+          playerId: roomCreatorId,
+        },
       },
-      select: { isBanned: true },
+      select: { role: true, isBanned: true, coLeaderPermissions: true },
     });
 
-    if (member?.isBanned === true) {
+    if (!member) {
+      return errorResponse(res, '只有俱樂部成員可開房', null, 403);
+    }
+    if (member.isBanned === true) {
       return errorResponse(res, '您目前被禁止開房', null, 403);
+    }
+    if (
+      member.role === 'CO_LEADER' &&
+      getCoLeaderPerms(member)?.modifyClubRules === false
+    ) {
+      return errorResponse(res, '沒有開房權限', null, 403);
     }
 
     // 生成唯一的6位數字ID
@@ -753,31 +1001,12 @@ router.post('/:clubId/rooms', async (req, res) => {
         ? 'V2'
         : 'V1';
 
-    // 構建完整的遊戲設定
-    let finalGameSettings = gameSettings || club.gameSettings || {};
+    const finalGameSettings = applyClubGameSettingsPolicy(
+      club.gameSettings || null,
+      gameSettings || null
+    );
 
-    // 確保遊戲設定包含所有必要的字段
-    if (gameSettings) {
-      finalGameSettings = {
-        base_points: gameSettings.base_points || 100,
-        scoring_unit: gameSettings.scoring_unit || 20,
-        rounds: gameSettings.rounds || 4,
-        game_type: gameSettings.game_type || 'NORTHERN',
-        special_rules: gameSettings.special_rules || {
-          li_gu: false,
-          eye_tile_feature: false,
-          forced_win: false,
-          no_points_dealer: false,
-        },
-        point_cap: gameSettings.point_cap || 'UP_TO_8_POINTS',
-        deduction: gameSettings.deduction || 'AA_DEDUCTION',
-        manual_start: gameSettings.manual_start || false,
-        ip_check: gameSettings.ip_check || false,
-        gps_lock: gameSettings.gps_lock || false,
-      };
-    }
-
-    if (finalGameSettings?.deduction === 'HOST_DEDUCTION') {
+    if (finalGameSettings?.deduction === 'HOST_DEDUCTION' || finalGameSettings?.deduction === 'CLUB_DEDUCTION') {
       const rounds = finalGameSettings?.rounds || 1;
       const requiredCards = rounds * 4;
       const clubCardBalance = club?.cardCount ?? 0;

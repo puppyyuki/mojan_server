@@ -329,121 +329,129 @@ async function startGame(tableId) {
 
   console.log(`>>> [遊戲開始] 圈數設定: ${table.maxRounds} 圈，當前圈數: ${table.round}`);
 
-  // 執行扣卡邏輯（在遊戲開始前）
+  // 執行扣卡邏輯（僅在開局成功前扣一次）
   const deduction = table.gameSettings?.deduction || 'AA_DEDUCTION';
   const rounds = table.maxRounds || 1;
-  const cardsPerRound = 4; // 每圈需要4張房卡（4人各1張）
-  const totalCardsNeeded = rounds * cardsPerRound; // 總共需要的房卡數量
-
+  const cardsPerRound = 4;
+  const totalCardsNeeded = rounds * cardsPerRound;
   const room = await prisma.room.findUnique({
     where: { roomId: tableId },
     select: { creatorId: true, clubId: true },
   });
 
-  if (deduction === 'HOST_DEDUCTION' && room?.clubId) {
-    const club = await prisma.club.findUnique({
-      where: { id: room.clubId },
-      select: { cardCount: true },
-    });
-    const clubCardBalance = club?.cardCount ?? 0;
-
-    if (!club || clubCardBalance < totalCardsNeeded) {
-      const message = `俱樂部房卡不足，無法開始遊戲（需要 ${totalCardsNeeded} 張，目前 ${clubCardBalance} 張）`;
-      console.log(`>>> [扣卡] ${message}`);
-      table.started = false;
-      table.gamePhase = GamePhase.WAITING;
-      io.to(tableId).emit('gameCountdown', { countdown: null, message });
-      return;
-    }
-
-    await prisma.club.update({
-      where: { id: room.clubId },
-      data: { cardCount: { decrement: totalCardsNeeded } },
-    });
-    console.log(`>>> [扣卡] 俱樂部扣卡：扣除 ${totalCardsNeeded} 張房卡（${rounds}圈），俱樂部ID: ${room.clubId}`);
-  } else if (deduction === 'HOST_DEDUCTION' && room?.creatorId) {
-    // 房主扣卡：由房主扣除所有房卡
-    try {
-      const hostPlayer = await prisma.player.findUnique({
-        where: { id: room.creatorId },
-        select: { cardCount: true },
-      });
-
-      if (hostPlayer && hostPlayer.cardCount >= totalCardsNeeded) {
-        const previousCount = hostPlayer.cardCount;
-        const newCount = previousCount - totalCardsNeeded;
-
-        await prisma.$transaction([
-          prisma.player.update({
-            where: { id: room.creatorId },
-            data: {
-              cardCount: {
-                decrement: totalCardsNeeded,
-              },
-            },
-          }),
-          prisma.cardConsumptionRecord.create({
-            data: {
-              playerId: room.creatorId,
-              roomId: tableId,
-              amount: totalCardsNeeded,
-              reason: 'game_start_host_deduction',
-              previousCount: previousCount,
-              newCount: newCount,
-            },
-          }),
-        ]);
-        console.log(`>>> [扣卡] 房主扣卡：扣除 ${totalCardsNeeded} 張房卡（${rounds}圈），剩餘: ${newCount}`);
-      } else {
-        console.log(`>>> [扣卡] 房主房卡不足：需要 ${totalCardsNeeded} 張，目前 ${hostPlayer?.cardCount || 0} 張`);
-      }
-    } catch (error) {
-      console.error(`>>> [扣卡] 房主扣卡邏輯執行失敗:`, error);
-    }
-  } else if (deduction === 'AA_DEDUCTION') {
-    // AA扣卡：每位玩家各扣每圈1張（共 rounds 張）
-    const cardsPerPlayer = rounds; // 每位玩家需要扣的房卡數量
-
-    for (const player of table.players) {
-      try {
-        const dbPlayer = await prisma.player.findUnique({
-          where: { id: player.id },
-          select: { cardCount: true },
+  let deductionSyncPayload = null;
+  try {
+    deductionSyncPayload = await prisma.$transaction(async (tx) => {
+      if ((deduction === 'HOST_DEDUCTION' || deduction === 'CLUB_DEDUCTION') && room?.clubId) {
+        const club = await tx.club.findUnique({
+          where: { id: room.clubId },
+          select: { id: true, cardCount: true },
         });
-
-        if (dbPlayer && dbPlayer.cardCount >= cardsPerPlayer) {
-          const previousCount = dbPlayer.cardCount;
-          const newCount = previousCount - cardsPerPlayer;
-
-          await prisma.$transaction([
-            prisma.player.update({
-              where: { id: player.id },
-              data: {
-                cardCount: {
-                  decrement: cardsPerPlayer,
-                },
-              },
-            }),
-            prisma.cardConsumptionRecord.create({
-              data: {
-                playerId: player.id,
-                roomId: tableId,
-                amount: cardsPerPlayer,
-                reason: 'game_start_aa_deduction',
-                previousCount: previousCount,
-                newCount: newCount,
-              },
-            }),
-          ]);
-          console.log(`>>> [扣卡] AA扣卡：玩家 ${player.name} 扣除 ${cardsPerPlayer} 張房卡（${rounds}圈），剩餘: ${newCount}`);
-        } else {
-          console.log(`>>> [扣卡] 玩家 ${player.name} 房卡不足：需要 ${cardsPerPlayer} 張，目前 ${dbPlayer?.cardCount || 0} 張`);
+        const balance = club?.cardCount ?? 0;
+        if (!club || balance < totalCardsNeeded) {
+          throw new Error(`俱樂部房卡不足，無法開始遊戲（需要 ${totalCardsNeeded} 張，目前 ${balance} 張）`);
         }
-      } catch (error) {
-        console.error(`>>> [扣卡] 扣除玩家 ${player.name} 房卡失敗:`, error);
+        const updated = await tx.club.update({
+          where: { id: room.clubId },
+          data: { cardCount: { decrement: totalCardsNeeded } },
+          select: { id: true, cardCount: true },
+        });
+        return {
+          deduction,
+          club: updated,
+          players: [],
+          amount: totalCardsNeeded,
+        };
       }
-    }
+
+      if (deduction === 'HOST_DEDUCTION' && room?.creatorId) {
+        const host = await tx.player.findUnique({
+          where: { id: room.creatorId },
+          select: { id: true, cardCount: true },
+        });
+        const balance = host?.cardCount ?? 0;
+        if (!host || balance < totalCardsNeeded) {
+          throw new Error(`房主房卡不足，無法開始遊戲（需要 ${totalCardsNeeded} 張，目前 ${balance} 張）`);
+        }
+        const updated = await tx.player.update({
+          where: { id: room.creatorId },
+          data: { cardCount: { decrement: totalCardsNeeded } },
+          select: { id: true, cardCount: true },
+        });
+        await tx.cardConsumptionRecord.create({
+          data: {
+            playerId: room.creatorId,
+            roomId: tableId,
+            amount: totalCardsNeeded,
+            reason: 'game_start_host_deduction',
+            previousCount: balance,
+            newCount: updated.cardCount,
+          },
+        });
+        return {
+          deduction,
+          club: null,
+          players: [updated],
+          amount: totalCardsNeeded,
+        };
+      }
+
+      const cardsPerPlayer = rounds;
+      const playerIds = table.players.map((p) => p.id);
+      const dbPlayers = await tx.player.findMany({
+        where: { id: { in: playerIds } },
+        select: { id: true, cardCount: true },
+      });
+      const byId = new Map(dbPlayers.map((p) => [p.id, p]));
+      for (const p of table.players) {
+        const db = byId.get(p.id);
+        const balance = db?.cardCount ?? 0;
+        if (!db || balance < cardsPerPlayer) {
+          throw new Error(`玩家 ${p.name} 房卡不足，無法開始遊戲（需要 ${cardsPerPlayer} 張，目前 ${balance} 張）`);
+        }
+      }
+      const updatedPlayers = [];
+      for (const p of table.players) {
+        const before = byId.get(p.id).cardCount;
+        const updated = await tx.player.update({
+          where: { id: p.id },
+          data: { cardCount: { decrement: cardsPerPlayer } },
+          select: { id: true, cardCount: true },
+        });
+        updatedPlayers.push(updated);
+        await tx.cardConsumptionRecord.create({
+          data: {
+            playerId: p.id,
+            roomId: tableId,
+            amount: cardsPerPlayer,
+            reason: 'game_start_aa_deduction',
+            previousCount: before,
+            newCount: updated.cardCount,
+          },
+        });
+      }
+      return {
+        deduction,
+        club: null,
+        players: updatedPlayers,
+        amount: cardsPerPlayer,
+      };
+    });
+  } catch (error) {
+    const message = error?.message || '扣卡失敗，無法開始遊戲';
+    console.log(`>>> [扣卡] ${message}`);
+    table.started = false;
+    table.gamePhase = GamePhase.WAITING;
+    io.to(tableId).emit('gameCountdown', { countdown: null, message });
+    return;
   }
+
+  io.to(tableId).emit('assetBalanceUpdated', {
+    tableId,
+    deduction: deductionSyncPayload?.deduction ?? deduction,
+    club: deductionSyncPayload?.club ?? null,
+    players: deductionSyncPayload?.players ?? [],
+  });
 
   // 設置遊戲狀態
   table.started = true;
@@ -2765,59 +2773,6 @@ async function endGame(tableId, reason, scores = null) {
     currentRound: table.round || 1
   });
 
-  // 扣除房間創建者的卡片（流局或胡牌時都扣除）
-  if (reason === 'draw' || reason === 'hu') {
-    try {
-      // 從數據庫獲取房間信息
-      const room = await prisma.room.findUnique({
-        where: { roomId: tableId },
-        select: { creatorId: true },
-      });
-
-      if (room && room.creatorId) {
-        // 獲取創建者的當前卡片數量
-        const creator = await prisma.player.findUnique({
-          where: { id: room.creatorId },
-          select: { cardCount: true },
-        });
-
-        if (creator && creator.cardCount > 0) {
-          const previousCount = creator.cardCount;
-          const newCount = previousCount - 1;
-
-          // 扣除一張卡片並記錄消耗
-          await prisma.$transaction([
-            prisma.player.update({
-              where: { id: room.creatorId },
-              data: {
-                cardCount: {
-                  decrement: 1,
-                },
-              },
-            }),
-            prisma.cardConsumptionRecord.create({
-              data: {
-                playerId: room.creatorId,
-                roomId: tableId,
-                amount: 1,
-                reason: 'game_end',
-                previousCount: previousCount,
-                newCount: newCount,
-              },
-            }),
-          ]);
-          console.log(`已扣除房間創建者 ${room.creatorId} 的卡片，剩餘: ${newCount}`);
-        } else {
-          console.log(`房間創建者 ${room.creatorId} 卡片數量不足，無法扣除`);
-        }
-      } else {
-        console.log(`無法找到房間 ${tableId} 的創建者信息`);
-      }
-    } catch (error) {
-      console.error(`扣除房間創建者卡片失敗: ${tableId}`, error);
-      // 不影響遊戲結束流程，只記錄錯誤
-    }
-  }
 }
 
 // 打牌函數
