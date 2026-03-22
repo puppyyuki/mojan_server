@@ -396,7 +396,7 @@ model V2MatchSession {
   @@map("v2_match_sessions")
 }
 
-// 每局胡牌／自摸後一筆（含重播事件流）
+// 每局結束一筆：胡牌／自摸或流局皆計一局（含重播事件流）
 model V2MatchRound {
   id                String         @id @default(cuid())
   sessionId         String
@@ -406,6 +406,10 @@ model V2MatchRound {
   scoreChangeBySeat Json
   roundEndPayload   Json?
   eventsJson        Json
+  /// 11 碼重播分享碼（9 碼不重複數字 + 2 碼局序），全表唯一；由 API 首次分享時寫入
+  shareCode         String?        @unique
+  /// 產生分享碼的參與者（他人用分享碼觀看重播時一律用其座位為視角）
+  shareCodeAllocatedByPlayerId String?
 
   @@unique([sessionId, roundIndex])
   @@index([sessionId])

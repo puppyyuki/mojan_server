@@ -730,7 +730,7 @@ router.post('/:roomId/v2/session/start', async (req, res) => {
 
 /**
  * POST /api/client/rooms/:roomId/v2/round
- * 每局胡牌後寫入事件與分數（非阻塞由呼叫端處理）
+ * 每局結束後寫入事件與分數（胡牌、自摸或流局皆算一局；非阻塞由呼叫端處理）
  */
 router.post('/:roomId/v2/round', async (req, res) => {
   try {
