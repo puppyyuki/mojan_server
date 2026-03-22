@@ -53,6 +53,7 @@ model Player {
   agentPurchases         AgentRoomCardPurchase[]
   joinRequests           ClubJoinRequest[]       @relation("PlayerJoinRequests")
   roomParticipants       RoomParticipant[]       @relation("PlayerRoomParticipants")
+  v2MatchParticipants    V2MatchParticipant[]
 
   @@map("players")
 }
@@ -370,4 +371,61 @@ model Purchase {
   updatedAt     DateTime @updatedAt
 
   @@map("purchases")
+}
+
+// 多人 v2：一場對局（戰績／重播 session）
+model V2MatchSession {
+  id                 String             @id @default(cuid())
+  roomCode           String
+  roomInternalId     String?
+  clubId             String?
+  hostPlayerId       String
+  multiplayerVersion MultiplayerVersion @default(V2)
+  gameSettings       Json?
+  status             String             @default("IN_PROGRESS") // IN_PROGRESS, FINISHED, DISBANDED
+  startedAt          DateTime           @default(now())
+  endedAt            DateTime?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  rounds        V2MatchRound[]
+  participants  V2MatchParticipant[]
+
+  @@index([roomCode, startedAt])
+  @@index([status])
+  @@map("v2_match_sessions")
+}
+
+// 每局胡牌／自摸後一筆（含重播事件流）
+model V2MatchRound {
+  id                String         @id @default(cuid())
+  sessionId         String
+  session           V2MatchSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  roundIndex        Int
+  endedAt           DateTime       @default(now())
+  scoreChangeBySeat Json
+  roundEndPayload   Json?
+  eventsJson        Json
+
+  @@unique([sessionId, roundIndex])
+  @@index([sessionId])
+  @@map("v2_match_rounds")
+}
+
+model V2MatchParticipant {
+  id              String         @id @default(cuid())
+  sessionId       String
+  session         V2MatchSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  playerId        String
+  player          Player         @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  seat            Int
+  isHost          Boolean        @default(false)
+  matchTotalScore Int            @default(0)
+  nickname        String         @default("")
+  userId          String?
+  avatarUrl       String?
+
+  @@unique([sessionId, playerId])
+  @@index([playerId])
+  @@map("v2_match_participants")
 }

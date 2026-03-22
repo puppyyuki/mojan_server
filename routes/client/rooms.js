@@ -405,10 +405,17 @@ router.post('/:roomId/participants/join', async (req, res) => {
       where: { roomId: room.id, leftAt: null },
     });
 
-    await prisma.room.update({
+    const roomRow = await prisma.room.updateMany({
       where: { id: room.id },
       data: { currentPlayers: activeCount },
     });
+    if (roomRow.count === 0) {
+      return successResponse(
+        res,
+        { roomId: room.roomId, playerId, currentPlayers: activeCount },
+        '房間紀錄已移除，略過人數同步'
+      );
+    }
 
     return successResponse(
       res,
@@ -460,10 +467,18 @@ router.post('/:roomId/participants/leave', async (req, res) => {
       where: { roomId: room.id, leftAt: null },
     });
 
-    await prisma.room.update({
+    // 解散時可能已先刪除 Room，與離房同步並行會造成 prisma.room.update P2025；updateMany 不會拋錯
+    const roomRow = await prisma.room.updateMany({
       where: { id: room.id },
       data: { currentPlayers: activeCount },
     });
+    if (roomRow.count === 0) {
+      return successResponse(
+        res,
+        { roomId: room.roomId, playerId, currentPlayers: activeCount },
+        '房間紀錄已移除，略過人數同步'
+      );
+    }
 
     return successResponse(
       res,
@@ -644,6 +659,217 @@ router.post('/:roomId/final-settlement', async (req, res) => {
   } catch (error) {
     console.error('[Rooms API] v2 最終結算落庫失敗:', error);
     return errorResponse(res, '最終結算落庫失敗', error.message, 500);
+  }
+});
+
+function v2HistoryWriteAllowed(req) {
+  const secret = process.env.V2_HISTORY_SECRET;
+  if (!secret || !String(secret).trim()) return true;
+  return req.get('x-v2-history-secret') === String(secret);
+}
+
+/**
+ * POST /api/client/rooms/:roomId/v2/session/start
+ * v2 遊戲開始時建立戰績 session（由 colyseus 呼叫）
+ */
+router.post('/:roomId/v2/session/start', async (req, res) => {
+  try {
+    if (!v2HistoryWriteAllowed(req)) {
+      return errorResponse(res, '未授權寫入戰績', null, 403);
+    }
+    const { prisma } = req.app.locals;
+    const { roomId } = req.params;
+    const body = req.body || {};
+    const hostPlayerId = (body.hostPlayerId || '').toString();
+    const players = Array.isArray(body.players) ? body.players : [];
+    const gameSettings = body.gameSettings ?? null;
+
+    if (!hostPlayerId || players.length !== 4) {
+      return errorResponse(res, '請提供 hostPlayerId 與四位玩家', null, 400);
+    }
+
+    const room = await prisma.room.findUnique({
+      where: { roomId },
+      select: { id: true, roomId: true, clubId: true },
+    });
+    if (!room) {
+      return errorResponse(res, '房間不存在', null, 404);
+    }
+
+    const session = await prisma.v2MatchSession.create({
+      data: {
+        roomCode: room.roomId,
+        roomInternalId: room.id,
+        clubId: room.clubId,
+        hostPlayerId,
+        multiplayerVersion: 'V2',
+        gameSettings,
+        status: 'IN_PROGRESS',
+        participants: {
+          create: players
+            .map((p) => ({
+              playerId: p.playerId?.toString() || '',
+              seat: Number(p.seat) || 0,
+              isHost: !!p.isHost,
+              nickname: (p.nickname || '').toString(),
+              userId: p.userId?.toString() || null,
+              avatarUrl: p.avatarUrl?.toString() || null,
+              matchTotalScore: 0,
+            }))
+            .filter((p) => p.playerId.length > 0),
+        },
+      },
+    });
+
+    return successResponse(res, { sessionId: session.id }, 'v2 session 已建立');
+  } catch (error) {
+    console.error('[Rooms API] v2 session/start 失敗:', error);
+    return errorResponse(res, '建立戰績 session 失敗', error.message, 500);
+  }
+});
+
+/**
+ * POST /api/client/rooms/:roomId/v2/round
+ * 每局胡牌後寫入事件與分數（非阻塞由呼叫端處理）
+ */
+router.post('/:roomId/v2/round', async (req, res) => {
+  try {
+    if (!v2HistoryWriteAllowed(req)) {
+      return errorResponse(res, '未授權寫入戰績', null, 403);
+    }
+    const { prisma } = req.app.locals;
+    const { roomId } = req.params;
+    const body = req.body || {};
+    const sessionId = (body.sessionId || '').toString();
+    const roundIndex = Number(body.roundIndex);
+    const events = body.events;
+    const scoreChangeBySeat = normalizeScoresBySeat(body.scoreChangeBySeat);
+    const roundEndPayload = body.roundEndPayload ?? null;
+
+    if (!sessionId || !Number.isInteger(roundIndex) || roundIndex < 1) {
+      return errorResponse(res, '請提供 sessionId 與 roundIndex', null, 400);
+    }
+    if (!Array.isArray(events)) {
+      return errorResponse(res, '請提供 events 陣列', null, 400);
+    }
+
+    const room = await prisma.room.findUnique({
+      where: { roomId },
+      select: { roomId: true },
+    });
+    if (!room) {
+      return errorResponse(res, '房間不存在', null, 404);
+    }
+
+    const session = await prisma.v2MatchSession.findUnique({
+      where: { id: sessionId },
+      select: { id: true, roomCode: true },
+    });
+    if (!session || session.roomCode !== room.roomId) {
+      return errorResponse(res, 'session 與房號不符', null, 400);
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const existingRound = await tx.v2MatchRound.findUnique({
+        where: {
+          sessionId_roundIndex: { sessionId, roundIndex },
+        },
+      });
+
+      if (existingRound) {
+        await tx.v2MatchRound.update({
+          where: { id: existingRound.id },
+          data: {
+            scoreChangeBySeat,
+            roundEndPayload,
+            eventsJson: events,
+            endedAt: new Date(),
+          },
+        });
+      } else {
+        await tx.v2MatchRound.create({
+          data: {
+            sessionId,
+            roundIndex,
+            scoreChangeBySeat,
+            roundEndPayload,
+            eventsJson: events,
+          },
+        });
+
+        const parts = await tx.v2MatchParticipant.findMany({
+          where: { sessionId },
+        });
+        for (const p of parts) {
+          const delta = Number(scoreChangeBySeat[p.seat] ?? 0) || 0;
+          if (delta === 0) continue;
+          await tx.v2MatchParticipant.update({
+            where: {
+              sessionId_playerId: {
+                sessionId,
+                playerId: p.playerId,
+              },
+            },
+            data: { matchTotalScore: { increment: delta } },
+          });
+        }
+      }
+    });
+
+    return successResponse(res, { sessionId, roundIndex }, '局資料已寫入');
+  } catch (error) {
+    console.error('[Rooms API] v2 round 失敗:', error);
+    return errorResponse(res, '寫入局戰績失敗', error.message, 500);
+  }
+});
+
+/**
+ * PATCH /api/client/rooms/:roomId/v2/session/status
+ * 標記 session 結束或解散
+ */
+router.patch('/:roomId/v2/session/status', async (req, res) => {
+  try {
+    if (!v2HistoryWriteAllowed(req)) {
+      return errorResponse(res, '未授權寫入戰績', null, 403);
+    }
+    const { prisma } = req.app.locals;
+    const { roomId } = req.params;
+    const body = req.body || {};
+    const sessionId = (body.sessionId || '').toString();
+    const status = (body.status || '').toString().toUpperCase();
+
+    if (!sessionId || !['FINISHED', 'DISBANDED'].includes(status)) {
+      return errorResponse(res, '請提供 sessionId 與 status', null, 400);
+    }
+
+    const room = await prisma.room.findUnique({
+      where: { roomId },
+      select: { roomId: true },
+    });
+    if (!room) {
+      return errorResponse(res, '房間不存在', null, 404);
+    }
+
+    const session = await prisma.v2MatchSession.findUnique({
+      where: { id: sessionId },
+      select: { roomCode: true },
+    });
+    if (!session || session.roomCode !== room.roomId) {
+      return errorResponse(res, 'session 與房號不符', null, 400);
+    }
+
+    await prisma.v2MatchSession.update({
+      where: { id: sessionId },
+      data: {
+        status,
+        endedAt: new Date(),
+      },
+    });
+
+    return successResponse(res, { sessionId, status }, 'session 狀態已更新');
+  } catch (error) {
+    console.error('[Rooms API] v2 session/status 失敗:', error);
+    return errorResponse(res, '更新 session 失敗', error.message, 500);
   }
 });
 

@@ -25,7 +25,8 @@ const app = express();
 
 // 使用統一的 CORS 中間件
 app.use(corsMiddleware);
-app.use(express.json());
+// v2 戰績每局重播 events 可能很大（含手牌／剩餘牌山等），預設 100kb 會 entity.too.large
+app.use(express.json({ limit: '20mb' }));
 // 綠界使用 application/x-www-form-urlencoded 格式
 app.use(express.urlencoded({ extended: true }));
 
@@ -6590,6 +6591,10 @@ console.log('[Server] Client payments routes mounted at /api/client/payments');
 const referralRoutes = require('./routes/client/referral');
 app.use('/api/client/referral', referralRoutes);
 console.log('[Server] Client referral routes mounted at /api/client/referral');
+
+const v2ClientRoutes = require('./routes/client/v2_client');
+app.use('/api/client/v2', v2ClientRoutes);
+console.log('[Server] Client v2 routes mounted at /api/client/v2');
 
 // 後台 API 路由
 const adminRoomCardOrdersRoutes = require('./routes/admin/roomCardOrders');

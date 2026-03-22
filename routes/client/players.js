@@ -22,6 +22,91 @@ router.get('/', async (req, res) => {
 });
 
 /**
+ * GET /api/client/players/:id/v2/matches
+ * 該玩家參與的 v2 戰績列表（主大廳 card）
+ * Query: actorPlayerId（須與 :id 相同）、limit、skip
+ */
+router.get('/:id/v2/matches', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { id } = req.params;
+    const actorPlayerId = (req.query.actorPlayerId || '').toString();
+    const limit = Math.min(Number(req.query.limit) || 20, 50);
+    const skip = Math.min(Number(req.query.skip) || 0, 500);
+
+    if (!actorPlayerId || actorPlayerId !== id) {
+      return errorResponse(res, '請提供正確的 actorPlayerId', null, 400);
+    }
+
+    const sessions = await prisma.v2MatchSession.findMany({
+      where: {
+        participants: { some: { playerId: id } },
+      },
+      take: limit,
+      skip,
+      orderBy: { startedAt: 'desc' },
+      include: {
+        participants: {
+          include: {
+            player: {
+              select: {
+                id: true,
+                userId: true,
+                nickname: true,
+                avatarUrl: true,
+              },
+            },
+          },
+        },
+        rounds: {
+          select: { id: true },
+        },
+      },
+    });
+
+    const data = sessions.map((s) => {
+      const row = s.participants.find((p) => p.playerId === id);
+      if (!row) return null;
+      const gameType = s.gameSettings?.game_type || 'NORTHERN';
+      const gameLabel =
+        gameType === 'NORTHERN' ? '北部麻將' : String(gameType);
+      return {
+        sessionId: s.id,
+        roomCode: s.roomCode,
+        clubId: s.clubId,
+        status: s.status,
+        startedAt: s.startedAt,
+        endedAt: s.endedAt,
+        gameTypeLabel: gameLabel,
+        hostPlayerId: s.hostPlayerId,
+        mySeat: row.seat,
+        myTotalScore: row.matchTotalScore,
+        isHost: row.isHost,
+        roundCount: s.rounds?.length ?? 0,
+        players: (s.participants || []).map((p) => ({
+          playerId: p.playerId,
+          userId: p.userId ?? p.player?.userId,
+          nickname: p.nickname || p.player?.nickname || '',
+          avatarUrl: p.avatarUrl ?? p.player?.avatarUrl,
+          seat: p.seat,
+          isHost: p.isHost,
+          matchTotalScore: p.matchTotalScore,
+        })),
+      };
+    }).filter(Boolean);
+
+    return successResponse(res, {
+      items: data,
+      nextSkip: skip + sessions.length,
+      hasMore: sessions.length === limit,
+    });
+  } catch (error) {
+    console.error('[Players API] v2 戰績列表失敗:', error);
+    return errorResponse(res, '獲取戰績失敗', error.message, 500);
+  }
+});
+
+/**
  * GET /api/client/players/:id
  * 獲取單個玩家
  */
