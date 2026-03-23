@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { successResponse, errorResponse } = require('../../utils/response');
 const { generateUniqueId } = require('../../utils/idGenerator');
+const { allocateShareCodeInTx } = require('../../utils/v2ReplayShareCode');
 
 function normalizeRounds(raw) {
   const n = Number(raw);
@@ -763,12 +764,13 @@ router.post('/:roomId/v2/round', async (req, res) => {
 
     const session = await prisma.v2MatchSession.findUnique({
       where: { id: sessionId },
-      select: { id: true, roomCode: true },
+      select: { id: true, roomCode: true, hostPlayerId: true },
     });
     if (!session || session.roomCode !== room.roomId) {
       return errorResponse(res, 'session 與房號不符', null, 400);
     }
 
+    let persistedRoundId = null;
     await prisma.$transaction(async (tx) => {
       const existingRound = await tx.v2MatchRound.findUnique({
         where: {
@@ -786,8 +788,9 @@ router.post('/:roomId/v2/round', async (req, res) => {
             endedAt: new Date(),
           },
         });
+        persistedRoundId = existingRound.id;
       } else {
-        await tx.v2MatchRound.create({
+        const created = await tx.v2MatchRound.create({
           data: {
             sessionId,
             roundIndex,
@@ -796,6 +799,7 @@ router.post('/:roomId/v2/round', async (req, res) => {
             eventsJson: events,
           },
         });
+        persistedRoundId = created.id;
 
         const parts = await tx.v2MatchParticipant.findMany({
           where: { sessionId },
@@ -815,6 +819,24 @@ router.post('/:roomId/v2/round', async (req, res) => {
         }
       }
     });
+
+    if (persistedRoundId) {
+      try {
+        await prisma.$transaction(async (tx) => {
+          await allocateShareCodeInTx(
+            tx,
+            persistedRoundId,
+            session.hostPlayerId
+          );
+        });
+      } catch (e) {
+        console.error(
+          '[Rooms API] v2 round 自動產生重播分享碼失敗:',
+          persistedRoundId,
+          e.message
+        );
+      }
+    }
 
     return successResponse(res, { sessionId, roundIndex }, '局資料已寫入');
   } catch (error) {

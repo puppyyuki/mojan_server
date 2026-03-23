@@ -1,34 +1,10 @@
 const express = require('express');
 const router = express.Router();
 const { successResponse, errorResponse } = require('../../utils/response');
-
-/** 前 9 碼：0–9 各數字至多出現一次（隨機洗牌取前 9 個） */
-function buildNineNonRepeatingDigits() {
-  const digits = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9];
-  for (let i = digits.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [digits[i], digits[j]] = [digits[j], digits[i]];
-  }
-  return digits.slice(0, 9).join('');
-}
-
-/** 後 2 碼：局序，01–99 */
-function roundIndexSuffix(roundIndex) {
-  const n = Number(roundIndex);
-  const clamped = Number.isFinite(n)
-    ? Math.min(99, Math.max(1, Math.floor(n)))
-    : 1;
-  return String(clamped).padStart(2, '0');
-}
-
-function buildShareCodeForRound(roundIndex) {
-  return `${buildNineNonRepeatingDigits()}${roundIndexSuffix(roundIndex)}`;
-}
-
-function normalizeShareCodeInput(raw) {
-  const s = String(raw || '').replace(/\D/g, '');
-  return s.length === 11 ? s : null;
-}
+const {
+  normalizeShareCodeInput,
+  allocateShareCodeInTx,
+} = require('../../utils/v2ReplayShareCode');
 
 /**
  * GET /api/client/v2/matches/:sessionId
@@ -219,41 +195,9 @@ router.post('/rounds/:roundId/share-code', async (req, res) => {
       });
     }
 
-    const allocated = await prisma.$transaction(async (tx) => {
-      let current = await tx.v2MatchRound.findUnique({ where: { id: roundId } });
-      if (!current) {
-        throw new Error('局資料不存在');
-      }
-      if (current.shareCode) {
-        return current.shareCode;
-      }
-
-      for (let attempt = 0; attempt < 40; attempt += 1) {
-        const candidate = buildShareCodeForRound(current.roundIndex);
-        try {
-          const upd = await tx.v2MatchRound.updateMany({
-            where: { id: roundId, shareCode: null },
-            data: {
-              shareCode: candidate,
-              shareCodeAllocatedByPlayerId: actorPlayerId,
-            },
-          });
-          if (upd.count === 1) {
-            return candidate;
-          }
-          current = await tx.v2MatchRound.findUnique({ where: { id: roundId } });
-          if (current?.shareCode) {
-            return current.shareCode;
-          }
-        } catch (e) {
-          if (e.code === 'P2002') {
-            continue;
-          }
-          throw e;
-        }
-      }
-      throw new Error('無法產生唯一重播碼，請稍後再試');
-    });
+    const allocated = await prisma.$transaction(async (tx) =>
+      allocateShareCodeInTx(tx, roundId, actorPlayerId)
+    );
 
     return successResponse(res, {
       shareCode: allocated,

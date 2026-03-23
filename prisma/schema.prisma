@@ -406,7 +406,7 @@ model V2MatchRound {
   scoreChangeBySeat Json
   roundEndPayload   Json?
   eventsJson        Json
-  /// 11 碼重播分享碼（9 碼不重複數字 + 2 碼局序），全表唯一；由 API 首次分享時寫入
+  /// 11 碼重播分享碼（同場 session 共用前 9 碼不重複數字 + 2 碼局序 01–99），全表唯一；局結算寫入時自動產生，參與者 POST 可補發或更新視角持有者
   shareCode         String?        @unique
   /// 產生分享碼的參與者（他人用分享碼觀看重播時一律用其座位為視角）
   shareCodeAllocatedByPlayerId String?
