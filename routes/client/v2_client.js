@@ -5,11 +5,14 @@ const {
   normalizeShareCodeInput,
   allocateShareCodeInTx,
 } = require('../../utils/v2ReplayShareCode');
+const {
+  mayReadClubV2MatchAsNonParticipant,
+} = require('../../utils/clubV2HistoryAccess');
 
 /**
  * GET /api/client/v2/matches/:sessionId
  * 戰績詳情：各局列表與分數
- * Query: actorPlayerId（須為該場參與者）
+ * Query: actorPlayerId（參與者；或俱樂部擁有者／副會長／公關可讀同俱樂部非己參與場次）
  */
 router.get('/matches/:sessionId', async (req, res) => {
   try {
@@ -21,10 +24,24 @@ router.get('/matches/:sessionId', async (req, res) => {
       return errorResponse(res, '請提供 actorPlayerId', null, 400);
     }
 
+    const slimSession = await prisma.v2MatchSession.findUnique({
+      where: { id: sessionId },
+      select: { id: true, clubId: true },
+    });
+    if (!slimSession) {
+      return errorResponse(res, '戰績不存在', null, 404);
+    }
+
     const membership = await prisma.v2MatchParticipant.findFirst({
       where: { sessionId, playerId: actorPlayerId },
     });
-    if (!membership) {
+    const allowed = await mayReadClubV2MatchAsNonParticipant(
+      prisma,
+      slimSession.clubId,
+      actorPlayerId,
+      !!membership
+    );
+    if (!allowed) {
       return errorResponse(res, '無權查看此戰績', null, 403);
     }
 
@@ -92,7 +109,7 @@ router.get('/matches/:sessionId', async (req, res) => {
 /**
  * GET /api/client/v2/rounds/:roundId/replay
  * 單局重播事件流
- * Query: viewerPlayerId（須為該場參與者）
+ * Query: viewerPlayerId（參與者；或俱樂部擁有者／副會長／公關可讀同俱樂部場次）
  */
 router.get('/rounds/:roundId/replay', async (req, res) => {
   try {
@@ -119,8 +136,14 @@ router.get('/rounds/:roundId/replay', async (req, res) => {
       return errorResponse(res, '局資料不存在', null, 404);
     }
 
-    const ok = round.session.participants.some(
+    const isParticipant = round.session.participants.some(
       (p) => p.playerId === viewerPlayerId
+    );
+    const ok = await mayReadClubV2MatchAsNonParticipant(
+      prisma,
+      round.session.clubId,
+      viewerPlayerId,
+      isParticipant
     );
     if (!ok) {
       return errorResponse(res, '無權查看此重播', null, 403);
@@ -128,7 +151,24 @@ router.get('/rounds/:roundId/replay', async (req, res) => {
 
     const viewer = round.session.participants.find(
       (p) => p.playerId === viewerPlayerId
-    );
+    ); // 非參與者時為 undefined，改以房主視角播事件
+    let viewerSeat = 0;
+    let replayAsPlayerId = viewerPlayerId;
+    if (viewer) {
+      viewerSeat = viewer.seat;
+      replayAsPlayerId = viewer.playerId;
+    } else {
+      const parts = [...(round.session.participants || [])].sort(
+        (a, b) => a.seat - b.seat
+      );
+      const hostId = round.session.hostPlayerId;
+      const pick =
+        parts.find((p) => p.playerId === hostId) || parts[0] || null;
+      if (pick) {
+        viewerSeat = pick.seat;
+        replayAsPlayerId = pick.playerId;
+      }
+    }
 
     return successResponse(res, {
       roundId: round.id,
@@ -136,7 +176,8 @@ router.get('/rounds/:roundId/replay', async (req, res) => {
       roundIndex: round.roundIndex,
       roomCode: round.session.roomCode,
       viewerPlayerId,
-      viewerSeat: viewer?.seat ?? 0,
+      replayAsPlayerId,
+      viewerSeat,
       events: round.eventsJson,
       roundEndPayload: round.roundEndPayload,
     });

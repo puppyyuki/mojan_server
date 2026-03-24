@@ -2600,9 +2600,11 @@ async function endGame(tableId, reason, scores = null) {
         specialTypes.push('海底撈魚');
         console.log(`>>> [海底撈魚檢測] 玩家${playerIndex + 1}海底撈魚，加入結算`);
       }
+      // 檢查全求（須先於獨聽：全求與獨聽互斥）
+      const isQuanQiu = p.isQuanQiu || false;
       // 檢查獨聽
       const isDuTing = p.isDuTing || false;
-      if (isDuTing) {
+      if (isDuTing && !isQuanQiu) {
         specialTypes.push('獨聽');
         console.log(`>>> [獨聽檢測] 玩家${playerIndex + 1}獨聽，加入結算`);
       }
@@ -2612,8 +2614,6 @@ async function endGame(tableId, reason, scores = null) {
         specialTypes.push('搶槓');
         console.log(`>>> [搶槓檢測] 玩家${playerIndex + 1}搶槓，加入結算`);
       }
-      // 檢查全求
-      const isQuanQiu = p.isQuanQiu || false;
       if (isQuanQiu) {
         specialTypes.push('全求');
         console.log(`>>> [全求檢測] 玩家${playerIndex + 1}全求，加入結算`);
@@ -4193,10 +4193,12 @@ function declareHu(tableId, playerId, huType, targetTile, targetPlayer) {
     }
   }
 
-  // 如果只有一張牌能胡，標記為獨聽
-  if (canHuTiles.length === 1) {
+  // 如果只有一張牌能胡，標記為獨聽（全求時不標記，與台數規則互斥）
+  if (canHuTiles.length === 1 && !player.isQuanQiu) {
     console.log(`>>> [獨聽檢測] 玩家${playerIndex + 1}只聽一張牌：${canHuTiles[0]}，標記為獨聽`);
     player.isDuTing = true; // 標記為獨聽
+  } else if (canHuTiles.length === 1 && player.isQuanQiu) {
+    console.log(`>>> [獨聽檢測] 玩家${playerIndex + 1}全求成立，不標記獨聽`);
   } else {
     console.log(`>>> [獨聽檢測] 玩家${playerIndex + 1}聽多張牌：${canHuTiles.join(',')}，不是獨聽`);
   }

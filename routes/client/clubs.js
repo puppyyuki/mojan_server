@@ -2,6 +2,9 @@ const express = require('express');
 const router = express.Router();
 const { successResponse, errorResponse } = require('../../utils/response');
 const { generateUniqueId } = require('../../utils/idGenerator');
+const {
+  resolveClubV2HistoryVisibility,
+} = require('../../utils/clubV2HistoryAccess');
 
 /**
  * 查找俱樂部（支持內部ID或俱樂部ID）
@@ -67,6 +70,48 @@ async function createClubActivity(prisma, clubId, type, options = {}) {
 
 function isNonEmptyString(value) {
   return typeof value === 'string' && value.trim().length > 0;
+}
+
+/** 俱樂部對戰列表：與房卡顯示一致的規則摘要 */
+function buildClubV2RulesSummary(gameSettings) {
+  const g = gameSettings && typeof gameSettings === 'object' ? gameSettings : {};
+  const gameType = g.game_type || 'NORTHERN';
+  const gameModeStr = gameType === 'SOUTHERN' ? '南部麻將' : '北部麻將';
+  const rounds = g.rounds ?? 2;
+  const basePoints = g.base_points ?? 300;
+  const scoringUnit = g.scoring_unit ?? 100;
+  const deduction = g.deduction || 'AA_DEDUCTION';
+  const deductionStr = deduction === 'HOST_DEDUCTION' ? '俱樂部扣卡' : 'AA扣卡';
+  return `${gameModeStr}(${rounds}圈,${basePoints}底,${scoringUnit}台)${deductionStr}`;
+}
+
+/** 與主大廳戰績詳情相同：前 9 碼 + 局數範圍（Unicode 連字號） */
+function buildV2ReplayCodeSummaryFromRounds(rounds) {
+  if (!Array.isArray(rounds) || rounds.length === 0) return null;
+  let prefix = null;
+  for (const r of rounds) {
+    const digits = String(r.shareCode || '').replace(/\D/g, '');
+    if (digits.length >= 9) {
+      prefix = digits.slice(0, 9);
+      break;
+    }
+  }
+  if (!prefix) return null;
+  let minR = null;
+  let maxR = null;
+  for (const r of rounds) {
+    const digits = String(r.shareCode || '').replace(/\D/g, '');
+    if (digits.length < 9) continue;
+    const ri = Number(r.roundIndex);
+    if (!Number.isFinite(ri) || ri < 1) continue;
+    const c = Math.min(99, ri);
+    if (minR === null || c < minR) minR = c;
+    if (maxR === null || c > maxR) maxR = c;
+  }
+  const sa = String(minR ?? 1).padStart(2, '0');
+  const sb = String(maxR ?? 1).padStart(2, '0');
+  const enDash = '\u2013';
+  return `${prefix} (${sa}${enDash}${sb})`;
 }
 
 function normalizeBoolPermissions(raw) {
@@ -880,7 +925,12 @@ router.get('/:clubId/rankings', async (req, res) => {
 
 /**
  * GET /api/client/clubs/:clubId/match-history
- * 獲取俱樂部戰績（以房間記錄作為簡化版戰績）
+ * 俱樂部 v2 對戰歷史（V2MatchSession，含重播碼摘要、四位玩家總分）
+ * Query: actorPlayerId（必填，用於身分與可見範圍）
+ *        startDate, endDate (YYYY-MM-DD，依結束時間為主，無 endedAt 則用 startedAt)
+ *        playerId（可選，比對參與者 playerId / userId 子字串；一般成員僅能看到含自己的場次）
+ *
+ * 可見範圍：擁有者、副會長、已核准公關代理可看全部；其餘成員僅看自己參與的場次。
  */
 router.get('/:clubId/match-history', async (req, res) => {
   try {
@@ -892,10 +942,65 @@ router.get('/:clubId/match-history', async (req, res) => {
       return errorResponse(res, '俱樂部不存在', null, 404);
     }
 
-    const rooms = await prisma.room.findMany({
-      where: { clubId: club.id },
-      orderBy: { createdAt: 'desc' },
-      take: 50,
+    const actorPlayerId = (req.query.actorPlayerId || '').toString().trim();
+    const vis = await resolveClubV2HistoryVisibility(prisma, club, actorPlayerId);
+    if (!vis.ok) {
+      return errorResponse(res, vis.message, null, vis.status);
+    }
+    const canSeeAllClubMatches = vis.canSeeAll;
+
+    const startDateRaw = req.query.startDate?.toString?.() ?? '';
+    const endDateRaw = req.query.endDate?.toString?.() ?? '';
+    const playerIdRaw = (req.query.playerId || '').toString().trim();
+
+    const parseDateMaybe = (raw, isEnd) => {
+      if (!raw) return null;
+      const dt = new Date(raw);
+      if (Number.isNaN(dt.getTime())) return null;
+      const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(raw);
+      if (isDateOnly && isEnd) {
+        dt.setHours(23, 59, 59, 999);
+      }
+      return dt;
+    };
+    const startDate = parseDateMaybe(startDateRaw, false);
+    const endDate = parseDateMaybe(endDateRaw, true);
+    if ((startDateRaw && !startDate) || (endDateRaw && !endDate)) {
+      return errorResponse(res, '日期格式錯誤，請使用 YYYY-MM-DD', null, 400);
+    }
+    if (startDate && endDate && startDate > endDate) {
+      return errorResponse(res, '開始日期不可晚於結束日期', null, 400);
+    }
+
+    const searchParticipantFilter = isNonEmptyString(playerIdRaw)
+      ? {
+          some: {
+            OR: [
+              { playerId: { contains: playerIdRaw, mode: 'insensitive' } },
+              { userId: { contains: playerIdRaw, mode: 'insensitive' } },
+            ],
+          },
+        }
+      : null;
+
+    const scopeAnd = [];
+    if (!canSeeAllClubMatches) {
+      scopeAnd.push({
+        participants: { some: { playerId: actorPlayerId } },
+      });
+    }
+    if (searchParticipantFilter) {
+      scopeAnd.push({ participants: searchParticipantFilter });
+    }
+
+    const sessions = await prisma.v2MatchSession.findMany({
+      where: {
+        clubId: club.id,
+        status: { in: ['FINISHED', 'DISBANDED'] },
+        ...(scopeAnd.length > 0 ? { AND: scopeAnd } : {}),
+      },
+      orderBy: [{ endedAt: 'desc' }, { startedAt: 'desc' }],
+      take: 100,
       include: {
         participants: {
           include: {
@@ -909,24 +1014,66 @@ router.get('/:clubId/match-history', async (req, res) => {
             },
           },
         },
+        rounds: {
+          select: {
+            roundIndex: true,
+            shareCode: true,
+          },
+          orderBy: { roundIndex: 'asc' },
+        },
       },
     });
 
-    const history = rooms.map((r) => ({
-      id: r.id,
-      roomId: r.roomId,
-      status: r.status,
-      createdAt: r.createdAt,
-      updatedAt: r.updatedAt,
-      participants: (r.participants || []).map((p) => ({
-        playerId: p.player?.id ?? p.playerId ?? null,
-        userId: p.player?.userId ?? null,
-        nickname: p.player?.nickname ?? '',
-        avatarUrl: p.player?.avatarUrl ?? null,
-        joinedAt: p.joinedAt,
-        leftAt: p.leftAt,
-      })),
-    }));
+    const inRange = (s) => {
+      if (!startDate && !endDate) return true;
+      const t = s.endedAt ?? s.startedAt;
+      if (!t) return false;
+      if (startDate && t < startDate) return false;
+      if (endDate && t > endDate) return false;
+      return true;
+    };
+
+    const history = sessions.filter(inRange).map((s) => {
+      const gameSettings = s.gameSettings && typeof s.gameSettings === 'object' ? s.gameSettings : {};
+      const gameType = gameSettings.game_type || 'NORTHERN';
+      const gameTypeLabel = gameType === 'SOUTHERN' ? '南部麻將' : '北部麻將';
+      const rulesSummary = buildClubV2RulesSummary(gameSettings);
+      const replayCodeSummary = buildV2ReplayCodeSummaryFromRounds(s.rounds || []);
+
+      const players = (s.participants || []).map((p) => ({
+        playerId: p.playerId,
+        userId: p.userId ?? p.player?.userId ?? null,
+        nickname: (p.nickname || p.player?.nickname || '').trim() || '—',
+        avatarUrl: p.avatarUrl ?? p.player?.avatarUrl ?? null,
+        seat: p.seat,
+        isHost: p.isHost === true,
+        matchTotalScore: p.matchTotalScore ?? 0,
+      }));
+
+      let best = null;
+      for (const pl of players) {
+        const sc = Number(pl.matchTotalScore) || 0;
+        if (best === null || sc > best) best = sc;
+      }
+      const bigWinnerPlayerIds =
+        best === null
+          ? []
+          : players.filter((pl) => (Number(pl.matchTotalScore) || 0) === best).map((pl) => pl.playerId);
+
+      return {
+        sessionId: s.id,
+        roomCode: s.roomCode,
+        status: s.status,
+        startedAt: s.startedAt,
+        endedAt: s.endedAt,
+        gameSettings,
+        gameTypeLabel,
+        rulesSummary,
+        replayCodeSummary,
+        players,
+        bigWinnerPlayerIds,
+      };
+    });
 
     return successResponse(res, history);
   } catch (error) {

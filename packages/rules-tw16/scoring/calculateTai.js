@@ -112,7 +112,7 @@ function calculateTai(table, player, playerIndex, huType, winningTile) {
     }
   }
 
-  if (player.isDuTing) {
+  if (player.isDuTing && !player.isQuanQiu) {
     totalTai += 1;
     patterns.push('duTing');
     patternNames.push('獨聽');
