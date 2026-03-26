@@ -1772,6 +1772,81 @@ router.post('/:clubId/members/banned-table-players', async (req, res) => {
 });
 
 /**
+ * POST /api/client/clubs/:clubId/table-restrictions/check-join
+ * v2 即時伺服器用：檢查加入者與房內玩家是否雙向禁止同桌（與 server.js joinTable 邏輯一致）
+ */
+router.post('/:clubId/table-restrictions/check-join', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { clubId } = req.params;
+    const { joinerPlayerId, seatedPlayerIds } = req.body || {};
+
+    if (!isNonEmptyString(joinerPlayerId)) {
+      return errorResponse(res, '請提供加入者玩家ID', null, 400);
+    }
+
+    const club = await findClub(prisma, clubId);
+    if (!club) {
+      return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    const ids = Array.isArray(seatedPlayerIds)
+      ? [...new Set(seatedPlayerIds.map((id) => String(id ?? '').trim()).filter(Boolean))]
+      : [];
+
+    if (ids.length === 0) {
+      return successResponse(res, { ok: true }, '禁止同桌檢查通過');
+    }
+
+    const joinerMember = await prisma.clubMember.findUnique({
+      where: {
+        clubId_playerId: { clubId: club.id, playerId: joinerPlayerId },
+      },
+      select: { bannedTablePlayers: true },
+    });
+    const joinerBanned = joinerMember?.bannedTablePlayers || [];
+    for (const ep of ids) {
+      if (joinerBanned.includes(ep)) {
+        return successResponse(
+          res,
+          {
+            ok: false,
+            message: '您與房內玩家有禁止同桌設定，無法加入',
+          },
+          '禁止同桌'
+        );
+      }
+    }
+
+    const others = await prisma.clubMember.findMany({
+      where: {
+        clubId: club.id,
+        playerId: { in: ids },
+      },
+      select: { playerId: true, bannedTablePlayers: true },
+    });
+    for (const row of others) {
+      const list = row.bannedTablePlayers || [];
+      if (list.includes(joinerPlayerId)) {
+        return successResponse(
+          res,
+          {
+            ok: false,
+            message: '您與房內玩家有禁止同桌設定，無法加入',
+          },
+          '禁止同桌'
+        );
+      }
+    }
+
+    return successResponse(res, { ok: true }, '禁止同桌檢查通過');
+  } catch (error) {
+    console.error('[Clubs API] 禁止同桌加入檢查失敗:', error);
+    return errorResponse(res, '禁止同桌加入檢查失敗', error.message, 500);
+  }
+});
+
+/**
  * POST /api/client/clubs/:clubId/members/co-leader-permissions
  * 設定副會長權限
  */

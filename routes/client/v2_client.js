@@ -9,6 +9,24 @@ const {
   mayReadClubV2MatchAsNonParticipant,
 } = require('../../utils/clubV2HistoryAccess');
 
+/** 俱樂部房戰績／重播：6 碼顯示用 ID + 頭像（V2MatchSession.clubId 為 Club 主鍵） */
+async function v2ClubSettlementMeta(prisma, sessionClubInternalId) {
+  if (!sessionClubInternalId) {
+    return { clubDisplayCode: null, clubAvatarUrl: null };
+  }
+  const club = await prisma.club.findUnique({
+    where: { id: sessionClubInternalId },
+    select: { clubId: true, avatarUrl: true },
+  });
+  if (!club) {
+    return { clubDisplayCode: null, clubAvatarUrl: null };
+  }
+  return {
+    clubDisplayCode: club.clubId,
+    clubAvatarUrl: club.avatarUrl ?? null,
+  };
+}
+
 /**
  * GET /api/client/v2/matches/:sessionId
  * 戰績詳情：各局列表與分數
@@ -73,10 +91,14 @@ router.get('/matches/:sessionId', async (req, res) => {
     const gameType = session.gameSettings?.game_type || 'NORTHERN';
     const gameLabel = gameType === 'NORTHERN' ? '北部麻將' : String(gameType);
 
+    const clubMeta = await v2ClubSettlementMeta(prisma, session.clubId);
+
     return successResponse(res, {
       sessionId: session.id,
       roomCode: session.roomCode,
       clubId: session.clubId,
+      clubDisplayCode: clubMeta.clubDisplayCode,
+      clubAvatarUrl: clubMeta.clubAvatarUrl,
       status: session.status,
       startedAt: session.startedAt,
       endedAt: session.endedAt,
@@ -170,6 +192,8 @@ router.get('/rounds/:roundId/replay', async (req, res) => {
       }
     }
 
+    const clubMeta = await v2ClubSettlementMeta(prisma, round.session.clubId);
+
     return successResponse(res, {
       roundId: round.id,
       sessionId: round.sessionId,
@@ -180,6 +204,9 @@ router.get('/rounds/:roundId/replay', async (req, res) => {
       viewerSeat,
       events: round.eventsJson,
       roundEndPayload: round.roundEndPayload,
+      clubId: round.session.clubId,
+      clubDisplayCode: clubMeta.clubDisplayCode,
+      clubAvatarUrl: clubMeta.clubAvatarUrl,
     });
   } catch (error) {
     console.error('[V2 Client API] 重播資料失敗:', error);
@@ -329,6 +356,8 @@ router.get('/replay-by-share-code', async (req, res) => {
       matchTotalScore: p.matchTotalScore,
     }));
 
+    const clubMeta = await v2ClubSettlementMeta(prisma, session.clubId);
+
     return successResponse(res, {
       roundId: round.id,
       sessionId: session.id,
@@ -345,6 +374,9 @@ router.get('/replay-by-share-code', async (req, res) => {
       hostPlayerId: session.hostPlayerId,
       startedAt: session.startedAt,
       players,
+      clubId: session.clubId,
+      clubDisplayCode: clubMeta.clubDisplayCode,
+      clubAvatarUrl: clubMeta.clubAvatarUrl,
     });
   } catch (error) {
     console.error('[V2 Client API] 分享碼重播失敗:', error);
