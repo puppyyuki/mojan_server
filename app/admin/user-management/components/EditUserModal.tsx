@@ -10,6 +10,7 @@ interface Player {
   nickname: string
   cardCount: number
   bio?: string | null
+  phoneE164?: string | null
 }
 
 interface EditUserModalProps {
@@ -100,6 +101,17 @@ export default function EditUserModal({
           <div>
             <p className="text-sm text-gray-600 mb-2">
               使用者ID：<span className="font-semibold text-gray-900">{player.userId}</span>
+            </p>
+          </div>
+
+          <div>
+            <p className="text-sm text-gray-600 mb-2">
+              電話：
+              <span className="font-semibold text-gray-900">
+                {player.phoneE164?.trim()
+                  ? player.phoneE164
+                  : '未綁定'}
+              </span>
             </p>
           </div>
 

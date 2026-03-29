@@ -24,6 +24,7 @@ interface Player {
   totalRechargeAmount: number
   averageMonthlyRecharge: number
   referralCount?: number
+  phoneE164?: string | null
   currentClubs: Array<{
     id: string
     clubId: string

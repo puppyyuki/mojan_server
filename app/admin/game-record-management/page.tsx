@@ -43,9 +43,12 @@ interface ClubListItem {
     roomCardConsumed: number
     rank: number | null
   }[]
-  endedAt: string
+  endedAt: string | null
   createdAt: string
   club: ClubClub
+  listRowKind?: 'settlement' | 'session'
+  recordCategory?: string
+  recordCategoryLabel?: string
 }
 
 interface GeneralListItem {
@@ -96,8 +99,14 @@ function deductionLabel(d: string) {
   return d || '—'
 }
 
-/** 一般對戰：依後台戰績分類顯示徽章（與下拉篩選語意一致） */
-function generalRecordBadge(row: GeneralListItem) {
+type RecordCategoryBadgeRow = {
+  recordCategory?: string
+  recordCategoryLabel?: string
+  status?: string
+}
+
+/** 依後台戰績分類顯示徽章（與下拉篩選語意一致；一般／俱樂部共用） */
+function recordCategoryBadge(row: RecordCategoryBadgeRow) {
   const c = row.recordCategory
   if (c === 'COMPLETED_FULL')
     return (
@@ -163,6 +172,7 @@ export default function GameRecordManagementPage() {
   const [generalItems, setGeneralItems] = useState<GeneralListItem[]>([])
   const [generalTotal, setGeneralTotal] = useState(0)
   const [liveLobbyRoomCount, setLiveLobbyRoomCount] = useState<number | null>(null)
+  const [liveClubPlayingRoomCount, setLiveClubPlayingRoomCount] = useState<number | null>(null)
 
   const [page, setPage] = useState(1)
   const pageSize = 20
@@ -172,6 +182,7 @@ export default function GameRecordManagementPage() {
     clubSixId: '',
     version: 'ALL',
     deduction: 'ALL',
+    recordCategory: 'ALL',
     start: '',
     end: '',
   })
@@ -198,6 +209,7 @@ export default function GameRecordManagementPage() {
     if (f.clubSixId.trim()) q.set('clubSixId', f.clubSixId.trim())
     if (f.version !== 'ALL') q.set('version', f.version)
     if (f.deduction !== 'ALL') q.set('deduction', f.deduction)
+    if (f.recordCategory !== 'ALL') q.set('recordCategory', f.recordCategory)
     if (f.start) q.set('startDate', f.start)
     if (f.end) q.set('endDate', f.end)
     return q.toString()
@@ -224,6 +236,11 @@ export default function GameRecordManagementPage() {
         if (json.success && json.data) {
           setClubItems(json.data.items || [])
           setClubTotal(json.data.total ?? 0)
+          if (typeof json.data.liveClubPlayingRoomCount === 'number') {
+            setLiveClubPlayingRoomCount(json.data.liveClubPlayingRoomCount)
+          } else {
+            setLiveClubPlayingRoomCount(null)
+          }
         }
       } else {
         const res = await apiGet(`/api/admin/game-records/general?${buildGeneralQuery()}`)
@@ -280,6 +297,42 @@ export default function GameRecordManagementPage() {
     const id = window.setInterval(run, 12000)
     return () => window.clearInterval(id)
   }, [tab, genApplied, page, pageSize])
+
+  /** 俱樂部「進行中」：約每 12 秒同步列表 */
+  useEffect(() => {
+    if (tab !== 'club' || clubApplied.recordCategory !== 'LIVE') {
+      return undefined
+    }
+
+    const run = async () => {
+      const q = new URLSearchParams()
+      q.set('page', String(page))
+      q.set('pageSize', String(pageSize))
+      if (clubApplied.keyword.trim()) q.set('keyword', clubApplied.keyword.trim())
+      if (clubApplied.clubSixId.trim()) q.set('clubSixId', clubApplied.clubSixId.trim())
+      if (clubApplied.version !== 'ALL') q.set('version', clubApplied.version)
+      if (clubApplied.deduction !== 'ALL') q.set('deduction', clubApplied.deduction)
+      q.set('recordCategory', 'LIVE')
+      if (clubApplied.start) q.set('startDate', clubApplied.start)
+      if (clubApplied.end) q.set('endDate', clubApplied.end)
+      try {
+        const res = await apiGet(`/api/admin/game-records/club?${q.toString()}`)
+        const json = await res.json()
+        if (json.success && json.data) {
+          setClubItems(json.data.items || [])
+          setClubTotal(json.data.total ?? 0)
+          if (typeof json.data.liveClubPlayingRoomCount === 'number') {
+            setLiveClubPlayingRoomCount(json.data.liveClubPlayingRoomCount)
+          }
+        }
+      } catch (e) {
+        console.error(e)
+      }
+    }
+
+    const id = window.setInterval(run, 12000)
+    return () => window.clearInterval(id)
+  }, [tab, clubApplied, page, pageSize])
 
   const total = tab === 'club' ? clubTotal : generalTotal
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
@@ -379,7 +432,7 @@ export default function GameRecordManagementPage() {
           {tab === 'club' ? (
             <span className="text-sm text-gray-500 inline-flex items-center gap-1.5 min-h-10">
               <Building2 className="w-4 h-4 shrink-0 text-gray-400" />
-              資料表：ClubGameResult（俱樂部房結算）
+              依戰績分類：結算為 ClubGameResult；中途解散／進行中為俱樂部 V2 MatchSession
             </span>
           ) : (
             <span className="text-sm text-gray-500 inline-flex items-center gap-1.5 min-h-10">
@@ -425,6 +478,17 @@ export default function GameRecordManagementPage() {
               <option value="ALL">扣卡：全部</option>
               <option value="AA_DEDUCTION">AA 制</option>
               <option value="CLUB">俱樂部扣除</option>
+            </select>
+            <select
+              value={clubDraft.recordCategory}
+              onChange={(e) => setClubDraft((d) => ({ ...d, recordCategory: e.target.value }))}
+              className={`min-w-[10rem] ${filterSelect}`}
+            >
+              <option value="ALL">戰績分類：全部</option>
+              <option value="COMPLETED_FULL">全局完結</option>
+              <option value="DISBANDED_MID">中途解散</option>
+              <option value="LIVE">進行中</option>
+              <option value="ERROR">錯誤戰績</option>
             </select>
             <input
               type="date"
@@ -503,6 +567,21 @@ export default function GameRecordManagementPage() {
           </p>
         )}
 
+        {tab === 'club' && clubApplied.recordCategory === 'LIVE' && (
+          <p className="text-xs text-gray-600 mb-3 flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="font-medium text-amber-900/90">進行中</span>
+            <span>
+              列表會約每 12 秒自動同步；僅列出俱樂部 session 仍為進行中、且對應俱樂部房目前為「對局中（PLAYING）」的戰績。
+            </span>
+            {liveClubPlayingRoomCount !== null && (
+              <span className="text-gray-500">
+                目前俱樂部對局中房間數：
+                <strong className="text-gray-800">{liveClubPlayingRoomCount}</strong>
+              </span>
+            )}
+          </p>
+        )}
+
         <div className="text-sm text-gray-500 mb-2">
           共 {total} 筆
           {loading ? '（載入中…）' : ''}
@@ -511,11 +590,14 @@ export default function GameRecordManagementPage() {
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
           <div className="overflow-x-auto">
             {tab === 'club' ? (
-              <table className="w-full min-w-[1200px] divide-y divide-gray-200">
+              <table className="w-full min-w-[1300px] divide-y divide-gray-200">
                 <thead className="bg-gray-50">
                   <tr>
                     <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase border-r border-gray-200 w-14">
                       #
+                    </th>
+                    <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase border-r border-gray-200 whitespace-nowrap">
+                      戰績分類
                     </th>
                     <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase border-r border-gray-200 whitespace-nowrap">
                       結束時間
@@ -549,13 +631,13 @@ export default function GameRecordManagementPage() {
                 <tbody className="bg-white divide-y divide-gray-200">
                   {!loaded && loading ? (
                     <tr>
-                      <td colSpan={10} className="px-6 py-8 text-center text-gray-500">
+                      <td colSpan={11} className="px-6 py-8 text-center text-gray-500">
                         載入中…
                       </td>
                     </tr>
                   ) : clubItems.length === 0 ? (
                     <tr>
-                      <td colSpan={10} className="px-6 py-8 text-center text-gray-500">
+                      <td colSpan={11} className="px-6 py-8 text-center text-gray-500">
                         沒有符合條件的紀錄
                       </td>
                     </tr>
@@ -564,6 +646,9 @@ export default function GameRecordManagementPage() {
                       <tr key={row.id} className="hover:bg-gray-50">
                         <td className="px-4 py-3 text-center text-sm text-gray-600 border-r border-gray-200">
                           {(page - 1) * pageSize + idx + 1}
+                        </td>
+                        <td className="px-4 py-3 text-center border-r border-gray-200">
+                          {recordCategoryBadge(row)}
                         </td>
                         <td className="px-4 py-3 text-center text-sm text-gray-800 border-r border-gray-200 whitespace-nowrap">
                           {formatDate(row.endedAt)}
@@ -603,7 +688,11 @@ export default function GameRecordManagementPage() {
                         <td className="px-4 py-3 text-center border-r border-gray-200">
                           <button
                             type="button"
-                            onClick={() => openClubDetail(row.id)}
+                            onClick={() =>
+                              row.listRowKind === 'session'
+                                ? openGeneralDetail(row.id)
+                                : openClubDetail(row.id)
+                            }
                             className="text-blue-600 hover:text-blue-800 inline-flex items-center gap-1 text-sm"
                           >
                             <Eye className="w-4 h-4" />
@@ -671,7 +760,7 @@ export default function GameRecordManagementPage() {
                           {(page - 1) * pageSize + idx + 1}
                         </td>
                         <td className="px-4 py-3 text-center border-r border-gray-200">
-                          {generalRecordBadge(row)}
+                          {recordCategoryBadge(row)}
                         </td>
                         <td className="px-4 py-3 text-center border-r border-gray-200">
                           <button

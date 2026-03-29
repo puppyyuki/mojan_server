@@ -80,6 +80,7 @@ export async function GET(request: NextRequest) {
         averageMonthlyRecharge: Math.round(averageMonthlyConsumption * 100) / 100,
         currentClubs,
         referralCount: player.referralCount,
+        phoneE164: player.phoneE164 ?? null,
       }
     })
 

@@ -134,6 +134,7 @@ router.get('/info', async (req, res) => {
         referralCode: player.userId,
         referralCount: player.referralCount || 0,
         hasBoundReferrer: player.hasBoundReferrer || false,
+        hasBoundPhone: Boolean(player.phoneE164),
         totalRewards,
         referredPlayers: player.referredPlayers || [],
       },

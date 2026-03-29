@@ -6594,6 +6594,10 @@ const referralRoutes = require('./routes/client/referral');
 app.use('/api/client/referral', referralRoutes);
 console.log('[Server] Client referral routes mounted at /api/client/referral');
 
+const phoneRoutes = require('./routes/client/phone');
+app.use('/api/client/phone', phoneRoutes);
+console.log('[Server] Client phone routes mounted at /api/client/phone');
+
 const v2ClientRoutes = require('./routes/client/v2_client');
 app.use('/api/client/v2', v2ClientRoutes);
 console.log('[Server] Client v2 routes mounted at /api/client/v2');

@@ -16,8 +16,9 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  cardRechargeRecords       CardRechargeRecord[]
-  reviewedAgentApplications AgentApplication[]
+  cardRechargeRecords              CardRechargeRecord[]
+  clubAdminCardRechargeRecords     ClubAdminCardRechargeRecord[]
+  reviewedAgentApplications        AgentApplication[]
 
   @@map("users")
 }
@@ -38,6 +39,17 @@ model Player {
   referredPlayers  Player[]  @relation("Referral")
   hasBoundReferrer Boolean   @default(false) // 是否已綁定推薦人 (並領取8張房卡)
   referralCount    Int       @default(0)     // 成功推薦的人數 (用於升級代理)
+  /// E.164，例如 +886912345678；已驗證手機綁定
+  phoneE164                  String?   @unique
+  phoneVerifiedAt            DateTime?
+  /// 簡訊驗證碼（雜湊）與時效
+  phoneOtpHash               String?
+  phoneOtpExpiresAt          DateTime?
+  /// 待驗證的號碼（與 phoneOtpHash 配對）
+  phoneOtpPendingE164        String?
+  phoneOtpLastSentAt         DateTime?
+  /// 推薦人因「被推薦人綁定手機」已發放 200 房卡（僅一次）
+  phoneReferrerRewardGiven   Boolean   @default(false)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
@@ -79,6 +91,7 @@ model Club {
   activities   ClubActivity[]
   gameResults  ClubGameResult[]
   cardReplenishRecords ClubCardReplenishRecord[]
+  adminCardRechargeRecords ClubAdminCardRechargeRecord[]
 
   @@map("clubs")
 }
@@ -98,6 +111,23 @@ model ClubCardReplenishRecord {
   createdAt           DateTime @default(now())
 
   @@map("club_card_replenish_records")
+}
+
+/// 後台管理員直接為俱樂部增加房卡（非成員自個人轉入）
+model ClubAdminCardRechargeRecord {
+  id            String   @id @default(cuid())
+  clubId        String
+  club          Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  adminUserId   String
+  adminUser     User     @relation(fields: [adminUserId], references: [id], onDelete: Cascade)
+  amount        Int
+  previousCount Int
+  newCount      Int
+  note          String?
+  createdAt     DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("club_admin_card_recharge_records")
 }
 
 // 俱樂部加入申請
