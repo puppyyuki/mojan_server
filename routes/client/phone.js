@@ -174,34 +174,48 @@ router.post('/verify', async (req, res) => {
       }
 
       const verifiedAt = new Date();
+      const adminUser = await tx.user.findFirst({ where: { role: 'ADMIN' } });
+
       let referrerRewardCards = 0;
       let phoneReferrerRewardGiven = player.phoneReferrerRewardGiven;
 
       if (player.referrerId && !player.phoneReferrerRewardGiven) {
         const referrer = await tx.player.findUnique({ where: { id: player.referrerId } });
         if (referrer) {
-          const reward = 200;
-          const adminUser = await tx.user.findFirst({ where: { role: 'ADMIN' } });
-          await tx.player.update({
+          const refReward = 2;
+          const prevRefCards = referrer.cardCount;
+          const updatedRef = await tx.player.update({
             where: { id: referrer.id },
-            data: { cardCount: { increment: reward } },
+            data: {
+              cardCount: { increment: refReward },
+              referralCount: { increment: 1 },
+            },
           });
           if (adminUser) {
             await tx.cardRechargeRecord.create({
               data: {
                 playerId: referrer.id,
                 adminUserId: adminUser.id,
-                amount: reward,
-                previousCount: referrer.cardCount,
-                newCount: referrer.cardCount + reward,
-                note: '被推薦人綁定手機獎勵',
+                amount: refReward,
+                previousCount: prevRefCards,
+                newCount: prevRefCards + refReward,
+                note: '推薦獎勵-被推薦人已綁定手機',
               },
             });
           }
-          referrerRewardCards = reward;
+          referrerRewardCards = refReward;
           phoneReferrerRewardGiven = true;
+          if (updatedRef.referralCount >= 20 && !updatedRef.isAgent) {
+            await tx.player.update({
+              where: { id: referrer.id },
+              data: { isAgent: true },
+            });
+          }
         }
       }
+
+      const bindReward = 8;
+      const prevBindCards = player.cardCount;
 
       await tx.player.update({
         where: { id: player.id },
@@ -212,10 +226,29 @@ router.post('/verify', async (req, res) => {
           phoneOtpExpiresAt: null,
           phoneOtpPendingE164: null,
           phoneReferrerRewardGiven,
+          cardCount: { increment: bindReward },
         },
       });
 
-      return { ok: true, phoneE164: pending, referrerRewardCards };
+      if (adminUser) {
+        await tx.cardRechargeRecord.create({
+          data: {
+            playerId: player.id,
+            adminUserId: adminUser.id,
+            amount: bindReward,
+            previousCount: prevBindCards,
+            newCount: prevBindCards + bindReward,
+            note: '手機綁定獎勵',
+          },
+        });
+      }
+
+      return {
+        ok: true,
+        phoneE164: pending,
+        referrerRewardCards,
+        bindRewardCards: bindReward,
+      };
     });
 
     if (!result.ok) {
@@ -228,6 +261,7 @@ router.post('/verify', async (req, res) => {
         success: true,
         phoneE164: result.phoneE164,
         referrerRewardCards: result.referrerRewardCards,
+        bindRewardCards: result.bindRewardCards,
       },
       '手機綁定成功'
     );

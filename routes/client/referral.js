@@ -2,6 +2,19 @@ const express = require('express');
 const router = express.Router();
 const { successResponse, errorResponse } = require('../../utils/response');
 
+const INVITE_SELF_REWARD = 6;
+const REFERRER_PER_PHONE_REWARD = 2;
+
+function maybePromoteAgent(tx, referrerId, referralCount) {
+  if (referralCount >= 20) {
+    return tx.player.updateMany({
+      where: { id: referrerId, isAgent: false },
+      data: { isAgent: true },
+    });
+  }
+  return Promise.resolve();
+}
+
 router.post('/bind', async (req, res) => {
   try {
     const { prisma } = req.app.locals;
@@ -33,13 +46,15 @@ router.post('/bind', async (req, res) => {
       }
 
       const adminUser = await tx.user.findFirst({ where: { role: 'ADMIN' } });
+      const bHadPhone = Boolean(player.phoneE164);
 
       await tx.player.update({
         where: { id: playerId },
         data: {
           referrerId: referrer.id,
           hasBoundReferrer: true,
-          cardCount: { increment: 8 },
+          cardCount: { increment: INVITE_SELF_REWARD },
+          phoneReferrerRewardGiven: bHadPhone,
         },
       });
 
@@ -48,38 +63,36 @@ router.post('/bind', async (req, res) => {
           data: {
             playerId,
             adminUserId: adminUser.id,
-            amount: 8,
+            amount: INVITE_SELF_REWARD,
             previousCount: player.cardCount,
-            newCount: player.cardCount + 8,
+            newCount: player.cardCount + INVITE_SELF_REWARD,
+            note: '邀請碼綁定獎勵',
           },
         });
       }
 
-      const updatedReferrer = await tx.player.update({
-        where: { id: referrer.id },
-        data: {
-          referralCount: { increment: 1 },
-          cardCount: { increment: 4 },
-        },
-      });
-
-      if (adminUser) {
-        await tx.cardRechargeRecord.create({
-          data: {
-            playerId: referrer.id,
-            adminUserId: adminUser.id,
-            amount: 4,
-            previousCount: referrer.cardCount,
-            newCount: referrer.cardCount + 4,
-          },
-        });
-      }
-
-      if (updatedReferrer.referralCount >= 20 && !updatedReferrer.isAgent) {
-        await tx.player.update({
+      if (bHadPhone) {
+        const prevRefCards = referrer.cardCount;
+        const updatedReferrer = await tx.player.update({
           where: { id: referrer.id },
-          data: { isAgent: true },
+          data: {
+            referralCount: { increment: 1 },
+            cardCount: { increment: REFERRER_PER_PHONE_REWARD },
+          },
         });
+        if (adminUser) {
+          await tx.cardRechargeRecord.create({
+            data: {
+              playerId: referrer.id,
+              adminUserId: adminUser.id,
+              amount: REFERRER_PER_PHONE_REWARD,
+              previousCount: prevRefCards,
+              newCount: prevRefCards + REFERRER_PER_PHONE_REWARD,
+              note: '推薦獎勵-被推薦人已綁定手機',
+            },
+          });
+        }
+        await maybePromoteAgent(tx, referrer.id, updatedReferrer.referralCount);
       }
 
       return { ok: true };
@@ -114,6 +127,7 @@ router.get('/info', async (req, res) => {
             userId: true,
             nickname: true,
             createdAt: true,
+            phoneE164: true,
           },
           orderBy: { createdAt: 'desc' },
         },
@@ -124,9 +138,17 @@ router.get('/info', async (req, res) => {
       return errorResponse(res, '玩家不存在', null, 404);
     }
 
-    const selfReward = player.hasBoundReferrer ? 8 : 0;
-    const referralReward = (player.referralCount || 0) * 4;
+    const selfReward = player.hasBoundReferrer ? INVITE_SELF_REWARD : 0;
+    const referralReward = (player.referralCount || 0) * REFERRER_PER_PHONE_REWARD;
     const totalRewards = selfReward + referralReward;
+
+    const referredPlayers = (player.referredPlayers || []).map((p) => ({
+      id: p.id,
+      userId: p.userId,
+      nickname: p.nickname,
+      createdAt: p.createdAt,
+      hasBoundPhone: Boolean(p.phoneE164),
+    }));
 
     return successResponse(
       res,
@@ -136,7 +158,7 @@ router.get('/info', async (req, res) => {
         hasBoundReferrer: player.hasBoundReferrer || false,
         hasBoundPhone: Boolean(player.phoneE164),
         totalRewards,
-        referredPlayers: player.referredPlayers || [],
+        referredPlayers,
       },
       '獲取成功'
     );
@@ -147,4 +169,3 @@ router.get('/info', async (req, res) => {
 });
 
 module.exports = router;
-

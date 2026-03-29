@@ -37,8 +37,8 @@ model Player {
   referrerId       String?   // 推薦人 ID (關聯到 id)
   referrer         Player?   @relation("Referral", fields: [referrerId], references: [id])
   referredPlayers  Player[]  @relation("Referral")
-  hasBoundReferrer Boolean   @default(false) // 是否已綁定推薦人 (並領取8張房卡)
-  referralCount    Int       @default(0)     // 成功推薦的人數 (用於升級代理)
+  hasBoundReferrer Boolean   @default(false) // 是否已綁定推薦人 (並領取邀請碼獎勵房卡)
+  referralCount    Int       @default(0)     // 被推薦人已綁手機、推薦人已領2張後累計 (升級代理)
   /// E.164，例如 +886912345678；已驗證手機綁定
   phoneE164                  String?   @unique
   phoneVerifiedAt            DateTime?
@@ -48,7 +48,7 @@ model Player {
   /// 待驗證的號碼（與 phoneOtpHash 配對）
   phoneOtpPendingE164        String?
   phoneOtpLastSentAt         DateTime?
-  /// 推薦人因「被推薦人綁定手機」已發放 200 房卡（僅一次）
+  /// 推薦人已領取「被推薦人完成手機綁定」之2張獎勵（每名被推薦人僅一次）
   phoneReferrerRewardGiven   Boolean   @default(false)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt

@@ -16,7 +16,7 @@ export async function OPTIONS() {
 
 /**
  * GET /api/admin/referrals/overview
- * 推廣總覽：有成功推薦人數的玩家，含下線名單（與 App「獎勵」推廣一致）
+ * 推廣總覽：至少有一名「已綁定邀請碼」下線的玩家，含下線名單（與 App「獎勵」推廣一致；referralCount 為下線完成手機綁定後累計）
  * Query: page, pageSize, keyword（邀請碼／暱稱）
  */
 export async function GET(request: NextRequest) {
@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
     const keyword = (searchParams.get('keyword') || '').trim()
 
     const where: Prisma.PlayerWhereInput = {
-      referralCount: { gt: 0 },
+      referredPlayers: { some: {} },
       ...(keyword
         ? {
             OR: [
@@ -59,6 +59,7 @@ export async function GET(request: NextRequest) {
               nickname: true,
               createdAt: true,
               hasBoundReferrer: true,
+              phoneE164: true,
             },
             orderBy: { createdAt: 'desc' },
           },
@@ -78,6 +79,7 @@ export async function GET(request: NextRequest) {
         nickname: r.nickname,
         registeredAt: r.createdAt,
         hasBoundReferrer: r.hasBoundReferrer,
+        hasBoundPhone: Boolean(r.phoneE164),
       })),
     }))
 

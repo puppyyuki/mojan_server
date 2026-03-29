@@ -10,6 +10,7 @@ interface ReferredPlayer {
   nickname: string
   registeredAt: string
   hasBoundReferrer: boolean
+  hasBoundPhone?: boolean
 }
 
 interface PromoterRow {
@@ -86,13 +87,16 @@ export default function PromotionPage() {
           <div>
             <h2 className="text-lg font-semibold text-gray-900">推廣總覽</h2>
             <p className="text-sm text-gray-600 mt-1">
-              對應 App 首頁「獎勵」中的邀請機制：玩家以<strong className="text-gray-800">6 碼使用者 ID</strong>作為邀請碼，他人綁定成功後邀請人累計
-              <strong className="text-gray-800">推廣人數</strong>並獲得房卡獎勵。此處列出至少成功推薦 1 人的玩家，並可展開查看
-              <strong className="text-gray-800">被推廣玩家暱稱與 ID</strong>（成功綁定之下線）。
+              對應 App「獎勵」：新玩家輸入邀請碼可獲 <strong className="text-gray-800">6</strong> 張房卡；邀請人須待下線
+              <strong className="text-gray-800">完成手機綁定</strong>後才累計 <code className="bg-gray-100 text-gray-800 px-1 rounded">referralCount</code> 並獲得
+              <strong className="text-gray-800"> 2 </strong>
+              張房卡（每名下線一次）。此處列出至少有一名「已輸入邀請碼」下線的邀請人。
             </p>
             <ul className="mt-3 text-xs text-gray-500 list-disc list-inside space-y-1">
-              <li>推廣人數欄位與遊戲內顯示一致（<code className="bg-gray-100 text-gray-800 px-1 rounded">referralCount</code>）。</li>
-              <li>下線列表為目前仍掛在該邀請人名下的帳號；註冊時間為帳號建立時間。</li>
+              <li>
+                <strong>推廣成功人數</strong>欄＝遊戲內有效推薦（下線已綁手機），與 <code className="bg-gray-100 px-1 rounded">referralCount</code> 一致。
+              </li>
+              <li>下線列表含手機綁定狀態；補卡紀錄見「補卡」與玩家「補卡紀錄」（備註：邀請碼綁定獎勵／推薦獎勵-被推薦人已綁定手機 等）。</li>
             </ul>
           </div>
         </div>
@@ -138,7 +142,7 @@ export default function PromotionPage() {
             重新整理
           </button>
         </div>
-        <p className="text-xs text-gray-500 mt-2">符合條件共 {total} 位推廣人（至少 1 筆成功推薦）</p>
+        <p className="text-xs text-gray-500 mt-2">符合條件共 {total} 位推廣人（至少 1 名下線已輸入邀請碼）</p>
       </div>
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
@@ -152,7 +156,7 @@ export default function PromotionPage() {
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">
                   <span className="inline-flex items-center gap-1 justify-center">
                     <UserPlus className="w-3.5 h-3.5" />
-                    推廣成功人數
+                    有效推薦人數
                   </span>
                 </th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">本人已綁定邀請碼</th>
@@ -212,6 +216,7 @@ export default function PromotionPage() {
                                       <th className="px-3 py-2 text-left">使用者 ID</th>
                                       <th className="px-3 py-2 text-left">註冊時間</th>
                                       <th className="px-3 py-2 text-center">已綁定邀請</th>
+                                      <th className="px-3 py-2 text-center">手機綁定</th>
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-gray-100">
@@ -221,6 +226,9 @@ export default function PromotionPage() {
                                         <td className="px-3 py-2 font-mono text-xs text-gray-900">{p.userId}</td>
                                         <td className="px-3 py-2 text-gray-600 whitespace-nowrap">{formatDt(p.registeredAt)}</td>
                                         <td className="px-3 py-2 text-center text-gray-800">{p.hasBoundReferrer ? '是' : '否'}</td>
+                                        <td className="px-3 py-2 text-center text-gray-800">
+                                          {p.hasBoundPhone ? '是' : '否'}
+                                        </td>
                                       </tr>
                                     ))}
                                   </tbody>
