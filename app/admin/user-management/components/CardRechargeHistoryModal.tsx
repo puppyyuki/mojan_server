@@ -12,6 +12,7 @@ interface RechargeRecord {
   amount: number
   previousCount: number
   newCount: number
+  note?: string
   createdAt: string
 }
 
@@ -109,6 +110,9 @@ export default function CardRechargeHistoryModal({
                     <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">
                       補卡後
                     </th>
+                    <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase min-w-[140px]">
+                      備註
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
@@ -127,6 +131,9 @@ export default function CardRechargeHistoryModal({
                       </td>
                       <td className="px-4 py-2 text-center text-gray-900 font-medium">
                         {record.newCount}
+                      </td>
+                      <td className="px-4 py-2 text-center text-gray-600 text-xs max-w-[220px] truncate" title={record.note || ''}>
+                        {record.note?.trim() ? record.note : '—'}
                       </td>
                     </tr>
                   ))}

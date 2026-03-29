@@ -791,6 +791,8 @@ router.post('/:clubId/join-requests/:requestId', async (req, res) => {
 /**
  * GET /api/client/clubs/:clubId/rankings
  * 獲取俱樂部排行榜（可依日期區間聚合）
+ * Query: startDate, endDate (YYYY-MM-DD，可選)
+ *        playerId（可選，子字串比對 member 的 userId / playerId，篩選後重新編排名次）
  */
 router.get('/:clubId/rankings', async (req, res) => {
   try {
@@ -900,7 +902,7 @@ router.get('/:clubId/rankings', async (req, res) => {
       }
     }
 
-    const rankings = Array.from(byPlayerId.values())
+    let rankings = Array.from(byPlayerId.values())
       .filter((r) => !hasDateFilter || r.totalGames > 0)
       .sort((a, b) => {
         if ((b.clubScore || 0) !== (a.clubScore || 0)) {
@@ -910,13 +912,26 @@ router.get('/:clubId/rankings', async (req, res) => {
           return (b.bigWinnerCount || 0) - (a.bigWinnerCount || 0);
         }
         return (b.totalGames || 0) - (a.totalGames || 0);
-      })
-      .map((r, idx) => ({
-        rank: idx + 1,
-        ...r,
-      }));
+      });
 
-    return successResponse(res, rankings);
+    const rankingPlayerSearchRaw = (req.query.playerId || '')
+      .toString()
+      .trim();
+    if (rankingPlayerSearchRaw) {
+      const q = rankingPlayerSearchRaw.toLowerCase();
+      rankings = rankings.filter((r) => {
+        const uid = String(r.userId ?? '').toLowerCase();
+        const pid = String(r.playerId ?? '').toLowerCase();
+        return uid.includes(q) || pid.includes(q);
+      });
+    }
+
+    const ranked = rankings.map((r, idx) => ({
+      rank: idx + 1,
+      ...r,
+    }));
+
+    return successResponse(res, ranked);
   } catch (error) {
     console.error('[Clubs API] 獲取排行榜失敗:', error);
     return errorResponse(res, '獲取排行榜失敗', error.message, 500);

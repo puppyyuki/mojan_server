@@ -542,6 +542,9 @@ router.post('/transfer-club-balance', async (req, res) => {
                 throw makeError(`房卡不足（目前：${actor.cardCount}）`, 400);
             }
 
+            const playerPreviousCount = actor.cardCount;
+            const clubPreviousCount = club.cardCount;
+
             const updatedPlayer = await tx.player.update({
                 where: { id: actorPlayerId },
                 data: { cardCount: { decrement: amount } },
@@ -552,6 +555,18 @@ router.post('/transfer-club-balance', async (req, res) => {
                 where: { id: club.id },
                 data: { cardCount: { increment: amount } },
                 select: { id: true, clubId: true, cardCount: true },
+            });
+
+            await tx.clubCardReplenishRecord.create({
+                data: {
+                    clubId: club.id,
+                    actorPlayerId: actorPlayerId,
+                    amount,
+                    playerPreviousCount,
+                    playerNewCount: updatedPlayer.cardCount,
+                    clubPreviousCount,
+                    clubNewCount: updatedClub.cardCount,
+                },
             });
 
             return {

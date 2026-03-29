@@ -1,11 +1,12 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { RefreshCw, Edit, Trash2, Plus, Search, Users } from 'lucide-react'
+import { RefreshCw, Edit, Trash2, Plus, Search, Users, History } from 'lucide-react'
 import { apiGet, apiDelete } from '@/lib/api-client'
 import CreateClubModal from './components/CreateClubModal'
 import EditClubModal from './components/EditClubModal'
 import ClubMembersModal from './components/ClubMembersModal'
+import ClubReplenishHistoryModal from './components/ClubReplenishHistoryModal'
 import Image from 'next/image'
 
 interface Club {
@@ -60,6 +61,8 @@ export default function ClubManagementPage() {
   const [membersModalOpen, setMembersModalOpen] = useState(false)
   const [editingClub, setEditingClub] = useState<Club | null>(null)
   const [viewingMembers, setViewingMembers] = useState<Club | null>(null)
+  const [replenishHistoryModalOpen, setReplenishHistoryModalOpen] = useState(false)
+  const [viewingReplenishClubId, setViewingReplenishClubId] = useState<string | null>(null)
 
   // 獲取俱樂部列表
   const fetchClubs = useCallback(async () => {
@@ -130,6 +133,11 @@ export default function ClubManagementPage() {
   const handleViewMembers = (club: Club) => {
     setViewingMembers(club)
     setMembersModalOpen(true)
+  }
+
+  const handleViewReplenishHistory = (club: Club) => {
+    setViewingReplenishClubId(club.id)
+    setReplenishHistoryModalOpen(true)
   }
 
   // 刪除俱樂部
@@ -256,7 +264,7 @@ export default function ClubManagementPage() {
       {/* 數據表格 */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1000px] divide-y divide-gray-200">
+          <table className="w-full min-w-[1200px] divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-center border-r border-gray-200 w-[60px]">
@@ -288,6 +296,9 @@ export default function ClubManagementPage() {
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 whitespace-nowrap w-[150px]">
                   俱樂部房卡數量
                 </th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 whitespace-nowrap w-[200px]">
+                  俱樂部補卡紀錄
+                </th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-[200px]">
                   操作
                 </th>
@@ -296,7 +307,7 @@ export default function ClubManagementPage() {
             <tbody className="divide-y divide-gray-200">
               {loading && !dataLoaded ? (
                 <tr>
-                  <td colSpan={9} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={10} className="px-6 py-12 text-center text-gray-500">
                     <div className="flex items-center justify-center">
                       <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
                       <span className="ml-2">載入中...</span>
@@ -305,7 +316,7 @@ export default function ClubManagementPage() {
                 </tr>
               ) : displayData.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={10} className="px-6 py-12 text-center text-gray-500">
                     暫無數據
                   </td>
                 </tr>
@@ -369,6 +380,18 @@ export default function ClubManagementPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200 text-gray-900">
                       {item.cardCount}
                     </td>
+                    <td className="px-6 py-4 text-center border-r border-gray-200">
+                      <div className="flex items-center justify-center">
+                        <button
+                          type="button"
+                          onClick={() => handleViewReplenishHistory(item)}
+                          className="flex items-center justify-center gap-1 text-purple-600 hover:text-purple-800 hover:bg-purple-50 rounded px-2 py-1 transition-colors"
+                        >
+                          <History className="w-4 h-4" />
+                          <span className="text-sm">查看紀錄</span>
+                        </button>
+                      </div>
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center">
                       <div className="flex items-center justify-center gap-2">
                         <button
@@ -430,6 +453,15 @@ export default function ClubManagementPage() {
         }}
         members={viewingMembers?.members || []}
         clubName={viewingMembers?.name || ''}
+      />
+
+      <ClubReplenishHistoryModal
+        isOpen={replenishHistoryModalOpen}
+        onClose={() => {
+          setReplenishHistoryModalOpen(false)
+          setViewingReplenishClubId(null)
+        }}
+        clubId={viewingReplenishClubId || ''}
       />
     </div>
   )

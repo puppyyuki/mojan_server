@@ -61,6 +61,7 @@ export async function GET(
           amount: record.amount,
           previousCount: record.previousCount,
           newCount: record.newCount,
+          note: record.note ?? '',
           createdAt: record.createdAt,
         })),
       },

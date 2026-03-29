@@ -54,6 +54,7 @@ model Player {
   joinRequests           ClubJoinRequest[]       @relation("PlayerJoinRequests")
   roomParticipants       RoomParticipant[]       @relation("PlayerRoomParticipants")
   v2MatchParticipants    V2MatchParticipant[]
+  clubCardReplenishAsActor ClubCardReplenishRecord[] @relation("ClubReplenishActor")
 
   @@map("players")
 }
@@ -77,8 +78,26 @@ model Club {
   joinRequests ClubJoinRequest[] @relation("ClubJoinRequests")
   activities   ClubActivity[]
   gameResults  ClubGameResult[]
+  cardReplenishRecords ClubCardReplenishRecord[]
 
   @@map("clubs")
+}
+
+// 成員從個人房卡轉入俱樂部房卡（頂部條補卡）
+model ClubCardReplenishRecord {
+  id                  String   @id @default(cuid())
+  clubId              String
+  club                Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  actorPlayerId       String
+  actor               Player   @relation("ClubReplenishActor", fields: [actorPlayerId], references: [id], onDelete: Cascade)
+  amount              Int
+  playerPreviousCount Int
+  playerNewCount      Int
+  clubPreviousCount   Int
+  clubNewCount        Int
+  createdAt           DateTime @default(now())
+
+  @@map("club_card_replenish_records")
 }
 
 // 俱樂部加入申請
@@ -225,8 +244,11 @@ model CardRechargeRecord {
   amount        Int // 補卡數量
   previousCount Int // 補卡前的數量
   newCount      Int // 補卡後的數量
+  /// 後台手動補卡等原因說明；系統推廣獎勵等可為空
+  note          String?
   createdAt     DateTime @default(now())
 
+  @@index([createdAt])
   @@map("card_recharge_records")
 }
 
