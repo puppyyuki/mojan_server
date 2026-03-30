@@ -540,11 +540,45 @@ router.get('/:clubId/rooms', async (req, res) => {
     }
 
     const visibleRooms = rooms.filter((room) => !staleRoomIds.includes(room.id));
+    const visibleRoomCodes = visibleRooms
+      .map((room) => room.roomId)
+      .filter((code) => typeof code === 'string' && code.length > 0);
+
+    // V2：最後一局 roundEnd（isLastRound=true）到最終結算完成前，房間不應再顯示於俱樂部房間列表。
+    // 以 IN_PROGRESS session 的「最新一局 roundEndPayload.isLastRound」判定，避免中間結算階段被快速加入。
+    const finalizingRoomCodeSet = new Set();
+    if (visibleRoomCodes.length > 0) {
+      const sessions = await prisma.v2MatchSession.findMany({
+        where: {
+          roomCode: { in: visibleRoomCodes },
+          status: 'IN_PROGRESS',
+        },
+        select: {
+          roomCode: true,
+          rounds: {
+            orderBy: { roundIndex: 'desc' },
+            take: 1,
+            select: { roundEndPayload: true },
+          },
+        },
+      });
+      for (const session of sessions) {
+        const payload = session?.rounds?.[0]?.roundEndPayload;
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload)) continue;
+        if (payload.isLastRound === true) {
+          finalizingRoomCodeSet.add(session.roomCode);
+        }
+      }
+    }
+
+    const listRooms = visibleRooms.filter(
+      (room) => !finalizingRoomCodeSet.has(room.roomId)
+    );
     console.log(
-      `[Clubs API] 俱樂部房間列表 club=${club.id} total=${rooms.length} visible=${visibleRooms.length} staleCleaned=${staleRoomIds.length}`
+      `[Clubs API] 俱樂部房間列表 club=${club.id} total=${rooms.length} visible=${visibleRooms.length} staleCleaned=${staleRoomIds.length} finalizingHidden=${finalizingRoomCodeSet.size}`
     );
 
-    const data = visibleRooms.map((room) => ({
+    const data = listRooms.map((room) => ({
       id: room.id,
       roomId: room.roomId,
       multiplayerVersion: room.multiplayerVersion,
