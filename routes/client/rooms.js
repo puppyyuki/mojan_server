@@ -275,6 +275,13 @@ router.get('/:roomId', async (req, res) => {
       typeof req.query?.playerId === 'string' && req.query.playerId.trim()
         ? req.query.playerId.trim()
         : null;
+    let viewerPlayer = null;
+    if (viewerPlayerId) {
+      viewerPlayer = await prisma.player.findUnique({
+        where: { id: viewerPlayerId },
+        select: { id: true, userId: true },
+      });
+    }
 
     const room = await prisma.room.findUnique({
       where: { roomId },
@@ -324,7 +331,20 @@ router.get('/:roomId', async (req, res) => {
       };
     }
 
-    return successResponse(res, { ...room, access }, '獲取房間資訊成功');
+    return successResponse(
+      res,
+      {
+        ...room,
+        access,
+        viewer: viewerPlayer
+          ? {
+              playerId: viewerPlayer.id,
+              userId: viewerPlayer.userId ?? null,
+            }
+          : null,
+      },
+      '獲取房間資訊成功'
+    );
   } catch (error) {
     console.error('[Rooms API] 獲取房間資訊失敗:', error);
     return errorResponse(res, '獲取房間資訊失敗', error.message, 500);

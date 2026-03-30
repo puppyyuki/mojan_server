@@ -6,6 +6,9 @@ const {
   resolveClubV2HistoryVisibility,
 } = require('../../utils/clubV2HistoryAccess');
 
+// 房間列表輪詢頻繁：只在統計值變化時輸出一次，避免終端重複洗版。
+const _lastClubRoomsListLogSignatureByClubId = new Map();
+
 /**
  * 查找俱樂部（支持內部ID或俱樂部ID）
  */
@@ -574,9 +577,19 @@ router.get('/:clubId/rooms', async (req, res) => {
     const listRooms = visibleRooms.filter(
       (room) => !finalizingRoomCodeSet.has(room.roomId)
     );
-    console.log(
-      `[Clubs API] 俱樂部房間列表 club=${club.id} total=${rooms.length} visible=${visibleRooms.length} staleCleaned=${staleRoomIds.length} finalizingHidden=${finalizingRoomCodeSet.size}`
-    );
+    const listLogSignature = [
+      rooms.length,
+      visibleRooms.length,
+      listRooms.length,
+      staleRoomIds.length,
+      finalizingRoomCodeSet.size,
+    ].join('|');
+    if (_lastClubRoomsListLogSignatureByClubId.get(club.id) !== listLogSignature) {
+      _lastClubRoomsListLogSignatureByClubId.set(club.id, listLogSignature);
+      console.log(
+        `[Clubs API] 俱樂部房間列表 club=${club.id} total=${rooms.length} visible=${visibleRooms.length} listed=${listRooms.length} staleCleaned=${staleRoomIds.length} finalizingHidden=${finalizingRoomCodeSet.size}`
+      );
+    }
 
     const data = listRooms.map((room) => ({
       id: room.id,
