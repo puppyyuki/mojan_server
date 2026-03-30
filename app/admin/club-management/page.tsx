@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { RefreshCw, Edit, Trash2, Plus, Search, Users, History } from 'lucide-react'
 import { apiGet, apiDelete } from '@/lib/api-client'
+import { requestAdminOpCode, withAdminOpCodeHeader } from '@/lib/admin-op-code-client'
 import CreateClubModal from './components/CreateClubModal'
 import EditClubModal from './components/EditClubModal'
 import ClubMembersModal from './components/ClubMembersModal'
@@ -142,12 +143,15 @@ export default function ClubManagementPage() {
 
   // 刪除俱樂部
   const handleDelete = async (id: string) => {
-    if (!confirm('確定要刪除此俱樂部嗎？')) {
+    const opCode = requestAdminOpCode('確定要刪除此俱樂部嗎？')
+    if (!opCode) {
       return
     }
 
     try {
-      const response = await apiDelete(`/api/clubs/${id}`)
+      const response = await apiDelete(`/api/clubs/${id}`, {
+        headers: withAdminOpCodeHeader(opCode),
+      })
       if (response.ok) {
         alert('刪除成功')
         fetchClubs()
@@ -168,12 +172,17 @@ export default function ClubManagementPage() {
       return
     }
 
-    if (!confirm(`確定要刪除 ${selectedItems.length} 個俱樂部嗎？`)) {
+    const opCode = requestAdminOpCode(`確定要刪除 ${selectedItems.length} 個俱樂部嗎？`)
+    if (!opCode) {
       return
     }
 
     try {
-      const deletePromises = selectedItems.map(id => apiDelete(`/api/clubs/${id}`))
+      const deletePromises = selectedItems.map((id) =>
+        apiDelete(`/api/clubs/${id}`, {
+          headers: withAdminOpCodeHeader(opCode),
+        })
+      )
       await Promise.all(deletePromises)
       alert('批量刪除成功')
       setSelectedItems([])

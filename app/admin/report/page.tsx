@@ -14,6 +14,12 @@ interface ClubRow {
   totalRounds: number
   totalRoomCardsConsumed: number
   avgRoomCardsPerGame: number
+  topBigWinner: {
+    playerId: string
+    userId: string
+    nickname: string
+    winCount: number
+  } | null
 }
 
 interface SummaryData {
@@ -69,6 +75,7 @@ export default function ReportPage() {
       '目前俱樂部房卡餘額',
       '對局數',
       '總局數',
+      '大贏家',
       '總消耗房卡',
       '平均每局耗卡',
     ]
@@ -81,6 +88,7 @@ export default function ReportPage() {
           r.clubCardBalance ?? '',
           r.gameCount,
           r.totalRounds,
+          r.topBigWinner ? `"${r.topBigWinner.nickname} (${r.topBigWinner.userId}) x${r.topBigWinner.winCount}"` : '—',
           r.totalRoomCardsConsumed,
           r.avgRoomCardsPerGame,
         ].join(',')
@@ -210,7 +218,7 @@ export default function ReportPage() {
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[960px] divide-y divide-gray-200 text-sm">
+          <table className="w-full min-w-[1080px] divide-y divide-gray-200 text-sm">
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">俱樂部 6 碼</th>
@@ -218,6 +226,7 @@ export default function ReportPage() {
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">俱樂部房卡餘額</th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">區間對局數</th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">區間總局數</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">區間大贏家</th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">區間耗卡</th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">平均每局耗卡</th>
               </tr>
@@ -225,21 +234,21 @@ export default function ReportPage() {
             <tbody className="divide-y divide-gray-200">
               {loading && !data ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-gray-500">
+                  <td colSpan={8} className="px-4 py-12 text-center text-gray-500">
                     <RefreshCw className="w-6 h-6 animate-spin inline mr-2" />
                     載入中…
                   </td>
                 </tr>
               ) : loading ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-gray-500">
+                  <td colSpan={8} className="px-4 py-12 text-center text-gray-500">
                     <RefreshCw className="w-6 h-6 animate-spin inline mr-2" />
                     載入中…
                   </td>
                 </tr>
               ) : !data?.rows.length ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-12 text-center text-gray-500">
+                  <td colSpan={8} className="px-4 py-12 text-center text-gray-500">
                     無資料，請調整日期或關鍵字後查詢
                   </td>
                 </tr>
@@ -251,6 +260,11 @@ export default function ReportPage() {
                     <td className="px-4 py-2 text-center text-gray-700">{r.clubCardBalance ?? '—'}</td>
                     <td className="px-4 py-2 text-center font-medium text-gray-900">{r.gameCount}</td>
                     <td className="px-4 py-2 text-center text-gray-700">{r.totalRounds}</td>
+                    <td className="px-4 py-2 text-center text-gray-700">
+                      {r.topBigWinner
+                        ? `${r.topBigWinner.nickname} (${r.topBigWinner.userId}) x${r.topBigWinner.winCount}`
+                        : '—'}
+                    </td>
                     <td className="px-4 py-2 text-center text-emerald-800 font-medium">{r.totalRoomCardsConsumed}</td>
                     <td className="px-4 py-2 text-center text-gray-600">{r.avgRoomCardsPerGame}</td>
                   </tr>

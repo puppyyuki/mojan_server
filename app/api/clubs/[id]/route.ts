@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { getCurrentUserId } from '@/lib/auth'
+import { assertAdminOpCode } from '@/lib/admin-op-code-server'
 
 // CORS headers helper
 function corsHeaders() {
@@ -87,6 +89,20 @@ export async function PATCH(
     const { id } = await params
     const body = await request.json()
     const { name, cardCount, avatarUrl, description, logoUrl } = body
+
+    if (cardCount !== undefined) {
+      const opCodeGuard = assertAdminOpCode(request, body)
+      if (opCodeGuard.ok === false) {
+        return opCodeGuard.response
+      }
+      const adminUserId = await getCurrentUserId(request)
+      if (!adminUserId) {
+        return NextResponse.json(
+          { success: false, error: '未授權，請重新登入管理員帳號' },
+          { status: 401, headers: corsHeaders() }
+        )
+      }
+    }
 
     const updateData: any = {}
     if (name !== undefined) {
@@ -294,6 +310,24 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params
+    const opCodeGuard = assertAdminOpCode(request)
+    if (opCodeGuard.ok === false) {
+      return opCodeGuard.response
+    }
+    const adminUserId = await getCurrentUserId(request)
+    if (adminUserId) {
+      await prisma.club.delete({
+        where: { id },
+      })
+      return NextResponse.json(
+        {
+          success: true,
+          message: '俱樂部刪除成功',
+        },
+        { headers: corsHeaders() }
+      )
+    }
+
     const url = new URL(request.url)
     const actorPlayerId = url.searchParams.get('actorPlayerId')
     if (!actorPlayerId || typeof actorPlayerId !== 'string') {

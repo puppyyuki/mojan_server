@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getCurrentUserId } from '@/lib/auth'
+import { assertAdminOpCode } from '@/lib/admin-op-code-server'
 
 // CORS headers helper
 function corsHeaders() {
@@ -64,6 +65,20 @@ export async function PATCH(
     const { id } = await params
     const body = await request.json()
     const { nickname, cardCount, bio } = body
+
+    if (cardCount !== undefined) {
+      const opCodeGuard = assertAdminOpCode(request, body)
+      if (opCodeGuard.ok === false) {
+        return opCodeGuard.response
+      }
+      const adminUserId = await getCurrentUserId(request)
+      if (!adminUserId) {
+        return NextResponse.json(
+          { success: false, error: '未授權，請重新登入管理員帳號' },
+          { status: 401, headers: corsHeaders() }
+        )
+      }
+    }
 
     // 獲取當前玩家資料（用於記錄補卡前的數量）
     const currentPlayer = await prisma.player.findUnique({
@@ -158,6 +173,17 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params
+    const opCodeGuard = assertAdminOpCode(request)
+    if (opCodeGuard.ok === false) {
+      return opCodeGuard.response
+    }
+    const adminUserId = await getCurrentUserId(request)
+    if (!adminUserId) {
+      return NextResponse.json(
+        { success: false, error: '未授權，請重新登入管理員帳號' },
+        { status: 401, headers: corsHeaders() }
+      )
+    }
     await prisma.player.delete({
       where: { id },
     })

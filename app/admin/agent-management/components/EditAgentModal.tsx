@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { X, Save } from 'lucide-react'
 import { apiPatch } from '@/lib/api-client'
+import { requestAdminOpCode, withAdminOpCodeHeader } from '@/lib/admin-op-code-client'
 
 interface Agent {
   id: string
@@ -41,11 +42,18 @@ export default function EditAgentModal({
   const handleSave = async () => {
     if (loading || !agent) return
 
+    const opCode = requestAdminOpCode('確定要調整代理房卡資料嗎？')
+    if (!opCode) {
+      return
+    }
+
     setLoading(true)
     try {
       // 更新房卡數量
       const cardResponse = await apiPatch(`/api/players/${agent.playerDbId}`, {
         cardCount: parseInt(cardCount),
+      }, {
+        headers: withAdminOpCodeHeader(opCode),
       })
 
       if (!cardResponse.ok) {

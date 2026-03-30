@@ -33,7 +33,7 @@ export async function GET(
       )
     }
 
-    const records = await prisma.clubCardReplenishRecord.findMany({
+    const memberTransferRecords = await prisma.clubCardReplenishRecord.findMany({
       where: { clubId: id },
       include: {
         actor: {
@@ -45,24 +45,56 @@ export async function GET(
       },
       orderBy: { createdAt: 'desc' },
     })
+    const adminRechargeRecords = await prisma.clubAdminCardRechargeRecord.findMany({
+      where: { clubId: id },
+      include: {
+        adminUser: {
+          select: {
+            username: true,
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    const records = [
+      ...memberTransferRecords.map((record) => ({
+        id: record.id,
+        sourceType: 'MEMBER_TRANSFER',
+        date: record.createdAt.toISOString().split('T')[0],
+        time: record.createdAt.toISOString().split('T')[1].split('.')[0],
+        actorNickname: record.actor.nickname,
+        actorUserId: record.actor.userId,
+        amount: record.amount,
+        playerPreviousCount: record.playerPreviousCount,
+        playerNewCount: record.playerNewCount,
+        clubPreviousCount: record.clubPreviousCount,
+        clubNewCount: record.clubNewCount,
+        note: '',
+        createdAt: record.createdAt,
+      })),
+      ...adminRechargeRecords.map((record) => ({
+        id: record.id,
+        sourceType: 'ADMIN_RECHARGE',
+        date: record.createdAt.toISOString().split('T')[0],
+        time: record.createdAt.toISOString().split('T')[1].split('.')[0],
+        actorNickname: record.adminUser.username,
+        actorUserId: record.adminUserId,
+        amount: record.amount,
+        playerPreviousCount: null as number | null,
+        playerNewCount: null as number | null,
+        clubPreviousCount: record.previousCount,
+        clubNewCount: record.newCount,
+        note: record.note ?? '',
+        createdAt: record.createdAt,
+      })),
+    ].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
 
     return NextResponse.json(
       {
         success: true,
         data: {
-          records: records.map((record) => ({
-            id: record.id,
-            date: record.createdAt.toISOString().split('T')[0],
-            time: record.createdAt.toISOString().split('T')[1].split('.')[0],
-            actorNickname: record.actor.nickname,
-            actorUserId: record.actor.userId,
-            amount: record.amount,
-            playerPreviousCount: record.playerPreviousCount,
-            playerNewCount: record.playerNewCount,
-            clubPreviousCount: record.clubPreviousCount,
-            clubNewCount: record.clubNewCount,
-            createdAt: record.createdAt.toISOString(),
-          })),
+          records,
         },
       },
       { headers: corsHeaders() }

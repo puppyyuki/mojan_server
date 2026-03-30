@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { X, Save } from 'lucide-react'
 import { apiPatch } from '@/lib/api-client'
+import { requestAdminOpCode, withAdminOpCodeHeader } from '@/lib/admin-op-code-client'
 
 interface Player {
   id: string
@@ -47,12 +48,19 @@ export default function EditUserModal({
       return
     }
 
+    const opCode = requestAdminOpCode('確定要調整玩家資料與房卡嗎？')
+    if (!opCode) {
+      return
+    }
+
     setLoading(true)
     try {
       const response = await apiPatch(`/api/players/${player.id}`, {
         nickname: nickname.trim(),
         cardCount: parseInt(cardCount),
         bio: bio.trim() || null,
+      }, {
+        headers: withAdminOpCodeHeader(opCode),
       })
 
       if (response.ok) {

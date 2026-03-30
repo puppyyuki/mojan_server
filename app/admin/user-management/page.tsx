@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { RefreshCw, Edit, Trash2, Plus, Search, History, Users } from 'lucide-react'
 import { apiGet, apiDelete } from '@/lib/api-client'
+import { requestAdminOpCode, withAdminOpCodeHeader } from '@/lib/admin-op-code-client'
 import CreateUserModal from './components/CreateUserModal'
 import EditUserModal from './components/EditUserModal'
 import CardRechargeHistoryModal from './components/CardRechargeHistoryModal'
@@ -147,12 +148,15 @@ export default function UserManagementPage() {
 
   // 刪除玩家
   const handleDelete = async (id: string) => {
-    if (!confirm('確定要刪除此玩家嗎？')) {
+    const opCode = requestAdminOpCode('確定要刪除此玩家嗎？')
+    if (!opCode) {
       return
     }
 
     try {
-      const response = await apiDelete(`/api/players/${id}`)
+      const response = await apiDelete(`/api/players/${id}`, {
+        headers: withAdminOpCodeHeader(opCode),
+      })
       if (response.ok) {
         alert('刪除成功')
         fetchPlayers()
@@ -173,12 +177,17 @@ export default function UserManagementPage() {
       return
     }
 
-    if (!confirm(`確定要刪除 ${selectedItems.length} 個玩家嗎？`)) {
+    const opCode = requestAdminOpCode(`確定要刪除 ${selectedItems.length} 個玩家嗎？`)
+    if (!opCode) {
       return
     }
 
     try {
-      const deletePromises = selectedItems.map(id => apiDelete(`/api/players/${id}`))
+      const deletePromises = selectedItems.map((id) =>
+        apiDelete(`/api/players/${id}`, {
+          headers: withAdminOpCodeHeader(opCode),
+        })
+      )
       await Promise.all(deletePromises)
       alert('批量刪除成功')
       setSelectedItems([])

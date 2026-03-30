@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { RefreshCw, Search, History, CheckCircle, XCircle, Clock, Edit, Trash2, ShoppingCart } from 'lucide-react'
 import { apiGet, apiDelete } from '@/lib/api-client'
+import { requestAdminOpCode, withAdminOpCodeHeader } from '@/lib/admin-op-code-client'
 import AgentReviewModal from './components/AgentReviewModal'
 import AgentRechargeHistoryModal from './components/AgentRechargeHistoryModal'
 import AgentSalesHistoryModal from './components/AgentSalesHistoryModal'
@@ -130,12 +131,15 @@ export default function AgentManagementPage() {
 
   // 刪除代理
   const handleDelete = async (id: string) => {
-    if (!confirm('確定要刪除此代理申請嗎？')) {
+    const opCode = requestAdminOpCode('確定要刪除此代理申請嗎？')
+    if (!opCode) {
       return
     }
 
     try {
-      const response = await apiDelete(`/api/admin/agents/${id}`)
+      const response = await apiDelete(`/api/admin/agents/${id}`, {
+        headers: withAdminOpCodeHeader(opCode),
+      })
       if (response.ok) {
         alert('刪除成功')
         fetchAgents()

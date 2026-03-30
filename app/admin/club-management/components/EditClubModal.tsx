@@ -3,6 +3,8 @@
 import { useState, useEffect } from 'react'
 import { X, Save } from 'lucide-react'
 import Image from 'next/image'
+import { apiPatch } from '@/lib/api-client'
+import { requestAdminOpCode, withAdminOpCodeHeader } from '@/lib/admin-op-code-client'
 
 interface Club {
   id: string
@@ -60,18 +62,19 @@ export default function EditClubModal({
       return
     }
 
+    const opCode = requestAdminOpCode('確定要調整俱樂部資料與房卡嗎？')
+    if (!opCode) {
+      return
+    }
+
     setLoading(true)
     try {
-      const response = await fetch(`/api/clubs/${club.id}`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: name.trim(),
-          cardCount: parseInt(cardCount),
-          avatarUrl: avatarUrl.trim() || null,
-        })
+      const response = await apiPatch(`/api/clubs/${club.id}`, {
+        name: name.trim(),
+        cardCount: parseInt(cardCount),
+        avatarUrl: avatarUrl.trim() || null,
+      }, {
+        headers: withAdminOpCodeHeader(opCode),
       })
 
       if (response.ok) {

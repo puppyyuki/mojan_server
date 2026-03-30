@@ -72,6 +72,43 @@ export async function GET(request: NextRequest) {
     })
     const clubMap = new Map(clubs.map((c) => [c.id, c]))
 
+    const winnerCounterByClub = new Map<string, Map<string, number>>()
+    const clubGames = await prisma.clubGameResult.findMany({
+      where,
+      select: {
+        clubId: true,
+        players: true,
+      },
+    })
+    for (const game of clubGames) {
+      const players = Array.isArray(game.players) ? game.players : []
+      for (const item of players) {
+        if (!item || typeof item !== 'object') continue
+        const row = item as Record<string, unknown>
+        const isBigWinner = row.isBigWinner === true
+        const playerId = typeof row.playerId === 'string' ? row.playerId : ''
+        if (!isBigWinner || !playerId) continue
+        let counter = winnerCounterByClub.get(game.clubId)
+        if (!counter) {
+          counter = new Map<string, number>()
+          winnerCounterByClub.set(game.clubId, counter)
+        }
+        counter.set(playerId, (counter.get(playerId) || 0) + 1)
+      }
+    }
+    const winnerPlayerIds = Array.from(
+      new Set(
+        Array.from(winnerCounterByClub.values()).flatMap((counter) => Array.from(counter.keys()))
+      )
+    )
+    const winnerPlayers = winnerPlayerIds.length
+      ? await prisma.player.findMany({
+          where: { id: { in: winnerPlayerIds } },
+          select: { id: true, userId: true, nickname: true },
+        })
+      : []
+    const winnerPlayerMap = new Map(winnerPlayers.map((p) => [p.id, p]))
+
     const rows = grouped
       .map((g) => {
         const c = clubMap.get(g.clubId)
@@ -79,6 +116,26 @@ export async function GET(request: NextRequest) {
         const totalRounds = g._sum.totalRounds ?? 0
         const totalCards = g._sum.roomCardConsumedTotal ?? 0
         const avgCardsPerGame = gameCount > 0 ? totalCards / gameCount : 0
+        const winnerCounter = winnerCounterByClub.get(g.clubId)
+        let topBigWinner: {
+          playerId: string
+          userId: string
+          nickname: string
+          winCount: number
+        } | null = null
+        if (winnerCounter) {
+          for (const [playerId, winCount] of winnerCounter.entries()) {
+            if (!topBigWinner || winCount > topBigWinner.winCount) {
+              const player = winnerPlayerMap.get(playerId)
+              topBigWinner = {
+                playerId,
+                userId: player?.userId || '未知玩家',
+                nickname: player?.nickname || '未知玩家',
+                winCount,
+              }
+            }
+          }
+        }
         return {
           clubInternalId: g.clubId,
           clubSixId: c?.clubId ?? '—',
@@ -88,6 +145,7 @@ export async function GET(request: NextRequest) {
           totalRounds,
           totalRoomCardsConsumed: totalCards,
           avgRoomCardsPerGame: Math.round(avgCardsPerGame * 100) / 100,
+          topBigWinner,
         }
       })
       .sort((a, b) => b.gameCount - a.gameCount)

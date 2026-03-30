@@ -6,12 +6,14 @@ import { apiGet } from '@/lib/api-client'
 
 interface RechargeRecord {
   id: string
+  sourceType: 'ADMIN_RECHARGE' | 'AGENT_SALE'
   date: string
   time: string
-  adminUsername: string
+  actorName: string
+  actorUserId: string
   amount: number
-  previousCount: number
-  newCount: number
+  previousCount: number | null
+  newCount: number | null
   note?: string
   createdAt: string
 }
@@ -99,6 +101,9 @@ export default function CardRechargeHistoryModal({
                       時間
                     </th>
                     <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">
+                      來源
+                    </th>
+                    <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">
                       操作者
                     </th>
                     <th className="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">
@@ -120,17 +125,20 @@ export default function CardRechargeHistoryModal({
                     <tr key={record.id} className="hover:bg-gray-50">
                       <td className="px-4 py-2 text-center text-gray-900">{record.date}</td>
                       <td className="px-4 py-2 text-center text-gray-600">{record.time}</td>
+                      <td className="px-4 py-2 text-center text-gray-700">
+                        {record.sourceType === 'ADMIN_RECHARGE' ? '後台補卡' : '代理售卡'}
+                      </td>
                       <td className="px-4 py-2 text-center text-gray-900 font-medium">
-                        {record.adminUsername}
+                        {record.actorName} ({record.actorUserId})
                       </td>
                       <td className="px-4 py-2 text-center text-gray-600">
-                        {record.previousCount}
+                        {record.previousCount ?? '—'}
                       </td>
                       <td className="px-4 py-2 text-center text-green-600 font-semibold">
                         +{record.amount}
                       </td>
                       <td className="px-4 py-2 text-center text-gray-900 font-medium">
-                        {record.newCount}
+                        {record.newCount ?? '—'}
                       </td>
                       <td className="px-4 py-2 text-center text-gray-600 text-xs max-w-[220px] truncate" title={record.note || ''}>
                         {record.note?.trim() ? record.note : '—'}

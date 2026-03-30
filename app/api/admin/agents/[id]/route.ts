@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { getCurrentUserId } from '@/lib/auth'
+import { assertAdminOpCode } from '@/lib/admin-op-code-server'
 
 // CORS headers helper
 function corsHeaders() {
@@ -21,6 +23,18 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const opCodeGuard = assertAdminOpCode(request)
+    if (opCodeGuard.ok === false) {
+      return opCodeGuard.response
+    }
+    const adminUserId = await getCurrentUserId(request)
+    if (!adminUserId) {
+      return NextResponse.json(
+        { success: false, error: '未授權，請重新登入管理員帳號' },
+        { status: 401, headers: corsHeaders() }
+      )
+    }
+
     const { id } = await params
 
     // 查找申請

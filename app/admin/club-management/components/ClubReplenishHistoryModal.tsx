@@ -6,15 +6,17 @@ import { apiGet } from '@/lib/api-client'
 
 interface ClubReplenishRecord {
   id: string
+  sourceType: 'MEMBER_TRANSFER' | 'ADMIN_RECHARGE'
   date: string
   time: string
   actorNickname: string
   actorUserId: string
   amount: number
-  playerPreviousCount: number
-  playerNewCount: number
+  playerPreviousCount: number | null
+  playerNewCount: number | null
   clubPreviousCount: number
   clubNewCount: number
+  note?: string
   createdAt: string
 }
 
@@ -100,6 +102,9 @@ export default function ClubReplenishHistoryModal({
                       時間
                     </th>
                     <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">
+                      來源
+                    </th>
+                    <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">
                       補卡成員
                     </th>
                     <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">
@@ -120,6 +125,9 @@ export default function ClubReplenishHistoryModal({
                     <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">
                       俱樂部房卡後
                     </th>
+                    <th className="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">
+                      備註
+                    </th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200">
@@ -127,24 +135,30 @@ export default function ClubReplenishHistoryModal({
                     <tr key={record.id} className="hover:bg-gray-50">
                       <td className="px-3 py-2 text-center text-gray-900">{record.date}</td>
                       <td className="px-3 py-2 text-center text-gray-600">{record.time}</td>
+                      <td className="px-3 py-2 text-center text-gray-700">
+                        {record.sourceType === 'MEMBER_TRANSFER' ? '成員轉入' : '後台補卡'}
+                      </td>
                       <td className="px-3 py-2 text-center text-gray-900 font-medium">
                         {record.actorNickname}
                       </td>
                       <td className="px-3 py-2 text-center text-gray-600">{record.actorUserId}</td>
                       <td className="px-3 py-2 text-center text-gray-600">
-                        {record.playerPreviousCount}
+                        {record.playerPreviousCount ?? '—'}
                       </td>
                       <td className="px-3 py-2 text-center text-green-600 font-semibold">
                         +{record.amount}
                       </td>
                       <td className="px-3 py-2 text-center text-gray-900 font-medium">
-                        {record.playerNewCount}
+                        {record.playerNewCount ?? '—'}
                       </td>
                       <td className="px-3 py-2 text-center text-gray-600">
                         {record.clubPreviousCount}
                       </td>
                       <td className="px-3 py-2 text-center text-gray-900 font-medium">
                         {record.clubNewCount}
+                      </td>
+                      <td className="px-3 py-2 text-center text-gray-600 max-w-[220px] truncate" title={record.note || ''}>
+                        {record.note?.trim() ? record.note : '—'}
                       </td>
                     </tr>
                   ))}
