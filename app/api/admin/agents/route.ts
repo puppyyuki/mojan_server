@@ -99,6 +99,7 @@ export async function GET(request: NextRequest) {
         note: app.note,
         status: app.status,
         agentLevel: app.agentLevel || 'normal', // 代理層級
+        maxClubCreateCount: Math.max(Number(app.maxClubCreateCount ?? 1) || 1, 1),
         roomCardBalance: app.player.cardCount,
         totalRechargeAmount,
         averageMonthlySales,

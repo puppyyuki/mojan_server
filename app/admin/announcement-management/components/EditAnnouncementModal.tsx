@@ -9,6 +9,7 @@ interface Announcement {
   announcementId: string
   title: string
   content: string
+  imageUrl?: string | null
   type: string
   isVisible: boolean
 }
@@ -28,21 +29,88 @@ export default function EditAnnouncementModal({
 }: EditAnnouncementModalProps) {
   const [title, setTitle] = useState<string>('')
   const [content, setContent] = useState<string>('')
+  const [imageUrl, setImageUrl] = useState<string>('')
+  const [selectedImageFile, setSelectedImageFile] = useState<File | null>(null)
   const [type, setType] = useState<string>('活動')
   const [isVisible, setIsVisible] = useState<boolean>(false)
   const [loading, setLoading] = useState<boolean>(false)
+  const [uploadingImage, setUploadingImage] = useState<boolean>(false)
 
   useEffect(() => {
     if (isOpen && announcement) {
       setTitle(announcement.title)
       setContent(announcement.content)
+      setImageUrl(announcement.imageUrl || '')
+      setSelectedImageFile(null)
       setType(announcement.type)
       setIsVisible(announcement.isVisible)
     }
   }, [isOpen, announcement])
 
+  const resolveUploadServerBase = () => {
+    const envBase = process.env.NEXT_PUBLIC_UPLOAD_SERVER_ORIGIN?.trim()
+    if (envBase) return envBase.replace(/\/$/, '')
+
+    if (typeof window !== 'undefined') {
+      const origin = window.location.origin
+      if (origin.includes('localhost:3001')) {
+        return origin.replace('localhost:3001', 'localhost:3000')
+      }
+      return origin
+    }
+    return ''
+  }
+
+  const uploadSelectedImage = async (silent = false): Promise<string | null> => {
+    if (!selectedImageFile) return imageUrl || null
+    setUploadingImage(true)
+    try {
+      const formData = new FormData()
+      formData.append('image', selectedImageFile)
+
+      const token =
+        typeof window !== 'undefined' ? localStorage.getItem('adminToken') : null
+      const uploadBase = resolveUploadServerBase()
+      const response = await fetch(`${uploadBase}/api/upload-announcement-image`, {
+        method: 'POST',
+        body: formData,
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      })
+
+      const result = await response.json()
+      if (!response.ok || !result?.success) {
+        if (!silent) {
+          alert(result?.error || '圖片上傳失敗')
+        }
+        return null
+      }
+
+      setImageUrl(result.url)
+      if (!silent) {
+        alert('圖片上傳成功')
+      }
+      return result.url as string
+    } catch (error) {
+      console.error('上傳公告圖片失敗:', error)
+      if (!silent) {
+        alert('圖片上傳失敗')
+      }
+      return null
+    } finally {
+      setUploadingImage(false)
+    }
+  }
+
+  const handleUploadImage = async () => {
+    if (!selectedImageFile) {
+      alert('請先選擇圖片')
+      return
+    }
+    await uploadSelectedImage(false)
+  }
+
   const handleSave = async () => {
-    if (loading || !announcement) return
+    if (loading || uploadingImage || !announcement) return
 
     if (!title.trim()) {
       alert('請輸入標題')
@@ -69,9 +137,20 @@ export default function EditAnnouncementModal({
 
     setLoading(true)
     try {
+      let finalImageUrl = imageUrl || null
+      if (selectedImageFile) {
+        const uploadedUrl = await uploadSelectedImage(true)
+        if (!uploadedUrl) {
+          alert('圖片上傳失敗，請重新嘗試')
+          return
+        }
+        finalImageUrl = uploadedUrl
+      }
+
       const response = await apiPatch(`/api/announcements/${announcement.id}`, {
         title: title.trim(),
         content: content.trim(),
+        imageUrl: finalImageUrl,
         type,
         isVisible,
       })
@@ -151,6 +230,47 @@ export default function EditAnnouncementModal({
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
+              圖片檔案
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/gif"
+                onChange={(e) => setSelectedImageFile(e.target.files?.[0] || null)}
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm text-gray-900 bg-white file:mr-3 file:px-3 file:py-1 file:border-0 file:bg-blue-50 file:text-blue-700 file:rounded"
+              />
+              <button
+                type="button"
+                onClick={handleUploadImage}
+                disabled={!selectedImageFile || uploadingImage || loading}
+                className="px-3 py-2 text-sm rounded-lg border border-blue-500 text-blue-600 hover:bg-blue-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {uploadingImage ? '上傳中...' : '上傳'}
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mt-1">
+              請先選檔再按上傳（支援 JPG/PNG/WEBP/GIF，最大 10MB）
+            </p>
+            {imageUrl && (
+              <div className="mt-2">
+                <img
+                  src={imageUrl}
+                  alt="活動圖片預覽"
+                  className="w-full max-h-40 object-cover rounded border border-gray-200"
+                />
+                <button
+                  type="button"
+                  onClick={() => setImageUrl('')}
+                  className="mt-2 text-xs text-red-600 hover:text-red-700"
+                >
+                  移除圖片
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
               類型 <span className="text-red-500">*</span>
             </label>
             <select
@@ -183,7 +303,7 @@ export default function EditAnnouncementModal({
         <div className="flex border-t border-gray-200">
           <button
             onClick={onClose}
-            disabled={loading}
+            disabled={loading || uploadingImage}
             className="flex-1 py-4 text-gray-600 hover:text-gray-800 transition-colors duration-200 text-sm font-medium disabled:opacity-50"
           >
             取消
@@ -191,7 +311,7 @@ export default function EditAnnouncementModal({
           <div className="w-px bg-gray-200"></div>
           <button
             onClick={handleSave}
-            disabled={loading}
+            disabled={loading || uploadingImage}
             className="flex-1 py-4 text-blue-600 hover:text-blue-700 transition-colors duration-200 text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
           >
             {loading ? (

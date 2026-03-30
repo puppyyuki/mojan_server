@@ -116,6 +116,16 @@ export async function POST(
         { status: 400, headers: corsHeaders() }
       )
     }
+
+    const joinedClubCount = await prisma.clubMember.count({
+      where: { playerId },
+    })
+    if (joinedClubCount >= 3) {
+      return NextResponse.json(
+        { success: false, error: '已達可加入俱樂部上限（3）' },
+        { status: 400, headers: corsHeaders() }
+      )
+    }
     // 檢查是否已有待審申請
     const existingPending = await prisma.clubJoinRequest.findFirst({
       where: { clubId: id, playerId, status: 'PENDING' },

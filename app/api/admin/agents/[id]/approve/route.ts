@@ -59,6 +59,7 @@ export async function POST(
       data: {
         status: 'approved',
         agentLevel: 'normal', // 初始審核通過都是一般代理
+        maxClubCreateCount: 1,
         reviewedAt: new Date(),
         reviewedBy: adminUserId || null, // 如果無法獲取管理員 ID，設置為 null
       },

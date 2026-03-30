@@ -57,7 +57,7 @@ export async function PATCH(
   try {
     const { id } = await params
     const body = await request.json()
-    const { title, content, type, isVisible } = body
+    const { title, content, imageUrl, type, isVisible } = body
 
     // 獲取當前活動更新
     const currentAnnouncement = await prisma.announcement.findUnique({
@@ -92,6 +92,9 @@ export async function PATCH(
     }
     if (content !== undefined) {
       updateData.content = content.trim()
+    }
+    if (imageUrl !== undefined) {
+      updateData.imageUrl = imageUrl?.trim() || null
     }
     if (type !== undefined) {
       updateData.type = type

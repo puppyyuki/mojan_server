@@ -23,13 +23,24 @@ export async function PATCH(
   try {
     const { id } = await params
     const body = await request.json()
-    const { agentLevel } = body
+    const { agentLevel, maxClubCreateCount } = body
 
     if (!agentLevel || !['normal', 'vip'].includes(agentLevel)) {
       return NextResponse.json(
         {
           success: false,
           error: '無效的代理層級',
+        },
+        { status: 400, headers: corsHeaders() }
+      )
+    }
+
+    const parsedMaxClubCreateCount = Number(maxClubCreateCount)
+    if (!Number.isFinite(parsedMaxClubCreateCount) || parsedMaxClubCreateCount < 1) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: '代理可創建俱樂部數量必須為大於等於 1 的數字',
         },
         { status: 400, headers: corsHeaders() }
       )
@@ -65,6 +76,7 @@ export async function PATCH(
       where: { id },
       data: {
         agentLevel: agentLevel,
+        maxClubCreateCount: Math.floor(parsedMaxClubCreateCount),
       },
     })
 

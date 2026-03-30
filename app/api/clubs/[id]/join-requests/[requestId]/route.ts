@@ -92,6 +92,15 @@ export async function POST(
         where: { clubId_playerId: { clubId, playerId: req.playerId } },
       })
       if (!existing) {
+        const joinedClubCount = await prisma.clubMember.count({
+          where: { playerId: req.playerId },
+        })
+        if (joinedClubCount >= 3) {
+          return NextResponse.json(
+            { success: false, error: '玩家已達可加入俱樂部上限（3）' },
+            { status: 400, headers: corsHeaders() }
+          )
+        }
         await prisma.clubMember.create({
           data: { clubId, playerId: req.playerId, role: 'MEMBER' },
         })

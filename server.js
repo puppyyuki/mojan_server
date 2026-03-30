@@ -30,17 +30,22 @@ app.use(express.json({ limit: '20mb' }));
 // 綠界使用 application/x-www-form-urlencoded 格式
 app.use(express.urlencoded({ extended: true }));
 
-// 設置靜態文件服務（用於提供語音文件）
-const uploadsDir = path.join(__dirname, 'uploads', 'voices');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+// 設置靜態文件服務（語音、公告圖片）
+const voiceUploadsDir = path.join(__dirname, 'uploads', 'voices');
+const announcementImageUploadsDir = path.join(__dirname, 'uploads', 'announcements');
+if (!fs.existsSync(voiceUploadsDir)) {
+  fs.mkdirSync(voiceUploadsDir, { recursive: true });
 }
-app.use('/uploads/voices', express.static(uploadsDir));
+if (!fs.existsSync(announcementImageUploadsDir)) {
+  fs.mkdirSync(announcementImageUploadsDir, { recursive: true });
+}
+app.use('/uploads/voices', express.static(voiceUploadsDir));
+app.use('/uploads/announcements', express.static(announcementImageUploadsDir));
 
-// 配置 multer 用於文件上傳
-const storage = multer.diskStorage({
+// 配置 multer 用於語音文件上傳
+const voiceStorage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, uploadsDir);
+    cb(null, voiceUploadsDir);
   },
   filename: function (req, file, cb) {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
@@ -48,8 +53,8 @@ const storage = multer.diskStorage({
   }
 });
 
-const upload = multer({
-  storage: storage,
+const uploadVoice = multer({
+  storage: voiceStorage,
   limits: {
     fileSize: 5 * 1024 * 1024 // 限制 5MB
   },
@@ -60,6 +65,32 @@ const upload = multer({
       cb(null, true);
     } else {
       cb(new Error('只支持音頻文件格式'));
+    }
+  }
+});
+
+// 配置 multer 用於公告圖片上傳
+const announcementImageStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, announcementImageUploadsDir);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'announcement-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const uploadAnnouncementImage = multer({
+  storage: announcementImageStorage,
+  limits: {
+    fileSize: 10 * 1024 * 1024 // 限制 10MB
+  },
+  fileFilter: function (req, file, cb) {
+    const allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (allowedMimes.includes(file.mimetype) || file.originalname.match(/\.(jpg|jpeg|png|webp|gif)$/i)) {
+      cb(null, true);
+    } else {
+      cb(new Error('只支持 JPG/PNG/WEBP/GIF 圖片格式'));
     }
   }
 });
@@ -6615,7 +6646,7 @@ app.use('/api/announcements', announcementsRoutes);
 app.use('/api/rooms', roomsRoutes);
 
 // 語音上傳API
-app.post('/api/upload-voice', upload.single('voice'), (req, res) => {
+app.post('/api/upload-voice', uploadVoice.single('voice'), (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ error: '沒有上傳文件' });
@@ -6634,6 +6665,29 @@ app.post('/api/upload-voice', upload.single('voice'), (req, res) => {
   } catch (error) {
     console.error('語音上傳錯誤:', error);
     res.status(500).json({ error: '上傳失敗' });
+  }
+});
+
+// 公告圖片上傳 API（活動/更新）
+app.post('/api/upload-announcement-image', uploadAnnouncementImage.single('image'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: '沒有上傳圖片' });
+    }
+
+    const fileUrl = `/uploads/announcements/${req.file.filename}`;
+    const fullUrl = `${req.protocol}://${req.get('host')}${fileUrl}`;
+
+    res.json({
+      success: true,
+      url: fullUrl,
+      path: fileUrl,
+      filename: req.file.filename,
+      size: req.file.size
+    });
+  } catch (error) {
+    console.error('公告圖片上傳錯誤:', error);
+    res.status(500).json({ error: '圖片上傳失敗' });
   }
 });
 

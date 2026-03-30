@@ -91,16 +91,62 @@ export async function POST(
       }
     }
 
-    const updated = await prisma.clubMember.update({
+    const normalizedIncoming = [...new Set(
+      bannedPlayerIds
+        .map((raw: string) => String(raw ?? '').trim())
+        .filter((v: string) => v.length > 0 && v !== playerId)
+    )]
+    const relatedMembers = await prisma.clubMember.findMany({
       where: {
-        clubId_playerId: {
-          clubId: id,
-          playerId,
+        clubId: id,
+        OR: [
+          { playerId: { in: normalizedIncoming } },
+          { bannedTablePlayers: { has: playerId } },
+          { playerId },
+        ],
+      },
+      select: {
+        playerId: true,
+        bannedTablePlayers: true,
+      },
+    })
+    const existingIdSet = new Set(relatedMembers.map((m) => m.playerId))
+    const validTargetIds = normalizedIncoming.filter((pid: string) =>
+      existingIdSet.has(pid)
+    )
+    const validTargetSet = new Set(validTargetIds)
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const selfUpdated = await tx.clubMember.update({
+        where: {
+          clubId_playerId: {
+            clubId: id,
+            playerId,
+          },
         },
-      },
-      data: {
-        bannedTablePlayers: bannedPlayerIds,
-      },
+        data: {
+          bannedTablePlayers: validTargetIds,
+        },
+      })
+
+      const others = relatedMembers.filter((m) => m.playerId !== playerId)
+      for (const m of others) {
+        const cur = Array.isArray(m.bannedTablePlayers)
+          ? m.bannedTablePlayers.map((x) => String(x ?? '').trim()).filter(Boolean)
+          : []
+        const next = new Set(cur)
+        if (validTargetSet.has(m.playerId)) {
+          next.add(playerId)
+        } else {
+          next.delete(playerId)
+        }
+        await tx.clubMember.update({
+          where: { clubId_playerId: { clubId: id, playerId: m.playerId } },
+          data: { bannedTablePlayers: [...next] },
+        })
+      }
+
+      return selfUpdated
     })
 
     return NextResponse.json(

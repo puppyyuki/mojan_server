@@ -11,6 +11,7 @@ interface Announcement {
   announcementId: string
   title: string
   content: string
+  imageUrl?: string | null
   type: string
   isVisible: boolean
   createdAt: string

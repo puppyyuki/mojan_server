@@ -34,6 +34,7 @@ interface Agent {
   }>
   lastLoginAt: string | null
   agentLevel: 'normal' | 'vip' // 代理層級：normal (一般代理), vip (公關代理)
+  maxClubCreateCount: number
   createdAt: string
   reviewedAt: string | null
   reviewedBy: string | null

@@ -75,6 +75,12 @@ function isNonEmptyString(value) {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
+async function getPlayerClubMembershipCount(prisma, playerId) {
+  return prisma.clubMember.count({
+    where: { playerId },
+  });
+}
+
 /** 俱樂部對戰列表：與房卡顯示一致的規則摘要 */
 function buildClubV2RulesSummary(gameSettings) {
   const g = gameSettings && typeof gameSettings === 'object' ? gameSettings : {};
@@ -352,6 +358,41 @@ router.post('/', async (req, res) => {
 
     if (!creator) {
       return errorResponse(res, '創建者不存在', null, 404);
+    }
+
+    const approvedAgentApplication = await prisma.agentApplication.findFirst({
+      where: {
+        playerId: creatorId,
+        status: 'approved',
+      },
+      orderBy: {
+        reviewedAt: 'desc',
+      },
+      select: {
+        maxClubCreateCount: true,
+      },
+    });
+
+    if (!approvedAgentApplication) {
+      return errorResponse(res, '玩家無法創建俱樂部，僅代理可創建', null, 403);
+    }
+
+    const maxClubCreateCount = Math.max(
+      Number(approvedAgentApplication.maxClubCreateCount ?? 1) || 1,
+      1
+    );
+    const createdClubCount = await prisma.club.count({
+      where: {
+        creatorId,
+      },
+    });
+    if (createdClubCount >= maxClubCreateCount) {
+      return errorResponse(
+        res,
+        `已達可創建俱樂部上限（${maxClubCreateCount}）`,
+        null,
+        400
+      );
     }
 
     // 生成唯一的6位數字ID
@@ -651,6 +692,11 @@ router.post('/:clubId/join-requests', async (req, res) => {
       return errorResponse(res, '玩家已經是俱樂部成員', null, 400);
     }
 
+    const joinedClubCount = await getPlayerClubMembershipCount(prisma, playerId);
+    if (joinedClubCount >= 3) {
+      return errorResponse(res, '已達可加入俱樂部上限（3）', null, 400);
+    }
+
     const existingRequest = await prisma.clubJoinRequest.findFirst({
       where: { clubId: club.id, playerId, status: 'PENDING' },
       orderBy: { createdAt: 'desc' },
@@ -704,7 +750,40 @@ router.get('/:clubId/activity', async (req, res) => {
       take: limit,
     });
 
-    return successResponse(res, rows);
+    // 同一個活動型別 MEMBER_KICKED 會被「踢出」與「禁止遊戲」共用。
+    // 若 target 仍是俱樂部成員且 isBanned=true，回傳前轉為 MEMBER_BANNED，避免前端誤顯示為剔除。
+    const kickedTargetIds = [...new Set(
+      rows
+        .filter((r) => r?.type === 'MEMBER_KICKED' && isNonEmptyString(r?.targetPlayerId))
+        .map((r) => r.targetPlayerId)
+    )];
+    let bannedMap = new Map();
+    if (kickedTargetIds.length > 0) {
+      const currentMembers = await prisma.clubMember.findMany({
+        where: {
+          clubId: club.id,
+          playerId: { in: kickedTargetIds },
+        },
+        select: {
+          playerId: true,
+          isBanned: true,
+        },
+      });
+      bannedMap = new Map(currentMembers.map((m) => [m.playerId, m.isBanned === true]));
+    }
+
+    const normalizedRows = rows.map((r) => {
+      if (
+        r?.type === 'MEMBER_KICKED' &&
+        isNonEmptyString(r?.targetPlayerId) &&
+        bannedMap.get(r.targetPlayerId) === true
+      ) {
+        return { ...r, type: 'MEMBER_BANNED' };
+      }
+      return r;
+    });
+
+    return successResponse(res, normalizedRows);
   } catch (error) {
     console.error('[Clubs API] 獲取俱樂部動態失敗:', error);
     return errorResponse(res, '獲取俱樂部動態失敗', error.message, 500);
@@ -815,6 +894,10 @@ router.post('/:clubId/join-requests/:requestId', async (req, res) => {
         where: { clubId_playerId: { clubId: club.id, playerId: request.playerId } },
       });
       if (!existingMember) {
+        const joinedClubCount = await getPlayerClubMembershipCount(prisma, request.playerId);
+        if (joinedClubCount >= 3) {
+          return errorResponse(res, '玩家已達可加入俱樂部上限（3）', null, 400);
+        }
         await prisma.clubMember.create({
           data: { clubId: club.id, playerId: request.playerId },
         });
@@ -1408,6 +1491,11 @@ router.post('/:clubId/members', async (req, res) => {
       return errorResponse(res, '玩家已經是俱樂部成員', null, 400);
     }
 
+    const joinedClubCount = await getPlayerClubMembershipCount(prisma, playerId);
+    if (joinedClubCount >= 3) {
+      return errorResponse(res, '已達可加入俱樂部上限（3）', null, 400);
+    }
+
     // 添加成員
     const member = await prisma.clubMember.create({
       data: {
@@ -1833,9 +1921,56 @@ router.post('/:clubId/members/banned-table-players', async (req, res) => {
       return errorResponse(res, '玩家不是俱樂部成員', null, 404);
     }
 
-    const updated = await prisma.clubMember.update({
-      where: { clubId_playerId: { clubId: club.id, playerId } },
-      data: { bannedTablePlayers: bannedPlayerIds || [] },
+    const normalizedIncoming = Array.isArray(bannedPlayerIds)
+      ? [...new Set(
+          bannedPlayerIds
+            .map((id) => String(id ?? '').trim())
+            .filter((id) => id.length > 0 && id !== playerId)
+        )]
+      : [];
+    const relatedMembers = await prisma.clubMember.findMany({
+      where: {
+        clubId: club.id,
+        OR: [
+          { playerId: { in: normalizedIncoming } },
+          { bannedTablePlayers: { has: playerId } },
+          { playerId },
+        ],
+      },
+      select: {
+        playerId: true,
+        bannedTablePlayers: true,
+      },
+    });
+
+    const existingIdSet = new Set(relatedMembers.map((m) => m.playerId));
+    const validTargetIds = normalizedIncoming.filter((id) => existingIdSet.has(id));
+    const validTargetIdSet = new Set(validTargetIds);
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const selfUpdated = await tx.clubMember.update({
+        where: { clubId_playerId: { clubId: club.id, playerId } },
+        data: { bannedTablePlayers: validTargetIds },
+      });
+
+      const others = relatedMembers.filter((m) => m.playerId !== playerId);
+      for (const m of others) {
+        const cur = Array.isArray(m.bannedTablePlayers)
+          ? m.bannedTablePlayers.map((id) => String(id ?? '').trim()).filter(Boolean)
+          : [];
+        const nextSet = new Set(cur);
+        if (validTargetIdSet.has(m.playerId)) {
+          nextSet.add(playerId);
+        } else {
+          nextSet.delete(playerId);
+        }
+        await tx.clubMember.update({
+          where: { clubId_playerId: { clubId: club.id, playerId: m.playerId } },
+          data: { bannedTablePlayers: [...nextSet] },
+        });
+      }
+
+      return selfUpdated;
     });
 
     return successResponse(res, updated, '設定禁止同桌玩家成功');

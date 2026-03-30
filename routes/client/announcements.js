@@ -28,7 +28,7 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const { prisma } = req.app.locals;
-    const { title, content, type, isVisible } = req.body;
+    const { title, content, imageUrl, type, isVisible } = req.body;
 
     if (!title || !title.trim()) {
       return errorResponse(res, '請輸入標題', null, 400);
@@ -69,6 +69,7 @@ router.post('/', async (req, res) => {
         announcementId,
         title: title.trim(),
         content: content.trim(),
+        imageUrl: imageUrl?.trim() || null,
         type,
         isVisible: isVisible || false,
       },
@@ -112,7 +113,7 @@ router.patch('/:id', async (req, res) => {
   try {
     const { prisma } = req.app.locals;
     const { id } = req.params;
-    const { title, content, type, isVisible } = req.body;
+    const { title, content, imageUrl, type, isVisible } = req.body;
 
     // 獲取當前活動更新
     const currentAnnouncement = await prisma.announcement.findUnique({
@@ -144,6 +145,9 @@ router.patch('/:id', async (req, res) => {
     }
     if (content !== undefined) {
       updateData.content = content.trim();
+    }
+    if (imageUrl !== undefined) {
+      updateData.imageUrl = imageUrl?.trim() || null;
     }
     if (type !== undefined) {
       updateData.type = type;

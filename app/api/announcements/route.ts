@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
 // 創建活動更新
 export async function POST(request: NextRequest) {
   try {
-    const { title, content, type, isVisible } = await request.json()
+    const { title, content, imageUrl, type, isVisible } = await request.json()
 
     if (!title || !title.trim()) {
       return NextResponse.json(
@@ -92,6 +92,7 @@ export async function POST(request: NextRequest) {
         announcementId,
         title: title.trim(),
         content: content.trim(),
+        imageUrl: imageUrl?.trim() || null,
         type,
         isVisible: isVisible || false,
       },

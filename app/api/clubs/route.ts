@@ -92,6 +92,40 @@ export async function POST(request: NextRequest) {
       )
     }
 
+    const approvedAgentApplication = await prisma.agentApplication.findFirst({
+      where: {
+        playerId: creatorId,
+        status: 'approved',
+      },
+      orderBy: {
+        reviewedAt: 'desc',
+      },
+      select: {
+        maxClubCreateCount: true,
+      },
+    })
+
+    if (!approvedAgentApplication) {
+      return NextResponse.json(
+        { success: false, error: '玩家無法創建俱樂部，僅代理可創建' },
+        { status: 403, headers: corsHeaders() }
+      )
+    }
+
+    const maxClubCreateCount = Math.max(
+      Number(approvedAgentApplication.maxClubCreateCount ?? 1) || 1,
+      1
+    )
+    const createdClubCount = await prisma.club.count({
+      where: { creatorId },
+    })
+    if (createdClubCount >= maxClubCreateCount) {
+      return NextResponse.json(
+        { success: false, error: `已達可創建俱樂部上限（${maxClubCreateCount}）` },
+        { status: 400, headers: corsHeaders() }
+      )
+    }
+
     // 生成唯一的6位數字ID
     const clubId = await generateUniqueId(async (id) => {
       const exists = await prisma.club.findUnique({
