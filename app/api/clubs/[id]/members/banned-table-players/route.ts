@@ -22,8 +22,10 @@ export async function POST(
     const body = await request.json()
     const playerId = body?.playerId
     const actorPlayerId = body?.actorPlayerId
-    const bannedPlayerIds = Array.isArray(body?.bannedPlayerIds)
-      ? body.bannedPlayerIds.filter((x: unknown) => typeof x === 'string')
+    const bannedPlayerIds: string[] = Array.isArray(body?.bannedPlayerIds)
+      ? body.bannedPlayerIds.filter(
+          (x: unknown): x is string => typeof x === 'string'
+        )
       : []
 
     if (!playerId || typeof playerId !== 'string') {
@@ -91,7 +93,7 @@ export async function POST(
       }
     }
 
-    const normalizedIncoming = [...new Set(
+    const normalizedIncoming: string[] = [...new Set(
       bannedPlayerIds
         .map((raw: string) => String(raw ?? '').trim())
         .filter((v: string) => v.length > 0 && v !== playerId)

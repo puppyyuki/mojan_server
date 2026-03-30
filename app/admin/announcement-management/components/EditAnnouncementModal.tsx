@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Image from 'next/image'
 import { X, Save } from 'lucide-react'
 import { apiPatch } from '@/lib/api-client'
 
@@ -253,11 +254,15 @@ export default function EditAnnouncementModal({
             </p>
             {imageUrl && (
               <div className="mt-2">
-                <img
-                  src={imageUrl}
-                  alt="活動圖片預覽"
-                  className="w-full max-h-40 object-cover rounded border border-gray-200"
-                />
+                <div className="relative w-full h-40 rounded border border-gray-200 overflow-hidden">
+                  <Image
+                    src={imageUrl}
+                    alt="活動圖片預覽"
+                    fill
+                    className="object-cover"
+                    unoptimized
+                  />
+                </div>
                 <button
                   type="button"
                   onClick={() => setImageUrl('')}

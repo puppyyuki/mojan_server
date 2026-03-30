@@ -200,7 +200,7 @@ export default function GameRecordManagementPage() {
   const [detailGeneral, setDetailGeneral] = useState<Record<string, unknown> | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
 
-  const buildClubQuery = () => {
+  const buildClubQuery = useCallback(() => {
     const q = new URLSearchParams()
     q.set('page', String(page))
     q.set('pageSize', String(pageSize))
@@ -213,9 +213,9 @@ export default function GameRecordManagementPage() {
     if (f.start) q.set('startDate', f.start)
     if (f.end) q.set('endDate', f.end)
     return q.toString()
-  }
+  }, [page, pageSize, clubApplied])
 
-  const buildGeneralQuery = () => {
+  const buildGeneralQuery = useCallback(() => {
     const q = new URLSearchParams()
     q.set('page', String(page))
     q.set('pageSize', String(pageSize))
@@ -225,7 +225,7 @@ export default function GameRecordManagementPage() {
     if (f.start) q.set('startDate', f.start)
     if (f.end) q.set('endDate', f.end)
     return q.toString()
-  }
+  }, [page, pageSize, genApplied])
 
   const fetchList = useCallback(async () => {
     setLoading(true)
@@ -259,7 +259,7 @@ export default function GameRecordManagementPage() {
       setLoading(false)
       setLoaded(true)
     }
-  }, [tab, page, clubApplied, genApplied])
+  }, [tab, buildClubQuery, buildGeneralQuery])
 
   useEffect(() => {
     fetchList()
