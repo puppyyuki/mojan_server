@@ -514,23 +514,35 @@ router.get('/:clubId/rooms', async (req, res) => {
     });
 
     // 舊資料或異常中斷可能留下「無人在房但房間仍存在」的殘留房。
-    // 對 WAITING 且無活躍 participants 的房間做即時清理，避免列表卡住。
+    // 但剛創建的房間在 host 尚未完成 socket join 前，也會短暫呈現 0 participants。
+    // 若讀列表就立刻刪除，會造成創房後被其他客戶端輪詢提前清掉（加入顯示房間不存在）。
+    // 因此僅清理「超過寬限時間」且 WAITING + 無活躍 participants 的房間。
+    const staleGraceMs = 90 * 1000;
+    const nowMs = Date.now();
     const staleRoomIds = rooms
       .filter((room) => {
         const activeCount = Array.isArray(room.participants)
           ? room.participants.length
           : 0;
-        return room.status === 'WAITING' && activeCount <= 0;
+        const roomCreatedMs = new Date(room.createdAt).getTime();
+        const ageMs = Number.isFinite(roomCreatedMs) ? nowMs - roomCreatedMs : staleGraceMs + 1;
+        return room.status === 'WAITING' && activeCount <= 0 && ageMs >= staleGraceMs;
       })
       .map((room) => room.id);
 
     if (staleRoomIds.length > 0) {
+      console.warn(
+        `[Clubs API] 清理 stale 房間 club=${club.id} totalRooms=${rooms.length} staleCount=${staleRoomIds.length} staleIds=${staleRoomIds.join(',')}`
+      );
       await prisma.room.deleteMany({
         where: { id: { in: staleRoomIds } },
       });
     }
 
     const visibleRooms = rooms.filter((room) => !staleRoomIds.includes(room.id));
+    console.log(
+      `[Clubs API] 俱樂部房間列表 club=${club.id} total=${rooms.length} visible=${visibleRooms.length} staleCleaned=${staleRoomIds.length}`
+    );
 
     const data = visibleRooms.map((room) => ({
       id: room.id,
