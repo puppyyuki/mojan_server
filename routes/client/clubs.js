@@ -1759,6 +1759,11 @@ router.post('/:clubId/members/unban', async (req, res) => {
       data: { isBanned: false },
     });
 
+    await createClubActivity(prisma, club.id, 'MEMBER_UNBANNED', {
+      actorPlayerId: actorPlayerId ?? null,
+      targetPlayerId: playerId,
+    });
+
     return successResponse(res, updated, '解禁成員成功');
   } catch (error) {
     console.error('[Clubs API] 解禁成員失敗:', error);
@@ -1770,7 +1775,7 @@ router.post('/:clubId/members/score-limit', async (req, res) => {
   try {
     const { prisma } = req.app.locals;
     const { clubId } = req.params;
-    const { playerId, scoreLimit, actorPlayerId } = req.body || {};
+    const { playerId, scoreLimit, actorPlayerId, accumulate } = req.body || {};
 
     if (!playerId) {
       return errorResponse(res, '請提供玩家ID', null, 400);
@@ -1806,16 +1811,25 @@ router.post('/:clubId/members/score-limit', async (req, res) => {
       return errorResponse(res, '玩家不是俱樂部成員', null, 404);
     }
 
-    const parsed =
+    const parsedRaw =
       scoreLimit === null || scoreLimit === undefined
         ? null
         : Number.isFinite(Number(scoreLimit))
         ? Number(scoreLimit)
         : null;
+    const parsed =
+      parsedRaw === null ? null : Math.max(0, Math.floor(Math.abs(parsedRaw)));
+    const shouldAccumulate = accumulate === true;
+    const nextScoreLimit =
+      parsed === null
+        ? null
+        : shouldAccumulate
+        ? (Math.max(0, member.scoreLimit ?? 0) + parsed)
+        : parsed;
 
     const updated = await prisma.clubMember.update({
       where: { clubId_playerId: { clubId: club.id, playerId } },
-      data: { scoreLimit: parsed },
+      data: { scoreLimit: nextScoreLimit },
     });
 
     return successResponse(res, updated, '設定分數上限成功');

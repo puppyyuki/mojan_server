@@ -57,6 +57,9 @@ export default function EditAnnouncementModal({
       if (origin.includes('localhost:3001')) {
         return origin.replace('localhost:3001', 'localhost:3000')
       }
+      if (origin.includes('mojan-admin-0kuv.onrender.com')) {
+        return 'https://mojan-server-0kuv.onrender.com'
+      }
       return origin
     }
     return ''
@@ -78,10 +81,16 @@ export default function EditAnnouncementModal({
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       })
 
-      const result = await response.json()
+      const raw = await response.text()
+      let result: any = null
+      try {
+        result = raw ? JSON.parse(raw) : null
+      } catch {
+        result = null
+      }
       if (!response.ok || !result?.success) {
         if (!silent) {
-          alert(result?.error || '圖片上傳失敗')
+          alert(result?.error || `圖片上傳失敗（HTTP ${response.status}）`)
         }
         return null
       }

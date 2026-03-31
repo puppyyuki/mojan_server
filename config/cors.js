@@ -5,6 +5,7 @@
 
 const DEFAULT_ALLOWED_ORIGINS = [
   'https://mojan-app.onrender.com',
+  'https://mojan-admin-0kuv.onrender.com',
   'http://localhost:3000',
   'http://localhost:3001',
   'http://localhost:5000',
@@ -28,6 +29,9 @@ function isAllowedOrigin(origin) {
 
   // Render 預覽/別名網址：mojan-app(-anything).onrender.com
   if (/^https:\/\/mojan-app(?:-[a-z0-9-]+)?\.onrender\.com$/i.test(origin)) {
+    return true;
+  }
+  if (/^https:\/\/mojan-admin(?:-[a-z0-9-]+)?\.onrender\.com$/i.test(origin)) {
     return true;
   }
   return false;

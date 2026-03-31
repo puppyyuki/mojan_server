@@ -23,6 +23,7 @@ export async function POST(
     const playerId: unknown = body?.playerId
     const scoreLimit: unknown = body?.scoreLimit
     const actorPlayerId: unknown = body?.actorPlayerId
+    const accumulate: unknown = body?.accumulate
     if (!playerId || typeof playerId !== 'string') {
       return NextResponse.json(
         { success: false, error: '請提供玩家ID' },
@@ -86,16 +87,39 @@ export async function POST(
       }
     }
 
-    const normalizedScoreLimit =
+    const normalizedRawScoreLimit =
       scoreLimit === null || scoreLimit === undefined
         ? null
         : Number.isFinite(Number(scoreLimit))
           ? Number(scoreLimit)
           : null
+    const normalizedScoreLimit =
+      normalizedRawScoreLimit === null
+        ? null
+        : Math.max(0, Math.floor(Math.abs(normalizedRawScoreLimit)))
+    const shouldAccumulate = accumulate === true
+
+    const currentMember = await prisma.clubMember.findUnique({
+      where: { clubId_playerId: { clubId: id, playerId } },
+      select: { scoreLimit: true },
+    })
+    if (!currentMember) {
+      return NextResponse.json(
+        { success: false, error: '玩家不是俱樂部成員' },
+        { status: 404, headers: corsHeaders() }
+      )
+    }
+
+    const nextScoreLimit =
+      normalizedScoreLimit === null
+        ? null
+        : shouldAccumulate
+          ? Math.max(0, currentMember.scoreLimit ?? 0) + normalizedScoreLimit
+          : normalizedScoreLimit
 
     const member = await prisma.clubMember.update({
       where: { clubId_playerId: { clubId: id, playerId } },
-      data: { scoreLimit: normalizedScoreLimit },
+      data: { scoreLimit: nextScoreLimit },
     })
     return NextResponse.json(
       { success: true, data: member },

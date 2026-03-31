@@ -179,6 +179,7 @@ enum ClubActivityType {
   JOIN_REQUESTED
   MEMBER_KICKED
   MEMBER_LEFT
+  MEMBER_UNBANNED
 }
 
 enum MultiplayerVersion {

@@ -82,6 +82,23 @@ export async function POST(
       where: { clubId_playerId: { clubId: id, playerId } },
       data: { isBanned: false },
     })
+
+    const [actor, target] = await Promise.all([
+      prisma.player.findUnique({ where: { id: actorPlayerId } }),
+      prisma.player.findUnique({ where: { id: playerId } }),
+    ])
+
+    await prisma.clubActivity.create({
+      data: {
+        clubId: id,
+        type: 'MEMBER_UNBANNED',
+        actorPlayerId: actorPlayerId ?? null,
+        targetPlayerId: playerId,
+        actorNickname: actor?.nickname ?? null,
+        targetNickname: target?.nickname ?? null,
+      },
+    })
+
     return NextResponse.json(
       { success: true, data: member },
       { headers: corsHeaders() }
