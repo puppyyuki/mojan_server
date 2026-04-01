@@ -75,7 +75,9 @@ export default function ClubMembersModal({
                     </div>
                   </div>
                   <div className="text-xs text-gray-400">
-                    {new Date(member.joinedAt).toLocaleDateString('zh-TW')}
+                    {new Date(member.joinedAt).toLocaleDateString('zh-TW', {
+                      timeZone: 'Asia/Taipei',
+                    })}
                   </div>
                 </div>
               ))}

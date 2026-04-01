@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
+import { parseTaipeiDateEnd, parseTaipeiDateStart } from '@/lib/taipei-time'
 import { getCurrentUserId } from '@/lib/auth'
 
 function corsHeaders() {
@@ -13,12 +14,6 @@ function corsHeaders() {
 
 export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders() })
-}
-
-function endOfDay(d: Date) {
-  const x = new Date(d)
-  x.setHours(23, 59, 59, 999)
-  return x
 }
 
 async function resolvePlayerId(raw: string): Promise<string | null> {
@@ -160,12 +155,12 @@ export async function GET(request: NextRequest) {
     if (startRaw || endRaw) {
       where.createdAt = {}
       if (startRaw) {
-        const s = new Date(startRaw)
-        if (!Number.isNaN(s.getTime())) where.createdAt.gte = s
+        const s = parseTaipeiDateStart(startRaw)
+        if (s) where.createdAt.gte = s
       }
       if (endRaw) {
-        const e = new Date(endRaw)
-        if (!Number.isNaN(e.getTime())) where.createdAt.lte = endOfDay(e)
+        const e = parseTaipeiDateEnd(endRaw)
+        if (e) where.createdAt.lte = e
       }
     }
 

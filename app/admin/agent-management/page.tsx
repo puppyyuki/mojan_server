@@ -330,6 +330,7 @@ export default function AgentManagementPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200 text-gray-900">
                       {item.lastLoginAt
                         ? new Date(item.lastLoginAt).toLocaleString('zh-TW', {
+                          timeZone: 'Asia/Taipei',
                           year: 'numeric',
                           month: '2-digit',
                           day: '2-digit',

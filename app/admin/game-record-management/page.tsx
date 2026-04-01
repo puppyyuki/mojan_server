@@ -84,6 +84,7 @@ function formatDate(date: string | Date | null | undefined) {
   const d = typeof date === 'string' ? new Date(date) : date
   if (Number.isNaN(d.getTime())) return '—'
   return d.toLocaleString('zh-TW', {
+    timeZone: 'Asia/Taipei',
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',

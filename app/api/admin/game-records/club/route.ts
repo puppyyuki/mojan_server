@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
+import { parseTaipeiDateEnd, parseTaipeiDateStart } from '@/lib/taipei-time'
 
 function corsHeaders() {
   return {
@@ -12,12 +13,6 @@ function corsHeaders() {
 
 export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders() })
-}
-
-function endOfDay(d: Date) {
-  const x = new Date(d)
-  x.setHours(23, 59, 59, 999)
-  return x
 }
 
 type RecordCategory =
@@ -201,12 +196,12 @@ export async function GET(request: NextRequest) {
     if (startRaw || endRaw) {
       where.endedAt = {}
       if (startRaw) {
-        const s = new Date(startRaw)
-        if (!Number.isNaN(s.getTime())) where.endedAt.gte = s
+        const s = parseTaipeiDateStart(startRaw)
+        if (s) where.endedAt.gte = s
       }
       if (endRaw) {
-        const e = new Date(endRaw)
-        if (!Number.isNaN(e.getTime())) where.endedAt.lte = endOfDay(e)
+        const e = parseTaipeiDateEnd(endRaw)
+        if (e) where.endedAt.lte = e
       }
     }
 
@@ -376,12 +371,12 @@ async function handleClubV2Sessions(opts: {
   if (startRaw || endRaw) {
     const timeFilter: Prisma.DateTimeFilter = {}
     if (startRaw) {
-      const s = new Date(startRaw)
-      if (!Number.isNaN(s.getTime())) timeFilter.gte = s
+      const s = parseTaipeiDateStart(startRaw)
+      if (s) timeFilter.gte = s
     }
     if (endRaw) {
-      const e = new Date(endRaw)
-      if (!Number.isNaN(e.getTime())) timeFilter.lte = endOfDay(e)
+      const e = parseTaipeiDateEnd(endRaw)
+      if (e) timeFilter.lte = e
     }
     if (Object.keys(timeFilter).length > 0) {
       andParts.push({

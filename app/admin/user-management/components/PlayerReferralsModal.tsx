@@ -90,7 +90,11 @@ export default function PlayerReferralsModal({
                                 <tr key={p.id} className="hover:bg-gray-50">
                                     <td className="px-4 py-2 text-gray-900">{p.nickname}</td>
                                     <td className="px-4 py-2 text-gray-900">{p.userId}</td>
-                                    <td className="px-4 py-2 text-gray-500">{new Date(p.createdAt).toLocaleDateString()}</td>
+                                    <td className="px-4 py-2 text-gray-500">
+                                      {new Date(p.createdAt).toLocaleDateString('zh-TW', {
+                                        timeZone: 'Asia/Taipei',
+                                      })}
+                                    </td>
                                 </tr>
                             ))
                         )}
