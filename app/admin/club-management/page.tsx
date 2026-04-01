@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { RefreshCw, Edit, Trash2, Plus, Search, Users, History } from 'lucide-react'
+import { RefreshCw, Edit, Trash2, Plus, Search, Users, History, ChevronLeft, ChevronRight } from 'lucide-react'
 import { apiGet, apiDelete } from '@/lib/api-client'
 import { requestAdminOpCode, withAdminOpCodeHeader } from '@/lib/admin-op-code-client'
 import CreateClubModal from './components/CreateClubModal'
@@ -47,6 +47,8 @@ export default function ClubManagementPage() {
   const [loading, setLoading] = useState(false)
   const [selectedItems, setSelectedItems] = useState<string[]>([])
   const [selectAll, setSelectAll] = useState(false)
+  const [page, setPage] = useState(1)
+  const pageSize = 100
 
   // 俱樂部資料
   const [clubs, setClubs] = useState<Club[]>([])
@@ -108,7 +110,7 @@ export default function ClubManagementPage() {
   const handleSelectAll = (checked: boolean) => {
     setSelectAll(checked)
     if (checked) {
-      setSelectedItems(displayData.map(item => item.id))
+      setSelectedItems(pagedData.map(item => item.id))
     } else {
       setSelectedItems([])
     }
@@ -199,6 +201,7 @@ export default function ClubManagementPage() {
     setSearchKeyword(keyword)
     setSelectedItems([])
     setSelectAll(false)
+    setPage(1)
   }
 
   // 顯示資料（根據搜尋關鍵字篩選）
@@ -218,6 +221,20 @@ export default function ClubManagementPage() {
       creatorName.includes(keyword)
     )
   })
+  const total = displayData.length
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const pagedData = displayData.slice((page - 1) * pageSize, page * pageSize)
+
+  useEffect(() => {
+    if (page > totalPages) {
+      setPage(totalPages)
+    }
+  }, [page, totalPages])
+
+  useEffect(() => {
+    const currentPageIds = pagedData.map((item) => item.id)
+    setSelectAll(currentPageIds.length > 0 && currentPageIds.every((id) => selectedItems.includes(id)))
+  }, [pagedData, selectedItems])
 
   return (
     <div className="p-6 bg-gray-50 min-h-screen">
@@ -330,7 +347,7 @@ export default function ClubManagementPage() {
                   </td>
                 </tr>
               ) : (
-                displayData.map((item, index) => (
+                pagedData.map((item, index) => (
                   <tr key={item.id} className={`hover:bg-gray-100 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
                     <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200 w-[60px]">
                       <input
@@ -341,7 +358,7 @@ export default function ClubManagementPage() {
                       />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200 text-gray-900">
-                      {index + 1}
+                      {(page - 1) * pageSize + index + 1}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200 text-gray-900">
                       {item.clubId}
@@ -424,6 +441,32 @@ export default function ClubManagementPage() {
               )}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between mt-4 text-sm text-gray-600">
+        <span>
+          共 {total} 筆，第 {page} / {totalPages} 頁
+        </span>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            disabled={page <= 1 || loading}
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            className="inline-flex items-center gap-1 px-3 py-1.5 border border-gray-300 rounded-md bg-white text-gray-900 hover:bg-gray-50 disabled:opacity-40"
+          >
+            <ChevronLeft className="w-4 h-4" />
+            上一頁
+          </button>
+          <button
+            type="button"
+            disabled={page >= totalPages || loading}
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            className="inline-flex items-center gap-1 px-3 py-1.5 border border-gray-300 rounded-md bg-white text-gray-900 hover:bg-gray-50 disabled:opacity-40"
+          >
+            下一頁
+            <ChevronRight className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
