@@ -49,6 +49,10 @@ interface StatisticsData {
   playerActivity: { weekly: TrendPoint[]; monthly: TrendPoint[] }
   clubRanking: ClubRankRow[]
   playerRanking: PlayerRankRow[]
+  playerRankingMeta?: {
+    scope: 'all' | 'club' | 'lobby'
+    period: 'week' | 'month' | '3months'
+  }
 }
 
 function tailRows(rows: TrendPoint[], count: number): TrendPoint[] {
@@ -208,11 +212,17 @@ export default function StatisticsPage() {
   const [showAverage, setShowAverage] = useState(true)
   const [clubSortBy, setClubSortBy] = useState<'gameCount' | 'totalRounds' | 'totalRoomCardsConsumed'>('gameCount')
   const [playerSortBy, setPlayerSortBy] = useState<'totalScore' | 'bigWinnerCount' | 'gameCount' | 'cardCount'>('totalScore')
+  const [playerScope, setPlayerScope] = useState<'all' | 'club' | 'lobby'>('all')
+  const [playerPeriod, setPlayerPeriod] = useState<'week' | 'month' | '3months'>('month')
 
   const fetchOverview = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await apiGet('/api/admin/statistics/overview')
+      const q = new URLSearchParams({
+        playerScope,
+        playerPeriod,
+      })
+      const res = await apiGet(`/api/admin/statistics/overview?${q.toString()}`)
       const json = await res.json()
       if (json.success && json.data) {
         setData(json.data)
@@ -225,7 +235,7 @@ export default function StatisticsPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [playerScope, playerPeriod])
 
   useEffect(() => {
     fetchOverview()
@@ -504,8 +514,26 @@ export default function StatisticsPage() {
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-200 text-sm font-semibold text-gray-800 flex items-center justify-between gap-3">
-          <span>玩家排行榜（本月）</span>
+          <span>玩家排行榜</span>
           <div className="flex items-center gap-2">
+            <select
+              value={playerScope}
+              onChange={(e) => setPlayerScope(e.target.value as 'all' | 'club' | 'lobby')}
+              className="border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 bg-white"
+            >
+              <option value="all">全服（俱樂部＋大廳）</option>
+              <option value="club">僅俱樂部</option>
+              <option value="lobby">僅大廳</option>
+            </select>
+            <select
+              value={playerPeriod}
+              onChange={(e) => setPlayerPeriod(e.target.value as 'week' | 'month' | '3months')}
+              className="border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 bg-white"
+            >
+              <option value="week">本週</option>
+              <option value="month">本月</option>
+              <option value="3months">近三個月</option>
+            </select>
             <select
               value={playerSortBy}
               onChange={(e) => setPlayerSortBy(e.target.value as 'totalScore' | 'bigWinnerCount' | 'gameCount' | 'cardCount')}
@@ -525,6 +553,21 @@ export default function StatisticsPage() {
               <option value={20}>前 20 名</option>
             </select>
           </div>
+        </div>
+        <div className="px-4 py-2 text-xs text-gray-500 border-b border-gray-100">
+          來源：{
+            playerScope === 'all'
+              ? '全服（俱樂部＋大廳）'
+              : playerScope === 'club'
+                ? '僅俱樂部'
+                : '僅大廳'
+          }，區間：{
+            playerPeriod === 'week'
+              ? '本週'
+              : playerPeriod === 'month'
+                ? '本月'
+                : '近三個月'
+          }
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[860px] text-sm">

@@ -25,6 +25,200 @@ function normalizeScoresBySeat(raw) {
   };
 }
 
+function normalizeRoundsForDeduction(gameSettings) {
+  const roundsRaw = Number(gameSettings?.rounds ?? 1);
+  return roundsRaw === 2 || roundsRaw === 4 ? roundsRaw : 1;
+}
+
+function normalizeDeductionForRoom(gameSettings) {
+  return gameSettings?.deduction || 'AA_DEDUCTION';
+}
+
+/**
+ * v2 扣卡：改為「第一次中間結算（roundIndex=1）時」才扣卡，且同房只扣一次。
+ */
+async function applyV2FirstRoundDeductionInTx(tx, { room, playerIds }) {
+  const rounds = normalizeRoundsForDeduction(room.gameSettings);
+  const deduction = normalizeDeductionForRoom(room.gameSettings);
+  const aaPerPlayer = rounds;
+  const hostOrClubTotal = rounds * 4;
+  const roomKey = room.roomId;
+  const settings = room.gameSettings && typeof room.gameSettings === 'object'
+    ? { ...room.gameSettings }
+    : {};
+
+  if (settings._v2FirstRoundDeducted === true) {
+    return {
+      alreadyDeducted: true,
+      deduction,
+      rounds,
+      amount: deduction === 'AA_DEDUCTION' ? aaPerPlayer : hostOrClubTotal,
+      players: [],
+      club: null,
+    };
+  }
+
+  const existing = await tx.cardConsumptionRecord.findFirst({
+    where: {
+      roomId: roomKey,
+      reason: { startsWith: 'v2_first_round_' },
+    },
+    select: { id: true },
+  });
+  if (existing) {
+    const nextSettings = {
+      ...settings,
+      _v2FirstRoundDeducted: true,
+      _v2FirstRoundDeductedAt: settings._v2FirstRoundDeductedAt || new Date().toISOString(),
+    };
+    await tx.room.update({
+      where: { id: room.id },
+      data: { gameSettings: nextSettings },
+    });
+    return {
+      alreadyDeducted: true,
+      deduction,
+      rounds,
+      amount: deduction === 'AA_DEDUCTION' ? aaPerPlayer : hostOrClubTotal,
+      players: [],
+      club: null,
+    };
+  }
+
+  if ((deduction === 'HOST_DEDUCTION' || deduction === 'CLUB_DEDUCTION') && room.clubId) {
+    const club = await tx.club.findUnique({
+      where: { id: room.clubId },
+      select: { id: true, cardCount: true },
+    });
+    const balance = club?.cardCount ?? 0;
+    if (!club || balance < hostOrClubTotal) {
+      throw new Error(`俱樂部房卡不足（需要 ${hostOrClubTotal} 張，目前 ${balance} 張）`);
+    }
+    const updated = await tx.club.update({
+      where: { id: room.clubId },
+      data: { cardCount: { decrement: hostOrClubTotal } },
+      select: { id: true, cardCount: true },
+    });
+    const nextSettings = {
+      ...settings,
+      _v2FirstRoundDeducted: true,
+      _v2FirstRoundDeductedAt: new Date().toISOString(),
+    };
+    await tx.room.update({
+      where: { id: room.id },
+      data: { gameSettings: nextSettings },
+    });
+    return {
+      alreadyDeducted: false,
+      deduction,
+      rounds,
+      amount: hostOrClubTotal,
+      players: [],
+      club: updated,
+    };
+  }
+
+  if (deduction === 'HOST_DEDUCTION') {
+    if (!room.creatorId) {
+      throw new Error('缺少房主資訊，無法執行房主扣卡');
+    }
+    const host = await tx.player.findUnique({
+      where: { id: room.creatorId },
+      select: { id: true, cardCount: true },
+    });
+    const balance = host?.cardCount ?? 0;
+    if (!host || balance < hostOrClubTotal) {
+      throw new Error(`房主房卡不足（需要 ${hostOrClubTotal} 張，目前 ${balance} 張）`);
+    }
+    const updated = await tx.player.update({
+      where: { id: room.creatorId },
+      data: { cardCount: { decrement: hostOrClubTotal } },
+      select: { id: true, cardCount: true },
+    });
+    await tx.cardConsumptionRecord.create({
+      data: {
+        playerId: room.creatorId,
+        roomId: roomKey,
+        amount: hostOrClubTotal,
+        reason: 'v2_first_round_host_deduction',
+        previousCount: balance,
+        newCount: updated.cardCount,
+      },
+    });
+    const nextSettings = {
+      ...settings,
+      _v2FirstRoundDeducted: true,
+      _v2FirstRoundDeductedAt: new Date().toISOString(),
+    };
+    await tx.room.update({
+      where: { id: room.id },
+      data: { gameSettings: nextSettings },
+    });
+    return {
+      alreadyDeducted: false,
+      deduction,
+      rounds,
+      amount: hostOrClubTotal,
+      players: [updated],
+      club: null,
+    };
+  }
+
+  const uniquePlayerIds = [...new Set(playerIds.map((v) => v?.toString?.() || '').filter(Boolean))];
+  if (uniquePlayerIds.length !== 4) {
+    throw new Error('玩家ID資料異常，無法執行AA扣卡');
+  }
+  const dbPlayers = await tx.player.findMany({
+    where: { id: { in: uniquePlayerIds } },
+    select: { id: true, cardCount: true },
+  });
+  const byId = new Map(dbPlayers.map((p) => [p.id, p]));
+  for (const pid of uniquePlayerIds) {
+    const db = byId.get(pid);
+    const balance = db?.cardCount ?? 0;
+    if (!db || balance < aaPerPlayer) {
+      throw new Error(`玩家 ${pid} 房卡不足（需要 ${aaPerPlayer} 張，目前 ${balance} 張）`);
+    }
+  }
+  const updatedPlayers = [];
+  for (const pid of uniquePlayerIds) {
+    const before = byId.get(pid).cardCount;
+    const updated = await tx.player.update({
+      where: { id: pid },
+      data: { cardCount: { decrement: aaPerPlayer } },
+      select: { id: true, cardCount: true },
+    });
+    updatedPlayers.push(updated);
+    await tx.cardConsumptionRecord.create({
+      data: {
+        playerId: pid,
+        roomId: roomKey,
+        amount: aaPerPlayer,
+        reason: 'v2_first_round_aa_deduction',
+        previousCount: before,
+        newCount: updated.cardCount,
+      },
+    });
+  }
+  const nextSettings = {
+    ...settings,
+    _v2FirstRoundDeducted: true,
+    _v2FirstRoundDeductedAt: new Date().toISOString(),
+  };
+  await tx.room.update({
+    where: { id: room.id },
+    data: { gameSettings: nextSettings },
+  });
+  return {
+    alreadyDeducted: false,
+    deduction,
+    rounds,
+    amount: aaPerPlayer,
+    players: updatedPlayers,
+    club: null,
+  };
+}
+
 /**
  * POST /api/client/rooms
  * 在大廳建立房間（不關聯任何俱樂部）
@@ -99,7 +293,7 @@ router.post('/', async (req, res) => {
 
 /**
  * POST /api/client/rooms/:roomId/deduct-on-start
- * v2 開局扣卡（開局即扣，且同房間只扣一次）
+ * 相容舊呼叫：v2 扣卡已改為第一次中間結算（roundIndex=1）時執行。
  */
 router.post('/:roomId/deduct-on-start', async (req, res) => {
   try {
@@ -122,144 +316,30 @@ router.post('/:roomId/deduct-on-start', async (req, res) => {
       return errorResponse(res, '房間不存在', null, 404);
     }
 
-    const roundsRaw = Number(room.gameSettings?.rounds ?? 1);
-    const rounds = roundsRaw === 2 || roundsRaw === 4 ? roundsRaw : 1;
-    const deduction = room.gameSettings?.deduction || 'AA_DEDUCTION';
-    const aaPerPlayer = rounds;
-    const hostOrClubTotal = rounds * 4;
-    const roomKey = room.roomId;
-
-    const result = await prisma.$transaction(async (tx) => {
-      const existing = await tx.cardConsumptionRecord.findFirst({
-        where: {
-          roomId: roomKey,
-          reason: { startsWith: 'v2_game_start_' },
-        },
-        select: { id: true },
-      });
-      if (existing) {
-        return {
-          alreadyDeducted: true,
-          deduction,
-          rounds,
-          amount: deduction === 'AA_DEDUCTION' ? aaPerPlayer : hostOrClubTotal,
-          players: [],
-          club: null,
-        };
-      }
-
-      if ((deduction === 'HOST_DEDUCTION' || deduction === 'CLUB_DEDUCTION') && room.clubId) {
-        const club = await tx.club.findUnique({
-          where: { id: room.clubId },
-          select: { id: true, cardCount: true },
-        });
-        const balance = club?.cardCount ?? 0;
-        if (!club || balance < hostOrClubTotal) {
-          throw new Error(`俱樂部房卡不足（需要 ${hostOrClubTotal} 張，目前 ${balance} 張）`);
-        }
-        const updated = await tx.club.update({
-          where: { id: room.clubId },
-          data: { cardCount: { decrement: hostOrClubTotal } },
-          select: { id: true, cardCount: true },
-        });
-        return {
-          alreadyDeducted: false,
-          deduction,
-          rounds,
-          amount: hostOrClubTotal,
-          players: [],
-          club: updated,
-        };
-      }
-
-      if (deduction === 'HOST_DEDUCTION') {
-        if (!room.creatorId) {
-          throw new Error('缺少房主資訊，無法執行房主扣卡');
-        }
-        const host = await tx.player.findUnique({
-          where: { id: room.creatorId },
-          select: { id: true, cardCount: true },
-        });
-        const balance = host?.cardCount ?? 0;
-        if (!host || balance < hostOrClubTotal) {
-          throw new Error(`房主房卡不足（需要 ${hostOrClubTotal} 張，目前 ${balance} 張）`);
-        }
-        const updated = await tx.player.update({
-          where: { id: room.creatorId },
-          data: { cardCount: { decrement: hostOrClubTotal } },
-          select: { id: true, cardCount: true },
-        });
-        await tx.cardConsumptionRecord.create({
-          data: {
-            playerId: room.creatorId,
-            roomId: roomKey,
-            amount: hostOrClubTotal,
-            reason: 'v2_game_start_host_deduction',
-            previousCount: balance,
-            newCount: updated.cardCount,
-          },
-        });
-        return {
-          alreadyDeducted: false,
-          deduction,
-          rounds,
-          amount: hostOrClubTotal,
-          players: [updated],
-          club: null,
-        };
-      }
-
-      const uniquePlayerIds = [...new Set(playerIds.map((v) => v?.toString?.() || '').filter(Boolean))];
-      if (uniquePlayerIds.length !== 4) {
-        throw new Error('玩家ID資料異常，無法執行AA扣卡');
-      }
-      const dbPlayers = await tx.player.findMany({
-        where: { id: { in: uniquePlayerIds } },
-        select: { id: true, cardCount: true },
-      });
-      const byId = new Map(dbPlayers.map((p) => [p.id, p]));
-      for (const pid of uniquePlayerIds) {
-        const db = byId.get(pid);
-        const balance = db?.cardCount ?? 0;
-        if (!db || balance < aaPerPlayer) {
-          throw new Error(`玩家 ${pid} 房卡不足（需要 ${aaPerPlayer} 張，目前 ${balance} 張）`);
-        }
-      }
-
-      const updatedPlayers = [];
-      for (const pid of uniquePlayerIds) {
-        const before = byId.get(pid).cardCount;
-        const updated = await tx.player.update({
-          where: { id: pid },
-          data: { cardCount: { decrement: aaPerPlayer } },
-          select: { id: true, cardCount: true },
-        });
-        updatedPlayers.push(updated);
-        await tx.cardConsumptionRecord.create({
-          data: {
-            playerId: pid,
-            roomId: roomKey,
-            amount: aaPerPlayer,
-            reason: 'v2_game_start_aa_deduction',
-            previousCount: before,
-            newCount: updated.cardCount,
-          },
-        });
-      }
-      return {
-        alreadyDeducted: false,
+    const rounds = normalizeRoundsForDeduction(room.gameSettings);
+    const deduction = normalizeDeductionForRoom(room.gameSettings);
+    const amount = deduction === 'AA_DEDUCTION' ? rounds : rounds * 4;
+    const existing = await prisma.cardConsumptionRecord.findFirst({
+      where: {
+        roomId: room.roomId,
+        reason: { startsWith: 'v2_first_round_' },
+      },
+      select: { id: true },
+    });
+    return successResponse(
+      res,
+      {
+        pendingDeduction: true,
+        alreadyDeducted: !!existing,
         deduction,
         rounds,
-        amount: aaPerPlayer,
-        players: updatedPlayers,
-        club: null,
-      };
-    });
-
-    return successResponse(res, result, result.alreadyDeducted ? '房卡已扣過，略過重複扣卡' : '開局扣卡成功');
+        amount,
+      },
+      existing ? '本房已完成首次中間結算扣卡' : '已改為首次中間結算扣卡，開局不扣卡'
+    );
   } catch (error) {
-    console.error('[Rooms API] v2 開局扣卡失敗:', error);
-    return errorResponse(res, error?.message || '開局扣卡失敗', null, 400);
+    console.error('[Rooms API] v2 扣卡狀態查詢失敗:', error);
+    return errorResponse(res, error?.message || '扣卡狀態查詢失敗', null, 400);
   }
 });
 
@@ -366,7 +446,7 @@ router.delete('/:roomId', async (req, res) => {
 
     const room = await prisma.room.findUnique({
       where: { roomId },
-      select: { roomId: true },
+      select: { id: true, roomId: true, clubId: true, creatorId: true, gameSettings: true },
     });
 
     if (!room) {
@@ -580,7 +660,7 @@ router.post('/:roomId/final-settlement', async (req, res) => {
       for (const p of players) {
         roomCardConsumedByPlayerId.set(p.playerId, rounds);
       }
-    } else if (deduction === 'HOST_DEDUCTION') {
+    } else if (deduction === 'HOST_DEDUCTION' || deduction === 'CLUB_DEDUCTION') {
       roomCardConsumedByPlayerId.set(room.creatorId, rounds * 4);
     }
     const roomCardConsumedTotal = Array.from(roomCardConsumedByPlayerId.values())
@@ -810,6 +890,15 @@ router.post('/:roomId/v2/round', async (req, res) => {
         });
         persistedRoundId = existingRound.id;
       } else {
+        const parts = await tx.v2MatchParticipant.findMany({
+          where: { sessionId },
+        });
+        if (roundIndex === 1) {
+          await applyV2FirstRoundDeductionInTx(tx, {
+            room,
+            playerIds: parts.map((p) => p.playerId),
+          });
+        }
         const created = await tx.v2MatchRound.create({
           data: {
             sessionId,
@@ -821,9 +910,6 @@ router.post('/:roomId/v2/round', async (req, res) => {
         });
         persistedRoundId = created.id;
 
-        const parts = await tx.v2MatchParticipant.findMany({
-          where: { sessionId },
-        });
         for (const p of parts) {
           const delta = Number(scoreChangeBySeat[p.seat] ?? 0) || 0;
           if (delta === 0) continue;
