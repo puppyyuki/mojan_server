@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { formatTaipeiDate, formatTaipeiTime } from '@/lib/taipei-time'
 
 // CORS headers helper
 function corsHeaders() {
@@ -55,8 +56,8 @@ export async function GET(
     // 格式化補卡紀錄
     const records = application.player.cardRechargeRecords.map((record) => ({
       id: record.id,
-      date: record.createdAt.toISOString().split('T')[0],
-      time: record.createdAt.toISOString().split('T')[1].split('.')[0],
+      date: formatTaipeiDate(record.createdAt),
+      time: formatTaipeiTime(record.createdAt),
       adminUsername: record.adminUser.username,
       amount: record.amount,
       previousCount: record.previousCount,

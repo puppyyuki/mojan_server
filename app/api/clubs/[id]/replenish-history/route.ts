@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { formatTaipeiDate, formatTaipeiTime } from '@/lib/taipei-time'
 
 function corsHeaders() {
   return {
@@ -61,8 +62,8 @@ export async function GET(
       ...memberTransferRecords.map((record) => ({
         id: record.id,
         sourceType: 'MEMBER_TRANSFER',
-        date: record.createdAt.toISOString().split('T')[0],
-        time: record.createdAt.toISOString().split('T')[1].split('.')[0],
+        date: formatTaipeiDate(record.createdAt),
+        time: formatTaipeiTime(record.createdAt),
         actorNickname: record.actor.nickname,
         actorUserId: record.actor.userId,
         amount: record.amount,
@@ -76,8 +77,8 @@ export async function GET(
       ...adminRechargeRecords.map((record) => ({
         id: record.id,
         sourceType: 'ADMIN_RECHARGE',
-        date: record.createdAt.toISOString().split('T')[0],
-        time: record.createdAt.toISOString().split('T')[1].split('.')[0],
+        date: formatTaipeiDate(record.createdAt),
+        time: formatTaipeiTime(record.createdAt),
         actorNickname: record.adminUser.username,
         actorUserId: record.adminUserId,
         amount: record.amount,

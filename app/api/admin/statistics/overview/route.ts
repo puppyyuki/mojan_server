@@ -13,46 +13,84 @@ export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders() })
 }
 
-function startOfDay(date = new Date()) {
-  const d = new Date(date)
-  d.setHours(0, 0, 0, 0)
-  return d
+const TAIPEI_OFFSET_MS = 8 * 60 * 60 * 1000
+
+function toTaipeiPseudoUtc(date: Date): Date {
+  return new Date(date.getTime() + TAIPEI_OFFSET_MS)
 }
 
-function startOfWeek(date = new Date()) {
-  const d = startOfDay(date)
-  const day = d.getDay()
+function fromTaipeiPseudoUtc(date: Date): Date {
+  return new Date(date.getTime() - TAIPEI_OFFSET_MS)
+}
+
+function addTaipeiHours(date: Date, hours: number): Date {
+  const x = toTaipeiPseudoUtc(date)
+  x.setUTCHours(x.getUTCHours() + hours)
+  return fromTaipeiPseudoUtc(x)
+}
+
+function addTaipeiDays(date: Date, days: number): Date {
+  const x = toTaipeiPseudoUtc(date)
+  x.setUTCDate(x.getUTCDate() + days)
+  return fromTaipeiPseudoUtc(x)
+}
+
+function addTaipeiMonths(date: Date, months: number): Date {
+  const x = toTaipeiPseudoUtc(date)
+  x.setUTCMonth(x.getUTCMonth() + months)
+  return fromTaipeiPseudoUtc(x)
+}
+
+function startOfTaipeiHour(date = new Date()): Date {
+  const x = toTaipeiPseudoUtc(date)
+  x.setUTCMinutes(0, 0, 0)
+  return fromTaipeiPseudoUtc(x)
+}
+
+function startOfTaipeiDay(date = new Date()): Date {
+  const x = toTaipeiPseudoUtc(date)
+  x.setUTCHours(0, 0, 0, 0)
+  return fromTaipeiPseudoUtc(x)
+}
+
+function startOfTaipeiWeek(date = new Date()): Date {
+  const dayStart = startOfTaipeiDay(date)
+  const x = toTaipeiPseudoUtc(dayStart)
+  const day = x.getUTCDay()
   const diff = day === 0 ? -6 : 1 - day
-  d.setDate(d.getDate() + diff)
-  return d
+  x.setUTCDate(x.getUTCDate() + diff)
+  return fromTaipeiPseudoUtc(x)
 }
 
-function startOfMonth(date = new Date()) {
-  const d = startOfDay(date)
-  d.setDate(1)
-  return d
+function startOfTaipeiMonth(date = new Date()): Date {
+  const dayStart = startOfTaipeiDay(date)
+  const x = toTaipeiPseudoUtc(dayStart)
+  x.setUTCDate(1)
+  return fromTaipeiPseudoUtc(x)
 }
 
-function formatHour(d: Date) {
-  return `${String(d.getHours()).padStart(2, '0')}:00`
+function formatTaipeiHour(date: Date): string {
+  const x = toTaipeiPseudoUtc(date)
+  return `${String(x.getUTCHours()).padStart(2, '0')}:00`
 }
 
-function formatMonth(d: Date) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+function formatTaipeiMonth(date: Date): string {
+  const x = toTaipeiPseudoUtc(date)
+  return `${x.getUTCFullYear()}-${String(x.getUTCMonth() + 1).padStart(2, '0')}`
 }
 
-function formatWeekLabel(d: Date) {
-  const end = new Date(d)
-  end.setDate(end.getDate() + 6)
-  return `${d.getMonth() + 1}/${d.getDate()}-${end.getMonth() + 1}/${end.getDate()}`
+function formatTaipeiWeekLabel(weekStart: Date): string {
+  const s = toTaipeiPseudoUtc(weekStart)
+  const e = toTaipeiPseudoUtc(addTaipeiDays(weekStart, 6))
+  return `${s.getUTCMonth() + 1}/${s.getUTCDate()}-${e.getUTCMonth() + 1}/${e.getUTCDate()}`
 }
 
 export async function GET() {
   try {
     const now = new Date()
-    const dayStart = startOfDay(now)
-    const weekStart = startOfWeek(now)
-    const monthStart = startOfMonth(now)
+    const dayStart = startOfTaipeiDay(now)
+    const weekStart = startOfTaipeiWeek(now)
+    const monthStart = startOfTaipeiMonth(now)
 
     const [daySales, weekSales, monthSales] = await Promise.all([
       prisma.roomCardOrder.aggregate({
@@ -69,8 +107,8 @@ export async function GET() {
       }),
     ])
 
-    const last24h = new Date(now)
-    last24h.setHours(last24h.getHours() - 23, 0, 0, 0)
+    const currentHourStart = startOfTaipeiHour(now)
+    const last24h = addTaipeiHours(currentHourStart, -23)
     const hourlyRooms = await prisma.room.findMany({
       where: { createdAt: { gte: last24h } },
       select: { createdAt: true },
@@ -78,17 +116,14 @@ export async function GET() {
     })
     const roomByHour = new Map<string, number>()
     for (let i = 0; i < 24; i++) {
-      const t = new Date(last24h)
-      t.setHours(last24h.getHours() + i)
-      roomByHour.set(formatHour(t), 0)
+      roomByHour.set(formatTaipeiHour(addTaipeiHours(last24h, i)), 0)
     }
     for (const row of hourlyRooms) {
-      const key = formatHour(new Date(row.createdAt))
+      const key = formatTaipeiHour(new Date(row.createdAt))
       roomByHour.set(key, (roomByHour.get(key) || 0) + 1)
     }
 
-    const weekWindowStart = startOfWeek(now)
-    weekWindowStart.setDate(weekWindowStart.getDate() - 7 * 7)
+    const weekWindowStart = addTaipeiDays(weekStart, -7 * 7)
     const weeklyRoomsRaw = await prisma.room.findMany({
       where: { createdAt: { gte: weekWindowStart } },
       select: { createdAt: true },
@@ -96,13 +131,12 @@ export async function GET() {
     })
     const weeklyRoomMap = new Map<string, number>()
     for (let i = 7; i >= 0; i--) {
-      const ws = startOfWeek(now)
-      ws.setDate(ws.getDate() - i * 7)
-      weeklyRoomMap.set(formatWeekLabel(ws), 0)
+      const ws = addTaipeiDays(weekStart, -i * 7)
+      weeklyRoomMap.set(formatTaipeiWeekLabel(ws), 0)
     }
     for (const row of weeklyRoomsRaw) {
-      const ws = startOfWeek(new Date(row.createdAt))
-      const key = formatWeekLabel(ws)
+      const ws = startOfTaipeiWeek(new Date(row.createdAt))
+      const key = formatTaipeiWeekLabel(ws)
       if (weeklyRoomMap.has(key)) {
         weeklyRoomMap.set(key, (weeklyRoomMap.get(key) || 0) + 1)
       }
@@ -115,20 +149,18 @@ export async function GET() {
     })
     const weeklyPlayerMap = new Map<string, number>()
     for (let i = 7; i >= 0; i--) {
-      const ws = startOfWeek(now)
-      ws.setDate(ws.getDate() - i * 7)
-      weeklyPlayerMap.set(formatWeekLabel(ws), 0)
+      const ws = addTaipeiDays(weekStart, -i * 7)
+      weeklyPlayerMap.set(formatTaipeiWeekLabel(ws), 0)
     }
     for (const row of weeklyPlayerRaw) {
-      const ws = startOfWeek(new Date(row.createdAt))
-      const key = formatWeekLabel(ws)
+      const ws = startOfTaipeiWeek(new Date(row.createdAt))
+      const key = formatTaipeiWeekLabel(ws)
       if (weeklyPlayerMap.has(key)) {
         weeklyPlayerMap.set(key, (weeklyPlayerMap.get(key) || 0) + 1)
       }
     }
 
-    const monthWindowStart = new Date(monthStart)
-    monthWindowStart.setMonth(monthWindowStart.getMonth() - 5)
+    const monthWindowStart = addTaipeiMonths(monthStart, -5)
     const monthlyPlayerRaw = await prisma.player.findMany({
       where: { createdAt: { gte: monthWindowStart } },
       select: { createdAt: true },
@@ -136,12 +168,11 @@ export async function GET() {
     })
     const monthlyPlayerMap = new Map<string, number>()
     for (let i = 5; i >= 0; i--) {
-      const m = new Date(monthStart)
-      m.setMonth(m.getMonth() - i)
-      monthlyPlayerMap.set(formatMonth(m), 0)
+      const m = addTaipeiMonths(monthStart, -i)
+      monthlyPlayerMap.set(formatTaipeiMonth(m), 0)
     }
     for (const row of monthlyPlayerRaw) {
-      const key = formatMonth(new Date(row.createdAt))
+      const key = formatTaipeiMonth(new Date(row.createdAt))
       if (monthlyPlayerMap.has(key)) {
         monthlyPlayerMap.set(key, (monthlyPlayerMap.get(key) || 0) + 1)
       }
@@ -154,14 +185,13 @@ export async function GET() {
     })
     const weeklyActiveMap = new Map<string, number>()
     for (let i = 7; i >= 0; i--) {
-      const ws = startOfWeek(now)
-      ws.setDate(ws.getDate() - i * 7)
-      weeklyActiveMap.set(formatWeekLabel(ws), 0)
+      const ws = addTaipeiDays(weekStart, -i * 7)
+      weeklyActiveMap.set(formatTaipeiWeekLabel(ws), 0)
     }
     for (const row of weeklyActiveRaw) {
       if (!row.lastLoginAt) continue
-      const ws = startOfWeek(new Date(row.lastLoginAt))
-      const key = formatWeekLabel(ws)
+      const ws = startOfTaipeiWeek(new Date(row.lastLoginAt))
+      const key = formatTaipeiWeekLabel(ws)
       if (weeklyActiveMap.has(key)) {
         weeklyActiveMap.set(key, (weeklyActiveMap.get(key) || 0) + 1)
       }
@@ -174,13 +204,12 @@ export async function GET() {
     })
     const monthlyActiveMap = new Map<string, number>()
     for (let i = 5; i >= 0; i--) {
-      const m = new Date(monthStart)
-      m.setMonth(m.getMonth() - i)
-      monthlyActiveMap.set(formatMonth(m), 0)
+      const m = addTaipeiMonths(monthStart, -i)
+      monthlyActiveMap.set(formatTaipeiMonth(m), 0)
     }
     for (const row of monthlyActiveRaw) {
       if (!row.lastLoginAt) continue
-      const key = formatMonth(new Date(row.lastLoginAt))
+      const key = formatTaipeiMonth(new Date(row.lastLoginAt))
       if (monthlyActiveMap.has(key)) {
         monthlyActiveMap.set(key, (monthlyActiveMap.get(key) || 0) + 1)
       }
@@ -212,11 +241,18 @@ export async function GET() {
       }
     })
 
-    const playerRankingWindow = new Date(monthStart)
-    const playerGames = await prisma.clubGameResult.findMany({
+    const playerRankingWindow = addTaipeiDays(startOfTaipeiDay(now), -365)
+    let playerGames = await prisma.clubGameResult.findMany({
       where: { endedAt: { gte: playerRankingWindow } },
       select: { players: true },
     })
+    if (playerGames.length === 0) {
+      playerGames = await prisma.clubGameResult.findMany({
+        orderBy: { endedAt: 'desc' },
+        take: 5000,
+        select: { players: true },
+      })
+    }
     const playerAggMap = new Map<
       string,
       { score: number; bigWinnerCount: number; gameCount: number }

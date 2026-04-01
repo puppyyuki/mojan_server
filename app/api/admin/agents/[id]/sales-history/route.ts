@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { formatTaipeiDate, formatTaipeiTime } from '@/lib/taipei-time'
 
 // CORS headers helper
 function corsHeaders() {
@@ -57,8 +58,8 @@ export async function GET(
         // 格式化售卡紀錄
         const records = application.player.agentSales.map((sale: any) => ({
             id: sale.id,
-            date: sale.createdAt.toISOString().split('T')[0],
-            time: sale.createdAt.toISOString().split('T')[1].split('.')[0],
+            date: formatTaipeiDate(sale.createdAt),
+            time: formatTaipeiTime(sale.createdAt),
             buyerUserId: sale.buyer.userId,
             buyerName: sale.buyer.nickname,
             cardAmount: sale.cardAmount,

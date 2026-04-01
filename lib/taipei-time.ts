@@ -41,3 +41,35 @@ export function formatTaipeiDateTime(value: string | Date): string {
     minute: '2-digit',
   })
 }
+
+function taipeiParts(value: string | Date) {
+  const d = typeof value === 'string' ? new Date(value) : value
+  if (Number.isNaN(d.getTime())) return null
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: TAIPEI_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).formatToParts(d)
+  const map: Record<string, string> = {}
+  for (const p of parts) {
+    if (p.type !== 'literal') map[p.type] = p.value
+  }
+  return map
+}
+
+export function formatTaipeiDate(value: string | Date): string {
+  const p = taipeiParts(value)
+  if (!p) return '—'
+  return `${p.year}-${p.month}-${p.day}`
+}
+
+export function formatTaipeiTime(value: string | Date): string {
+  const p = taipeiParts(value)
+  if (!p) return '—'
+  return `${p.hour}:${p.minute}:${p.second}`
+}
