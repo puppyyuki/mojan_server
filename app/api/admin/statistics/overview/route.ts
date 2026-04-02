@@ -85,6 +85,16 @@ function formatTaipeiWeekLabel(weekStart: Date): string {
   return `${s.getUTCMonth() + 1}/${s.getUTCDate()}-${e.getUTCMonth() + 1}/${e.getUTCDate()}`
 }
 
+function getDeductionFromGameSettings(gameSettings: unknown): string {
+  if (gameSettings && typeof gameSettings === 'object' && !Array.isArray(gameSettings)) {
+    const deduction = (gameSettings as Record<string, unknown>).deduction
+    if (typeof deduction === 'string' && deduction.trim()) {
+      return deduction.toUpperCase()
+    }
+  }
+  return 'AA_DEDUCTION'
+}
+
 async function loadDeductedRoomOpenTimes(since: Date): Promise<Date[]> {
   const deductionReasons = [
     'game_start_aa_deduction',
@@ -148,7 +158,7 @@ async function loadDeductedRoomOpenTimes(since: Date): Promise<Date[]> {
   for (const row of round1Rows) {
     const rid = (row.session?.roomCode || '').trim()
     if (!rid) continue
-    const deduction = String(row.session?.gameSettings?.deduction || 'AA_DEDUCTION').toUpperCase()
+    const deduction = getDeductionFromGameSettings(row.session?.gameSettings)
     if (
       deduction !== 'AA_DEDUCTION' &&
       deduction !== 'HOST_DEDUCTION' &&
