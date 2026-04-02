@@ -871,6 +871,7 @@ router.post('/:roomId/v2/round', async (req, res) => {
     }
 
     let persistedRoundId = null;
+    let firstRoundDeduction = null;
     await prisma.$transaction(async (tx) => {
       const existingRound = await tx.v2MatchRound.findUnique({
         where: {
@@ -894,7 +895,7 @@ router.post('/:roomId/v2/round', async (req, res) => {
           where: { sessionId },
         });
         if (roundIndex === 1) {
-          await applyV2FirstRoundDeductionInTx(tx, {
+          firstRoundDeduction = await applyV2FirstRoundDeductionInTx(tx, {
             room,
             playerIds: parts.map((p) => p.playerId),
           });
@@ -944,7 +945,11 @@ router.post('/:roomId/v2/round', async (req, res) => {
       }
     }
 
-    return successResponse(res, { sessionId, roundIndex }, '局資料已寫入');
+    return successResponse(
+      res,
+      { sessionId, roundIndex, firstRoundDeduction },
+      '局資料已寫入'
+    );
   } catch (error) {
     console.error('[Rooms API] v2 round 失敗:', error);
     return errorResponse(res, '寫入局戰績失敗', error.message, 500);
