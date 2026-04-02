@@ -856,7 +856,13 @@ router.post('/:roomId/v2/round', async (req, res) => {
 
     const room = await prisma.room.findUnique({
       where: { roomId },
-      select: { roomId: true },
+      select: {
+        id: true,
+        roomId: true,
+        creatorId: true,
+        clubId: true,
+        gameSettings: true,
+      },
     });
     if (!room) {
       return errorResponse(res, '房間不存在', null, 404);
