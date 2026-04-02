@@ -12,7 +12,6 @@ interface AgentReviewModalProps {
     playerId: string
     playerName: string
     fullName: string
-    email: string
     phone: string
     note: string | null
     status: string
@@ -119,12 +118,6 @@ export default function AgentReviewModal({
                 姓名
               </label>
               <div className="text-sm text-gray-900">{agent.fullName}</div>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                電子郵件
-              </label>
-              <div className="text-sm text-gray-900">{agent.email}</div>
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
