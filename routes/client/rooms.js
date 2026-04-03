@@ -901,10 +901,31 @@ router.post('/:roomId/v2/round', async (req, res) => {
           where: { sessionId },
         });
         if (roundIndex === 1) {
-          firstRoundDeduction = await applyV2FirstRoundDeductionInTx(tx, {
-            room,
-            playerIds: parts.map((p) => p.playerId),
-          });
+          try {
+            firstRoundDeduction = await applyV2FirstRoundDeductionInTx(tx, {
+              room,
+              playerIds: parts.map((p) => p.playerId),
+            });
+          } catch (deductError) {
+            // 扣卡失敗不應阻斷第一局戰績落庫，避免後續局序從 02 開始造成 01 缺失。
+            const message =
+              deductError && typeof deductError.message === 'string'
+                ? deductError.message
+                : '首次中間結算扣卡失敗';
+            firstRoundDeduction = {
+              failed: true,
+              message,
+            };
+            console.error(
+              '[Rooms API] v2 first round deduction failed (round persisted):',
+              {
+                roomId: room.roomId,
+                sessionId,
+                roundIndex,
+                message,
+              }
+            );
+          }
         }
         const created = await tx.v2MatchRound.create({
           data: {

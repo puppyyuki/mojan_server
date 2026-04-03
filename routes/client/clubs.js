@@ -134,8 +134,6 @@ function buildV2ReplayCodeSummaryFromRounds(rounds) {
   let minR = null;
   let maxR = null;
   for (const r of rounds) {
-    const digits = String(r.shareCode || '').replace(/\D/g, '');
-    if (digits.length < 9) continue;
     const ri = Number(r.roundIndex);
     if (!Number.isFinite(ri) || ri < 1) continue;
     const c = Math.min(99, ri);

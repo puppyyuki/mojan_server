@@ -72,8 +72,19 @@ async function allocateShareCodeInTx(tx, roundId, allocatedByPlayerId) {
       ? String(allocatedByPlayerId).trim()
       : null;
 
-  const roundsNeedingCodes = () =>
-    sessionRounds.filter((r) => r.shareCode || r.id === roundId);
+  const roundsNeedingCodes = () => {
+    const currentRoundIndex = Number(current.roundIndex);
+    return sessionRounds.filter((r) => {
+      if (r.id === roundId) return true;
+      const ri = Number(r.roundIndex);
+      if (!Number.isFinite(ri) || ri < 1) return false;
+      if (!Number.isFinite(currentRoundIndex) || currentRoundIndex < 1) {
+        return true;
+      }
+      // 補齊至當前局：避免早期局因偶發失敗缺碼，導致範圍從 02 起跳。
+      return ri <= currentRoundIndex;
+    });
+  };
 
   const remapAllWithPrefix = async (prefix) => {
     const toTouch = roundsNeedingCodes();
@@ -91,28 +102,9 @@ async function allocateShareCodeInTx(tx, roundId, allocatedByPlayerId) {
 
   const siblingPrefix = getSessionSharePrefixFromRounds(sessionRounds);
   if (siblingPrefix) {
-    const candidate = buildShareCodeWithPrefix(
-      siblingPrefix,
-      current.roundIndex
-    );
     try {
-      const data = { shareCode: candidate };
-      if (allocator) {
-        data.shareCodeAllocatedByPlayerId = allocator;
-      }
-      const upd = await tx.v2MatchRound.updateMany({
-        where: { id: roundId, shareCode: null },
-        data,
-      });
-      if (upd.count === 1) {
-        return candidate;
-      }
-      const raced = await tx.v2MatchRound.findUnique({
-        where: { id: roundId },
-      });
-      if (raced?.shareCode) {
-        return raced.shareCode;
-      }
+      const code = await remapAllWithPrefix(siblingPrefix);
+      if (code) return code;
     } catch (e) {
       if (e.code !== 'P2002') {
         throw e;
