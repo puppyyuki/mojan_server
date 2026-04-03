@@ -98,7 +98,7 @@ export async function POST(
     await prisma.clubActivity.create({
       data: {
         clubId: id,
-        type: 'MEMBER_KICKED',
+        type: 'MEMBER_BANNED',
         actorPlayerId: actorPlayerId ?? null,
         targetPlayerId: playerId,
         actorNickname: actor?.nickname ?? null,

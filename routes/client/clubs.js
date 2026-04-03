@@ -36,9 +36,10 @@ async function createClubActivity(prisma, clubId, type, options = {}) {
     targetNickname = null,
   } = options;
 
+  let resolvedActorNickname = actorNickname;
+  let resolvedTargetNickname = targetNickname;
+
   try {
-    let resolvedActorNickname = actorNickname;
-    let resolvedTargetNickname = targetNickname;
 
     if (!resolvedActorNickname && actorPlayerId) {
       const actor = await prisma.player.findUnique({
@@ -56,17 +57,41 @@ async function createClubActivity(prisma, clubId, type, options = {}) {
       resolvedTargetNickname = target?.nickname ?? null;
     }
 
-    await prisma.clubActivity.create({
-      data: {
-        clubId,
-        type,
-        actorPlayerId,
-        targetPlayerId,
-        actorNickname: resolvedActorNickname,
-        targetNickname: resolvedTargetNickname,
-      },
-    });
+    const activityData = {
+      clubId,
+      type,
+      actorPlayerId,
+      targetPlayerId,
+      actorNickname: resolvedActorNickname,
+      targetNickname: resolvedTargetNickname,
+    };
+
+    await prisma.clubActivity.create({ data: activityData });
   } catch (e) {
+    // 相容舊 DB：若尚未升級 enum 導致 MEMBER_BANNED 不能寫入，
+    // 退回舊型態 MEMBER_KICKED，避免「禁止遊戲」動態遺失。
+    if (type === 'MEMBER_BANNED') {
+      try {
+        await prisma.clubActivity.create({
+          data: {
+            clubId,
+            type: 'MEMBER_KICKED',
+            actorPlayerId,
+            targetPlayerId,
+            actorNickname: resolvedActorNickname,
+            targetNickname: resolvedTargetNickname,
+          },
+        });
+        console.warn('[Clubs API] MEMBER_BANNED 寫入失敗，已降級為 MEMBER_KICKED 保存動態');
+        return;
+      } catch (fallbackError) {
+        console.error('[Clubs API] 寫入俱樂部動態失敗（含 MEMBER_BANNED 降級）:', {
+          originalError: e,
+          fallbackError,
+        });
+        return;
+      }
+    }
     console.error('[Clubs API] 寫入俱樂部動態失敗:', e);
   }
 }
@@ -750,14 +775,15 @@ router.get('/:clubId/activity', async (req, res) => {
       take: limit,
     });
 
-    // 同一個活動型別 MEMBER_KICKED 會被「踢出」與「禁止遊戲」共用。
-    // 若 target 仍是俱樂部成員且 isBanned=true，回傳前轉為 MEMBER_BANNED，避免前端誤顯示為剔除。
+    // 兼容舊資料：歷史上 MEMBER_KICKED 同時被「踢出」與「禁止遊戲」共用。
+    // 新資料已改為 MEMBER_BANNED；這裡僅盡量把舊資料正規化，避免解除禁止後誤顯示為踢出。
     const kickedTargetIds = [...new Set(
       rows
         .filter((r) => r?.type === 'MEMBER_KICKED' && isNonEmptyString(r?.targetPlayerId))
         .map((r) => r.targetPlayerId)
     )];
     let bannedMap = new Map();
+    let unbannedAtMap = new Map();
     if (kickedTargetIds.length > 0) {
       const currentMembers = await prisma.clubMember.findMany({
         where: {
@@ -770,14 +796,34 @@ router.get('/:clubId/activity', async (req, res) => {
         },
       });
       bannedMap = new Map(currentMembers.map((m) => [m.playerId, m.isBanned === true]));
+
+      const unbannedRows = await prisma.clubActivity.findMany({
+        where: {
+          clubId: club.id,
+          type: 'MEMBER_UNBANNED',
+          targetPlayerId: { in: kickedTargetIds },
+        },
+        select: { targetPlayerId: true, createdAt: true },
+      });
+      // 取每位玩家最近一次解禁時間：若某筆 MEMBER_KICKED 早於該時間，視為舊的禁止遊戲紀錄。
+      for (const row of unbannedRows) {
+        if (!isNonEmptyString(row?.targetPlayerId)) continue;
+        const prev = unbannedAtMap.get(row.targetPlayerId);
+        if (!prev || row.createdAt > prev) {
+          unbannedAtMap.set(row.targetPlayerId, row.createdAt);
+        }
+      }
     }
 
     const normalizedRows = rows.map((r) => {
-      if (
-        r?.type === 'MEMBER_KICKED' &&
-        isNonEmptyString(r?.targetPlayerId) &&
-        bannedMap.get(r.targetPlayerId) === true
-      ) {
+      if (r?.type !== 'MEMBER_KICKED' || !isNonEmptyString(r?.targetPlayerId)) {
+        return r;
+      }
+      const currentlyBanned = bannedMap.get(r.targetPlayerId) === true;
+      const latestUnbannedAt = unbannedAtMap.get(r.targetPlayerId);
+      const wasLegacyBanThenUnbanned =
+        latestUnbannedAt instanceof Date && r.createdAt < latestUnbannedAt;
+      if (currentlyBanned || wasLegacyBanThenUnbanned) {
         return { ...r, type: 'MEMBER_BANNED' };
       }
       return r;
@@ -1702,7 +1748,7 @@ router.post('/:clubId/members/ban', async (req, res) => {
       data: { isBanned: true },
     });
 
-    await createClubActivity(prisma, club.id, 'MEMBER_KICKED', {
+    await createClubActivity(prisma, club.id, 'MEMBER_BANNED', {
       actorPlayerId: actorPlayerId ?? null,
       targetPlayerId: playerId,
     });
