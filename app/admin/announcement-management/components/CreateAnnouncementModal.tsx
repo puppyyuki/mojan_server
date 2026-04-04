@@ -99,16 +99,6 @@ export default function CreateAnnouncementModal({
   const handleSave = async () => {
     if (loading || uploadingImage) return
 
-    if (!title.trim()) {
-      alert('請輸入標題')
-      return
-    }
-
-    if (!content.trim()) {
-      alert('請輸入內容')
-      return
-    }
-
     if (!type) {
       alert('請選擇類型')
       return
@@ -192,25 +182,25 @@ export default function CreateAnnouncementModal({
         <div className="px-6 py-4 space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              標題 <span className="text-red-500">*</span>
+              標題 <span className="text-gray-400 font-normal">（選填）</span>
             </label>
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              placeholder="請輸入標題"
+              placeholder="選填，可留空"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400"
             />
           </div>
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              內容 <span className="text-red-500">*</span>
+              內容 <span className="text-gray-400 font-normal">（選填）</span>
             </label>
             <textarea
               value={content}
               onChange={(e) => setContent(e.target.value)}
-              placeholder="請輸入內容"
+              placeholder="選填，可留空（例如僅用圖片公告）"
               rows={4}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400 resize-none"
             />

@@ -88,10 +88,10 @@ export async function PATCH(
 
     const updateData: any = {}
     if (title !== undefined) {
-      updateData.title = title.trim()
+      updateData.title = typeof title === 'string' ? title.trim() : ''
     }
     if (content !== undefined) {
-      updateData.content = content.trim()
+      updateData.content = typeof content === 'string' ? content.trim() : ''
     }
     if (imageUrl !== undefined) {
       updateData.imageUrl = imageUrl?.trim() || null

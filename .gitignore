@@ -17,6 +17,9 @@
 .DS_Store
 *.pem
 
+# 執行時上傳（語音、公告圖等），勿提交
+/uploads/
+
 # debug
 npm-debug.log*
 yarn-debug.log*

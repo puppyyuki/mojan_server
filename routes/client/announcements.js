@@ -30,13 +30,8 @@ router.post('/', async (req, res) => {
     const { prisma } = req.app.locals;
     const { title, content, imageUrl, type, isVisible } = req.body;
 
-    if (!title || !title.trim()) {
-      return errorResponse(res, '請輸入標題', null, 400);
-    }
-
-    if (!content || !content.trim()) {
-      return errorResponse(res, '請輸入內容', null, 400);
-    }
+    const titleStr = typeof title === 'string' ? title.trim() : '';
+    const contentStr = typeof content === 'string' ? content.trim() : '';
 
     if (!type || (type !== '活動' && type !== '更新')) {
       return errorResponse(res, '請選擇類型（活動或更新）', null, 400);
@@ -67,8 +62,8 @@ router.post('/', async (req, res) => {
     const announcement = await prisma.announcement.create({
       data: {
         announcementId,
-        title: title.trim(),
-        content: content.trim(),
+        title: titleStr,
+        content: contentStr,
         imageUrl: imageUrl?.trim() || null,
         type,
         isVisible: isVisible || false,
@@ -141,10 +136,10 @@ router.patch('/:id', async (req, res) => {
 
     const updateData = {};
     if (title !== undefined) {
-      updateData.title = title.trim();
+      updateData.title = typeof title === 'string' ? title.trim() : '';
     }
     if (content !== undefined) {
-      updateData.content = content.trim();
+      updateData.content = typeof content === 'string' ? content.trim() : '';
     }
     if (imageUrl !== undefined) {
       updateData.imageUrl = imageUrl?.trim() || null;

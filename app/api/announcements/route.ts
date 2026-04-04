@@ -44,19 +44,8 @@ export async function POST(request: NextRequest) {
   try {
     const { title, content, imageUrl, type, isVisible } = await request.json()
 
-    if (!title || !title.trim()) {
-      return NextResponse.json(
-        { success: false, error: '請輸入標題' },
-        { status: 400, headers: corsHeaders() }
-      )
-    }
-
-    if (!content || !content.trim()) {
-      return NextResponse.json(
-        { success: false, error: '請輸入內容' },
-        { status: 400, headers: corsHeaders() }
-      )
-    }
+    const titleStr = typeof title === 'string' ? title.trim() : ''
+    const contentStr = typeof content === 'string' ? content.trim() : ''
 
     if (!type || (type !== '活動' && type !== '更新')) {
       return NextResponse.json(
@@ -90,8 +79,8 @@ export async function POST(request: NextRequest) {
     const announcement = await prisma.announcement.create({
       data: {
         announcementId,
-        title: title.trim(),
-        content: content.trim(),
+        title: titleStr,
+        content: contentStr,
         imageUrl: imageUrl?.trim() || null,
         type,
         isVisible: isVisible || false,
