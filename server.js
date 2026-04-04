@@ -22,9 +22,23 @@ const socketConfig = require('./config/socket');
 const prisma = new PrismaClient();
 
 const app = express();
+// Render 等反向代理：讓 req.ip、secure 等正確；上傳回傳 URL 另用下方 forwarded 標頭
+app.set('trust proxy', 1);
 
 // 使用統一的 CORS 中間件
 app.use(corsMiddleware);
+
+/** 對外公開的 base（https），避免 req.protocol 在代理後變成 http 導致 Admin next/image 與混合內容失敗 */
+function publicFileUrl(req, pathname) {
+  const fp = req.get('x-forwarded-proto');
+  const proto = fp ? fp.split(',')[0].trim() : (req.protocol || 'https');
+  const fh = req.get('x-forwarded-host');
+  const host = fh ? fh.split(',')[0].trim() : req.get('host');
+  if (!host) {
+    return pathname;
+  }
+  return `${proto}://${host}${pathname}`;
+}
 // v2 戰績每局重播 events 可能很大（含手牌／剩餘牌山等），預設 100kb 會 entity.too.large
 app.use(express.json({ limit: '20mb' }));
 // 綠界使用 application/x-www-form-urlencoded 格式
@@ -6654,7 +6668,7 @@ app.post('/api/upload-voice', uploadVoice.single('voice'), (req, res) => {
 
     // 構建文件URL
     const fileUrl = `/uploads/voices/${req.file.filename}`;
-    const fullUrl = `${req.protocol}://${req.get('host')}${fileUrl}`;
+    const fullUrl = publicFileUrl(req, fileUrl);
 
     res.json({
       success: true,
@@ -6676,7 +6690,7 @@ app.post('/api/upload-announcement-image', uploadAnnouncementImage.single('image
     }
 
     const fileUrl = `/uploads/announcements/${req.file.filename}`;
-    const fullUrl = `${req.protocol}://${req.get('host')}${fileUrl}`;
+    const fullUrl = publicFileUrl(req, fileUrl);
 
     res.json({
       success: true,

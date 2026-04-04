@@ -21,6 +21,12 @@ const nextConfig = {
         hostname: 'mojan-server-0kuv.onrender.com',
         pathname: '/**',
       },
+      // 後援：舊資料或代理未轉發 proto 時曾寫入 http://…（next/image 需列入才會載入）
+      {
+        protocol: 'http',
+        hostname: 'mojan-server-0kuv.onrender.com',
+        pathname: '/**',
+      },
     ],
   },
 }
