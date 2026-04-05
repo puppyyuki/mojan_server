@@ -6647,6 +6647,11 @@ const v2ClientRoutes = require('./routes/client/v2_client');
 app.use('/api/client/v2', v2ClientRoutes);
 console.log('[Server] Client v2 routes mounted at /api/client/v2');
 
+const accountDeletionRoutes = require('./routes/client/accountDeletion');
+app.use('/api/client/account-deletion-requests', accountDeletionRoutes);
+app.use('/api/account-deletion-requests', accountDeletionRoutes);
+console.log('[Server] Account deletion routes mounted at /api/account-deletion-requests');
+
 // 後台 API 路由
 const adminRoomCardOrdersRoutes = require('./routes/admin/roomCardOrders');
 app.use('/api/admin', adminRoomCardOrdersRoutes);

@@ -31,6 +31,7 @@ model Player {
   avatarUrl        String? // 頭像URL
   bio              String? // 備註
   lineUserId       String?   @unique // LINE 使用者 ID
+  appleUserId      String?   @unique // Sign in with Apple 使用者識別碼（sub）
   lastLoginAt      DateTime? // 最後登入時間
   isAgent          Boolean   @default(false) // 是否為代理
   agentCardBalance Int       @default(0) // 代理房卡餘額
@@ -67,6 +68,7 @@ model Player {
   roomParticipants       RoomParticipant[]       @relation("PlayerRoomParticipants")
   v2MatchParticipants    V2MatchParticipant[]
   clubCardReplenishAsActor ClubCardReplenishRecord[] @relation("ClubReplenishActor")
+  accountDeletionRequests  AccountDeletionRequest[]
 
   @@map("players")
 }
@@ -171,6 +173,31 @@ enum JoinRequestStatus {
   APPROVED
   REJECTED
   CANCELLED
+}
+
+/// 客戶端帳號刪除申請（後台追蹤：申請中 / 已撤銷）
+enum AccountDeletionRequestStatus {
+  PENDING
+  REVOKED
+}
+
+model AccountDeletionRequest {
+  id                  String                       @id @default(cuid())
+  playerId            String
+  player              Player                       @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  submittedNickname   String
+  submittedUserId     String
+  reason              String
+  status              AccountDeletionRequestStatus @default(PENDING)
+  /// 申請當下起算預定刪除時間（例如 7 日後）
+  scheduledDeletionAt DateTime
+  createdAt           DateTime                     @default(now())
+  revokedAt           DateTime?
+
+  @@index([playerId])
+  @@index([status])
+  @@index([createdAt])
+  @@map("account_deletion_requests")
 }
 
 enum ClubActivityType {

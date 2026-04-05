@@ -11,6 +11,21 @@ import PlayerClubsModal from './components/PlayerClubsModal'
 import PlayerReferralsModal from './components/PlayerReferralsModal'
 import Image from 'next/image'
 
+interface AccountDeletionRequestRow {
+  id: string
+  playerId: string
+  playerUserId: string
+  playerNickname: string
+  submittedNickname: string
+  submittedUserId: string
+  reason: string
+  status: string
+  statusLabel: string
+  createdAt: string
+  scheduledDeletionAt: string
+  revokedAt: string | null
+}
+
 interface Player {
   id: string
   userId: string
@@ -63,6 +78,26 @@ export default function UserManagementPage() {
   const [referralsModalOpen, setReferralsModalOpen] = useState(false)
   const [viewingPlayerReferrals, setViewingPlayerReferrals] = useState<{id: string, name: string} | null>(null)
 
+  const [accountDeletionRequests, setAccountDeletionRequests] = useState<AccountDeletionRequestRow[]>([])
+  const [accountDeletionLoading, setAccountDeletionLoading] = useState(false)
+
+  const fetchAccountDeletionRequests = useCallback(async () => {
+    setAccountDeletionLoading(true)
+    try {
+      const response = await apiGet('/api/admin/account-deletion-requests')
+      if (response.ok) {
+        const result = await response.json()
+        setAccountDeletionRequests(result.data || [])
+      } else {
+        console.error('獲取帳號刪除申請失敗')
+      }
+    } catch (e) {
+      console.error('獲取帳號刪除申請失敗', e)
+    } finally {
+      setAccountDeletionLoading(false)
+    }
+  }, [])
+
   // 獲取玩家列表
   const fetchPlayers = useCallback(async () => {
     setLoading(true)
@@ -87,6 +122,10 @@ export default function UserManagementPage() {
   useEffect(() => {
     fetchPlayers()
   }, [fetchPlayers])
+
+  useEffect(() => {
+    fetchAccountDeletionRequests()
+  }, [fetchAccountDeletionRequests])
 
   // 全選處理
   const handleSelectAll = (checked: boolean) => {
@@ -287,6 +326,99 @@ export default function UserManagementPage() {
             <Trash2 className="w-3.5 h-3.5" />
             刪除
           </button>
+        </div>
+      </div>
+
+      {/* 帳號刪除申請 */}
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-6">
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-3">
+          <h2 className="text-base font-semibold text-gray-900">帳號刪除申請</h2>
+          <button
+            type="button"
+            onClick={() => fetchAccountDeletionRequests()}
+            disabled={accountDeletionLoading}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-600 text-white rounded text-sm hover:bg-slate-700 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${accountDeletionLoading ? 'animate-spin' : ''}`} />
+            重新載入
+          </button>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[900px] divide-y divide-gray-200 text-sm">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">申請時間</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">狀態</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">玩家 ID</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">暱稱</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">刪除原因</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">預定刪除</th>
+                <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">撤銷時間</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {accountDeletionLoading && accountDeletionRequests.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-3 py-8 text-center text-gray-500">載入中…</td>
+                </tr>
+              ) : accountDeletionRequests.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-3 py-8 text-center text-gray-500">尚無申請紀錄</td>
+                </tr>
+              ) : (
+                accountDeletionRequests.map((row) => (
+                  <tr key={row.id} className="hover:bg-gray-50">
+                    <td className="px-3 py-2 whitespace-nowrap text-gray-800">
+                      {new Date(row.createdAt).toLocaleString('zh-TW', {
+                        timeZone: 'Asia/Taipei',
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap">
+                      <span
+                        className={`inline-flex px-2 py-0.5 rounded text-xs font-medium ${
+                          row.status === 'PENDING'
+                            ? 'bg-amber-100 text-amber-900'
+                            : 'bg-slate-100 text-slate-700'
+                        }`}
+                      >
+                        {row.statusLabel}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap text-gray-800">{row.submittedUserId}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-gray-800">{row.submittedNickname}</td>
+                    <td className="px-3 py-2 text-gray-700 max-w-xs truncate" title={row.reason}>{row.reason}</td>
+                    <td className="px-3 py-2 whitespace-nowrap text-gray-600">
+                      {new Date(row.scheduledDeletionAt).toLocaleString('zh-TW', {
+                        timeZone: 'Asia/Taipei',
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </td>
+                    <td className="px-3 py-2 whitespace-nowrap text-gray-600">
+                      {row.revokedAt
+                        ? new Date(row.revokedAt).toLocaleString('zh-TW', {
+                            timeZone: 'Asia/Taipei',
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })
+                        : '—'}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 

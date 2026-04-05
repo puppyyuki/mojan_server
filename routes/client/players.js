@@ -144,7 +144,55 @@ router.get('/:id', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const { prisma } = req.app.locals;
-    const { nickname, lineUserId, displayName, pictureUrl } = req.body;
+    const { nickname, lineUserId, appleUserId, displayName, pictureUrl } = req.body;
+
+    // Sign in with Apple（與 LINE 相同：以第三方唯一 ID 對應 Player）
+    if (appleUserId) {
+      const existingApplePlayer = await prisma.player.findUnique({
+        where: { appleUserId: String(appleUserId) },
+      });
+
+      if (existingApplePlayer) {
+        const updateData = {
+          lastLoginAt: new Date(),
+        };
+
+        if (displayName && displayName.trim() && displayName.trim() !== existingApplePlayer.nickname) {
+          updateData.nickname = displayName.trim();
+        }
+
+        const updatedPlayer = await prisma.player.update({
+          where: { id: existingApplePlayer.id },
+          data: updateData,
+        });
+
+        return successResponse(res, updatedPlayer, 'Apple 登入成功');
+      }
+
+      const finalNickname =
+        (displayName && displayName.trim()) ||
+        `Apple用戶_${String(appleUserId).substring(0, 6)}`;
+
+      const userId = await generateUniqueId(async (id) => {
+        const exists = await prisma.player.findUnique({
+          where: { userId: id },
+        });
+        return !exists;
+      });
+
+      const newPlayer = await prisma.player.create({
+        data: {
+          userId,
+          nickname: finalNickname,
+          appleUserId: String(appleUserId),
+          avatarUrl: pictureUrl || null,
+          cardCount: 0,
+          lastLoginAt: new Date(),
+        },
+      });
+
+      return successResponse(res, newPlayer, 'Apple 玩家創建成功');
+    }
 
     // LINE 登入流程
     if (lineUserId) {
@@ -204,7 +252,7 @@ router.post('/', async (req, res) => {
 
     // 傳統暱稱登入流程
     if (!nickname || !nickname.trim()) {
-      return errorResponse(res, '請輸入暱稱或使用 LINE 登入', null, 400);
+      return errorResponse(res, '請輸入暱稱或使用第三方帳號登入', null, 400);
     }
 
     // 檢查暱稱是否已存在
