@@ -6794,6 +6794,11 @@ const iapRoutes = require('./routes/iap');
 app.use('/api/iap', iapRoutes);
 console.log('[Server] IAP routes mounted at /api/iap');
 
+// Apple Server Notifications 路由
+const appleNotificationsRoutes = require('./routes/appleNotifications');
+app.use('/api/apple', appleNotificationsRoutes);
+console.log('[Server] Apple notifications routes mounted at /api/apple');
+
 // 後台金流管理路由（整合 IAP + 綠界）
 const adminPaymentsRoutes = require('./routes/adminPayments');
 app.use('/api/admin', adminPaymentsRoutes);
