@@ -69,8 +69,31 @@ model Player {
   v2MatchParticipants    V2MatchParticipant[]
   clubCardReplenishAsActor ClubCardReplenishRecord[] @relation("ClubReplenishActor")
   accountDeletionRequests  AccountDeletionRequest[]
+  v2TileBiasRules          V2TileBiasRule[]
 
   @@map("players")
+}
+
+/// V2 牌型加權（後台設定；Colyseus 服務以內網金鑰拉取）
+model V2TileBiasRule {
+  id              String    @id @default(cuid())
+  playerId        String
+  player          Player    @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  gameType        String    @default("BOTH")
+  phase           String
+  patternIds      Json
+  combine         String    @default("all")
+  probability     Float
+  priority        Int       @default(0)
+  enabled         Boolean   @default(true)
+  validFrom       DateTime?
+  validTo         DateTime?
+  createdByUserId String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([playerId])
+  @@map("v2_tile_bias_rules")
 }
 
 model Club {

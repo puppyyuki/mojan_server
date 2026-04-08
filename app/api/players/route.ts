@@ -16,9 +16,33 @@ export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders() })
 }
 
-// 獲取所有玩家
+// 獲取所有玩家；可選 ?search=&limit= 供後台快速查詢
 export async function GET(request: NextRequest) {
   try {
+    const { searchParams } = new URL(request.url)
+    const searchRaw = searchParams.get('search')?.trim()
+    const limitRaw = searchParams.get('limit')
+    const limit = Math.min(50, Math.max(1, parseInt(limitRaw ?? '30', 10) || 30))
+
+    if (searchRaw && searchRaw.length > 0) {
+      const players = await prisma.player.findMany({
+        where: {
+          OR: [
+            { userId: { contains: searchRaw } },
+            { nickname: { contains: searchRaw, mode: 'insensitive' } },
+            { id: { equals: searchRaw } },
+          ],
+        },
+        take: limit,
+        orderBy: { updatedAt: 'desc' },
+        select: { id: true, userId: true, nickname: true },
+      })
+      return NextResponse.json(
+        { success: true, data: players },
+        { headers: corsHeaders() }
+      )
+    }
+
     const players = await prisma.player.findMany({
       include: {
         clubMembers: {
