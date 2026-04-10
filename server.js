@@ -56,6 +56,20 @@ if (!fs.existsSync(announcementImageUploadsDir)) {
 app.use('/uploads/voices', express.static(voiceUploadsDir));
 app.use('/uploads/announcements', express.static(announcementImageUploadsDir));
 
+// Flutter 客戶端大型資源（如 APNG）：自 public/client-assets 提供，不計入 Play base 模組下載時由此拉取
+const clientAssetsDir = path.join(__dirname, 'public', 'client-assets');
+if (!fs.existsSync(clientAssetsDir)) {
+  fs.mkdirSync(clientAssetsDir, { recursive: true });
+}
+app.use(
+  '/client-assets',
+  express.static(clientAssetsDir, {
+    maxAge: process.env.NODE_ENV === 'production' ? '7d' : 0,
+    etag: true,
+    fallthrough: true,
+  })
+);
+
 // 配置 multer 用於語音文件上傳
 const voiceStorage = multer.diskStorage({
   destination: function (req, file, cb) {

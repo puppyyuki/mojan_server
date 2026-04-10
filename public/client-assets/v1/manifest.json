@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "description": "batch_50ms_apng for Flutter V2; paths are relative to this manifest directory",
+  "files": [
+    "batch_50ms_apng/麻將字體_普通發光麻將_吃_50ms.png",
+    "batch_50ms_apng/麻將字體_普通發光麻將_碰_50ms.png",
+    "batch_50ms_apng/麻將字體_普通發光麻將_槓_50ms.png",
+    "batch_50ms_apng/麻將字體_普通發光麻將_聽_50ms.png",
+    "batch_50ms_apng/麻將字體_普通發光麻將_補花_50ms.png",
+    "batch_50ms_apng/麻將字體_彩色炫光特效_胡_50ms.png",
+    "batch_50ms_apng/麻將字體_彩色炫光特效_自摸_50ms.png",
+    "batch_50ms_apng/放搶(灰字藍框)_50ms.png",
+    "batch_50ms_apng/麻將字體_灰色特效光麻將_流局_50ms.png"
+  ]
+}
