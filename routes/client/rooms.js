@@ -854,6 +854,14 @@ router.post('/:roomId/v2/round', async (req, res) => {
       return errorResponse(res, '請提供 events 陣列', null, 400);
     }
 
+    const session = await prisma.v2MatchSession.findUnique({
+      where: { id: sessionId },
+      select: { id: true, roomCode: true, hostPlayerId: true, status: true },
+    });
+    if (!session || session.roomCode !== roomId) {
+      return errorResponse(res, 'session 與房號不符', null, 400);
+    }
+
     const room = await prisma.room.findUnique({
       where: { roomId },
       select: {
@@ -864,17 +872,6 @@ router.post('/:roomId/v2/round', async (req, res) => {
         gameSettings: true,
       },
     });
-    if (!room) {
-      return errorResponse(res, '房間不存在', null, 404);
-    }
-
-    const session = await prisma.v2MatchSession.findUnique({
-      where: { id: sessionId },
-      select: { id: true, roomCode: true, hostPlayerId: true },
-    });
-    if (!session || session.roomCode !== room.roomId) {
-      return errorResponse(res, 'session 與房號不符', null, 400);
-    }
 
     let persistedRoundId = null;
     let firstRoundDeduction = null;
@@ -900,7 +897,7 @@ router.post('/:roomId/v2/round', async (req, res) => {
         const parts = await tx.v2MatchParticipant.findMany({
           where: { sessionId },
         });
-        if (roundIndex === 1) {
+        if (roundIndex === 1 && room) {
           try {
             firstRoundDeduction = await applyV2FirstRoundDeductionInTx(tx, {
               room,
@@ -926,6 +923,16 @@ router.post('/:roomId/v2/round', async (req, res) => {
               }
             );
           }
+        } else if (roundIndex === 1 && !room) {
+          firstRoundDeduction = {
+            failed: true,
+            message: '房間資料不存在，略過首次扣卡；局戰績已寫入',
+          };
+          console.warn('[Rooms API] v2 round first deduction skipped: room missing', {
+            roomId,
+            sessionId,
+            roundIndex,
+          });
         }
         const created = await tx.v2MatchRound.create({
           data: {
@@ -1002,19 +1009,11 @@ router.patch('/:roomId/v2/session/status', async (req, res) => {
       return errorResponse(res, '請提供 sessionId 與 status', null, 400);
     }
 
-    const room = await prisma.room.findUnique({
-      where: { roomId },
-      select: { roomId: true },
-    });
-    if (!room) {
-      return errorResponse(res, '房間不存在', null, 404);
-    }
-
     const session = await prisma.v2MatchSession.findUnique({
       where: { id: sessionId },
       select: { roomCode: true },
     });
-    if (!session || session.roomCode !== room.roomId) {
+    if (!session || session.roomCode !== roomId) {
       return errorResponse(res, 'session 與房號不符', null, 400);
     }
 
@@ -1030,6 +1029,44 @@ router.patch('/:roomId/v2/session/status', async (req, res) => {
   } catch (error) {
     console.error('[Rooms API] v2 session/status 失敗:', error);
     return errorResponse(res, '更新 session 失敗', error.message, 500);
+  }
+});
+
+/**
+ * PATCH /api/client/rooms/:roomId/v2/room/status
+ * 同步 Room 狀態（WAITING / PLAYING / FINISHED）
+ */
+router.patch('/:roomId/v2/room/status', async (req, res) => {
+  try {
+    if (!v2HistoryWriteAllowed(req)) {
+      return errorResponse(res, '未授權寫入戰績', null, 403);
+    }
+    const { prisma } = req.app.locals;
+    const { roomId } = req.params;
+    const body = req.body || {};
+    const status = (body.status || '').toString().toUpperCase();
+
+    if (!['WAITING', 'PLAYING', 'FINISHED'].includes(status)) {
+      return errorResponse(res, '請提供有效 room status', null, 400);
+    }
+
+    const room = await prisma.room.findUnique({
+      where: { roomId },
+      select: { id: true, roomId: true },
+    });
+    if (!room) {
+      return errorResponse(res, '房間不存在', null, 404);
+    }
+
+    await prisma.room.update({
+      where: { id: room.id },
+      data: { status },
+    });
+
+    return successResponse(res, { roomId: room.roomId, status }, 'room 狀態已更新');
+  } catch (error) {
+    console.error('[Rooms API] v2 room/status 失敗:', error);
+    return errorResponse(res, '更新 room 狀態失敗', error.message, 500);
   }
 });
 
