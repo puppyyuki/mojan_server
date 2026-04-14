@@ -84,6 +84,7 @@ model V2TileBiasRule {
   patternIds      Json
   combine         String    @default("all")
   probability     Float
+  weight          Int       @default(0)
   priority        Int       @default(0)
   enabled         Boolean   @default(true)
   validFrom       DateTime?

@@ -12,6 +12,7 @@ type BiasRuleRow = {
   patternIds: string[]
   combine: string
   probability: number
+  weight: number
   priority: number
   enabled: boolean
   validFrom: string | null
@@ -55,6 +56,23 @@ function patternIdsLabelZh(ids: string[]): string {
   return ids.map((id) => PATTERN_LABEL_BY_ID[id] ?? id).join('、')
 }
 
+function ruleNoEffectReason(rule: BiasRuleRow): string | null {
+  const ids = Array.isArray(rule.patternIds) ? rule.patternIds : []
+  if (!ids.length) return '未設定台型'
+  const invalid = ids.filter((id) => {
+    const opt = V2_BIAS_PATTERN_OPTIONS.find((p) => p.id === id)
+    if (!opt) return true
+    const phaseOk = rule.phase === 'opening' ? opt.opening : rule.phase === 'draw' ? opt.draw : false
+    if (!phaseOk) return true
+    if (rule.gameType === 'NORTHERN' && opt.southernOnly) return true
+    if (rule.gameType === 'SOUTHERN' && opt.northernOnly) return true
+    return false
+  })
+  if (invalid.length > 0) return `含不適用台型: ${invalid.join(', ')}`
+  if (!(rule.probability > 0)) return '機率為 0，不會生效'
+  return null
+}
+
 export default function CommandPage() {
   const [keyword, setKeyword] = useState('')
   const [searchLoading, setSearchLoading] = useState(false)
@@ -69,6 +87,7 @@ export default function CommandPage() {
   const [formGameType, setFormGameType] = useState<'BOTH' | 'NORTHERN' | 'SOUTHERN'>('BOTH')
   const [formCombine, setFormCombine] = useState<'all' | 'any'>('all')
   const [formProbability, setFormProbability] = useState('0.8')
+  const [formWeight, setFormWeight] = useState('100')
   const [formPriority, setFormPriority] = useState('10')
   const [formPatterns, setFormPatterns] = useState<string[]>(['opening_tenpai'])
 
@@ -178,6 +197,7 @@ export default function CommandPage() {
       patternIds: formPatterns,
       combine: formCombine,
       probability,
+      weight: Number(formWeight) || 0,
       priority: Number(formPriority) || 0,
       enabled: true,
     })
@@ -331,7 +351,7 @@ export default function CommandPage() {
                 <select className={fieldClass} value={formPhase}
                   onChange={(e) => setFormPhase(e.target.value as 'opening' | 'draw')}
                 >
-                  <option value="opening">開局配牌（補花後、莊家首摸前）</option>
+                  <option value="opening">開局配牌（先 4+4 骨架，補花延續）</option>
                   <option value="draw">對局摸牌（每次摸牌至多一次交換）</option>
                 </select>
               </label>
@@ -367,6 +387,17 @@ export default function CommandPage() {
                   value={formProbability}
                   onChange={(e) => setFormProbability(e.target.value)}
                 />
+              </label>
+              <label className="block text-sm text-gray-800">
+                <span className="font-medium text-gray-700">權重（數字大優先）</span>
+                <input
+                  className={fieldClass}
+                  value={formWeight}
+                  onChange={(e) => setFormWeight(e.target.value)}
+                />
+                <span className="mt-1 block text-xs text-gray-500">
+                  當同一局有多位玩家皆可套用開局規則時，先比較權重，再比較優先序。
+                </span>
               </label>
               <label className="block text-sm text-gray-800">
                 <span className="font-medium text-gray-700">優先序（數字大優先）</span>
@@ -424,7 +455,9 @@ export default function CommandPage() {
                       <th className="py-2 pr-2">台型</th>
                       <th className="py-2 pr-2">複合</th>
                       <th className="py-2 pr-2">機率</th>
+                      <th className="py-2 pr-2">權重</th>
                       <th className="py-2 pr-2">優先序</th>
+                      <th className="py-2 pr-2">生效檢查</th>
                       <th className="py-2 pr-2">更新</th>
                       <th className="py-2 pr-2">操作</th>
                     </tr>
@@ -432,6 +465,10 @@ export default function CommandPage() {
                   <tbody>
                     {rules.map((r) => (
                       <tr key={r.id} className="border-b border-gray-100 hover:bg-gray-50/80">
+                        {(() => {
+                          const noEffectReason = ruleNoEffectReason(r)
+                          return (
+                            <>
                         <td className="py-2 pr-2">
                           <input
                             type="checkbox"
@@ -453,7 +490,19 @@ export default function CommandPage() {
                         </td>
                         <td className="py-2 pr-2">{combineLabelZh(r.combine)}</td>
                         <td className="py-2 pr-2">{r.probability}</td>
+                        <td className="py-2 pr-2">{r.weight ?? 0}</td>
                         <td className="py-2 pr-2">{r.priority}</td>
+                        <td className="py-2 pr-2 text-xs">
+                          {noEffectReason ? (
+                            <span className="rounded bg-amber-50 px-2 py-1 text-amber-700">
+                              {noEffectReason}
+                            </span>
+                          ) : (
+                            <span className="rounded bg-emerald-50 px-2 py-1 text-emerald-700">
+                              可生效
+                            </span>
+                          )}
+                        </td>
                         <td className="py-2 pr-2 text-xs text-gray-600">
                           {new Date(r.updatedAt).toLocaleString()}
                         </td>
@@ -466,6 +515,9 @@ export default function CommandPage() {
                             刪除
                           </button>
                         </td>
+                            </>
+                          )
+                        })()}
                       </tr>
                     ))}
                   </tbody>

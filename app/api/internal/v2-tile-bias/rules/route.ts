@@ -25,7 +25,7 @@ export async function GET(request: NextRequest) {
   try {
     const rows = await prisma.v2TileBiasRule.findMany({
       where: { enabled: true },
-      orderBy: [{ priority: 'desc' }, { updatedAt: 'desc' }],
+      orderBy: [{ weight: 'desc' } as any, { priority: 'desc' }, { updatedAt: 'desc' }],
     })
     const rules = rows.map((r) => ({
       id: r.id,
@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
         : JSON.parse(JSON.stringify(r.patternIds ?? [])),
       combine: (r.combine === 'any' ? 'any' : 'all') as 'all' | 'any',
       probability: r.probability,
+      weight: (r as any).weight ?? 0,
       priority: r.priority,
       enabled: r.enabled,
       validFrom: r.validFrom?.toISOString() ?? null,

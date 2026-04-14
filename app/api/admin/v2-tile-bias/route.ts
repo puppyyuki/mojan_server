@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getCurrentUserId } from '@/lib/auth'
+import { V2_BIAS_PATTERN_OPTIONS } from '@/lib/v2-tile-bias-catalog'
 
 function corsHeaders() {
   return {
@@ -19,6 +20,22 @@ function normalizePatternIds(raw: unknown): string[] {
   return raw.map((x) => String(x ?? '').trim()).filter(Boolean)
 }
 
+function findInvalidPatternIds(
+  phase: 'opening' | 'draw',
+  gameType: 'NORTHERN' | 'SOUTHERN' | 'BOTH',
+  patternIds: string[]
+): string[] {
+  return patternIds.filter((id) => {
+    const opt = V2_BIAS_PATTERN_OPTIONS.find((p) => p.id === id)
+    if (!opt) return true
+    const phaseOk = phase === 'opening' ? opt.opening : opt.draw
+    if (!phaseOk) return true
+    if (gameType === 'NORTHERN' && opt.southernOnly) return true
+    if (gameType === 'SOUTHERN' && opt.northernOnly) return true
+    return false
+  })
+}
+
 /** 列出規則；可帶 ?playerId= 篩選 */
 export async function GET(request: NextRequest) {
   const adminId = await getCurrentUserId(request)
@@ -33,7 +50,7 @@ export async function GET(request: NextRequest) {
     const playerId = searchParams.get('playerId')?.trim()
     const rows = await prisma.v2TileBiasRule.findMany({
       where: playerId ? { playerId } : undefined,
-      orderBy: [{ priority: 'desc' }, { updatedAt: 'desc' }],
+      orderBy: [{ weight: 'desc' } as any, { priority: 'desc' }, { updatedAt: 'desc' }],
       include: {
         player: { select: { id: true, userId: true, nickname: true } },
       },
@@ -97,6 +114,17 @@ export async function POST(request: NextRequest) {
         { status: 400, headers: corsHeaders() }
       )
     }
+    const invalidPatternIds = findInvalidPatternIds(
+      phase as 'opening' | 'draw',
+      gameType as 'NORTHERN' | 'SOUTHERN' | 'BOTH',
+      patternIds
+    )
+    if (invalidPatternIds.length > 0) {
+      return NextResponse.json(
+        { success: false, error: `包含無效台型或不適用此階段: ${invalidPatternIds.join(', ')}` },
+        { status: 400, headers: corsHeaders() }
+      )
+    }
     const combine = body.combine === 'any' ? 'any' : 'all'
     const probability = Math.min(1, Math.max(0, Number(body.probability)))
     if (!Number.isFinite(probability)) {
@@ -105,6 +133,7 @@ export async function POST(request: NextRequest) {
         { status: 400, headers: corsHeaders() }
       )
     }
+    const weight = Math.floor(Number(body.weight) || 0)
     const priority = Math.floor(Number(body.priority) || 0)
     const enabled = body.enabled !== false
     const validFrom =
@@ -116,20 +145,22 @@ export async function POST(request: NextRequest) {
         ? new Date(String(body.validTo))
         : null
 
-    const row = await prisma.v2TileBiasRule.create({
-      data: {
+    const createData: any = {
         playerId,
         gameType,
         phase,
         patternIds,
         combine,
         probability,
+        weight,
         priority,
         enabled,
         validFrom: validFrom && !Number.isNaN(validFrom.getTime()) ? validFrom : null,
         validTo: validTo && !Number.isNaN(validTo.getTime()) ? validTo : null,
         createdByUserId: adminId,
-      },
+      };
+    const row = await prisma.v2TileBiasRule.create({
+      data: createData,
       include: {
         player: { select: { id: true, userId: true, nickname: true } },
       },

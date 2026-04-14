@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getCurrentUserId } from '@/lib/auth'
 import type { Prisma } from '@prisma/client'
+import { V2_BIAS_PATTERN_OPTIONS } from '@/lib/v2-tile-bias-catalog'
 
 function corsHeaders() {
   return {
@@ -19,6 +20,22 @@ function normalizePatternIds(raw: unknown): string[] | undefined {
   if (raw === undefined) return undefined
   if (!Array.isArray(raw)) return []
   return raw.map((x) => String(x ?? '').trim()).filter(Boolean)
+}
+
+function findInvalidPatternIds(
+  phase: 'opening' | 'draw',
+  gameType: 'NORTHERN' | 'SOUTHERN' | 'BOTH',
+  patternIds: string[]
+): string[] {
+  return patternIds.filter((id) => {
+    const opt = V2_BIAS_PATTERN_OPTIONS.find((p) => p.id === id)
+    if (!opt) return true
+    const phaseOk = phase === 'opening' ? opt.opening : opt.draw
+    if (!phaseOk) return true
+    if (gameType === 'NORTHERN' && opt.southernOnly) return true
+    if (gameType === 'SOUTHERN' && opt.northernOnly) return true
+    return false
+  })
 }
 
 export async function PATCH(
@@ -85,6 +102,7 @@ export async function PATCH(
       }
       data.probability = p
     }
+    if (body.weight != null) (data as any).weight = Math.floor(Number(body.weight) || 0)
     if (body.priority != null) data.priority = Math.floor(Number(body.priority) || 0)
     if (body.enabled != null) data.enabled = Boolean(body.enabled)
     if (body.validFrom !== undefined) {
@@ -98,6 +116,27 @@ export async function PATCH(
         body.validTo != null && String(body.validTo).length > 0
           ? new Date(String(body.validTo))
           : null
+    }
+
+    const effectivePhase = (data.phase ?? existing.phase) as 'opening' | 'draw'
+    const effectiveGameType = (data.gameType ?? existing.gameType) as
+      | 'NORTHERN'
+      | 'SOUTHERN'
+      | 'BOTH'
+    const effectivePatternIds = (data.patternIds ??
+      (Array.isArray(existing.patternIds)
+        ? (existing.patternIds as string[])
+        : [])) as string[]
+    const invalidPatternIds = findInvalidPatternIds(
+      effectivePhase,
+      effectiveGameType,
+      effectivePatternIds
+    )
+    if (invalidPatternIds.length > 0) {
+      return NextResponse.json(
+        { success: false, error: `包含無效台型或不適用此階段: ${invalidPatternIds.join(', ')}` },
+        { status: 400, headers: corsHeaders() }
+      )
     }
 
     const row = await prisma.v2TileBiasRule.update({
