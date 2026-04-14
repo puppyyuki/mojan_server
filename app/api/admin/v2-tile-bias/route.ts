@@ -17,7 +17,19 @@ export async function OPTIONS() {
 
 function normalizePatternIds(raw: unknown): string[] {
   if (!Array.isArray(raw)) return []
-  return raw.map((x) => String(x ?? '').trim()).filter(Boolean)
+  return Array.from(new Set(raw.map((x) => String(x ?? '').trim()).filter(Boolean)))
+}
+
+function parseNullableDateInput(
+  raw: unknown,
+  label: 'validFrom' | 'validTo'
+): { value: Date | null; error: string | null } {
+  if (raw == null || String(raw).trim().length === 0) return { value: null, error: null }
+  const parsed = new Date(String(raw))
+  if (Number.isNaN(parsed.getTime())) {
+    return { value: null, error: `${label} 日期格式無效` }
+  }
+  return { value: parsed, error: null }
 }
 
 function findInvalidPatternIds(
@@ -136,14 +148,30 @@ export async function POST(request: NextRequest) {
     const weight = Math.floor(Number(body.weight) || 0)
     const priority = Math.floor(Number(body.priority) || 0)
     const enabled = body.enabled !== false
-    const validFrom =
-      body.validFrom != null && String(body.validFrom).length > 0
-        ? new Date(String(body.validFrom))
-        : null
-    const validTo =
-      body.validTo != null && String(body.validTo).length > 0
-        ? new Date(String(body.validTo))
-        : null
+    const validFromResult = parseNullableDateInput(body.validFrom, 'validFrom')
+    if (validFromResult.error) {
+      return NextResponse.json(
+        { success: false, error: validFromResult.error },
+        { status: 400, headers: corsHeaders() }
+      )
+    }
+    const validToResult = parseNullableDateInput(body.validTo, 'validTo')
+    if (validToResult.error) {
+      return NextResponse.json(
+        { success: false, error: validToResult.error },
+        { status: 400, headers: corsHeaders() }
+      )
+    }
+    if (
+      validFromResult.value &&
+      validToResult.value &&
+      validFromResult.value.getTime() > validToResult.value.getTime()
+    ) {
+      return NextResponse.json(
+        { success: false, error: 'validFrom 不可晚於 validTo' },
+        { status: 400, headers: corsHeaders() }
+      )
+    }
 
     const createData: any = {
         playerId,
@@ -155,8 +183,8 @@ export async function POST(request: NextRequest) {
         weight,
         priority,
         enabled,
-        validFrom: validFrom && !Number.isNaN(validFrom.getTime()) ? validFrom : null,
-        validTo: validTo && !Number.isNaN(validTo.getTime()) ? validTo : null,
+        validFrom: validFromResult.value,
+        validTo: validToResult.value,
         createdByUserId: adminId,
       };
     const row = await prisma.v2TileBiasRule.create({

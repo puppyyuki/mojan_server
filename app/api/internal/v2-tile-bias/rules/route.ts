@@ -5,6 +5,11 @@ import {
   v2TileBiasCorsHeaders,
 } from '@/lib/v2-tile-bias-internal'
 
+function normalizePatternIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  return Array.from(new Set(raw.map((x) => String(x ?? '').trim()).filter(Boolean)))
+}
+
 export async function OPTIONS() {
   return NextResponse.json({}, { headers: v2TileBiasCorsHeaders() })
 }
@@ -32,16 +37,18 @@ export async function GET(request: NextRequest) {
       playerId: r.playerId,
       gameType: r.gameType as 'NORTHERN' | 'SOUTHERN' | 'BOTH',
       phase: r.phase as 'opening' | 'draw',
-      patternIds: Array.isArray(r.patternIds)
-        ? (r.patternIds as string[])
-        : JSON.parse(JSON.stringify(r.patternIds ?? [])),
+      patternIds: normalizePatternIds(
+        Array.isArray(r.patternIds)
+          ? (r.patternIds as string[])
+          : JSON.parse(JSON.stringify(r.patternIds ?? []))
+      ),
       combine: (r.combine === 'any' ? 'any' : 'all') as 'all' | 'any',
       probability: r.probability,
       weight: (r as any).weight ?? 0,
       priority: r.priority,
       enabled: r.enabled,
-      validFrom: r.validFrom?.toISOString() ?? null,
-      validTo: r.validTo?.toISOString() ?? null,
+      validFrom: r.validFrom instanceof Date ? r.validFrom.toISOString() : null,
+      validTo: r.validTo instanceof Date ? r.validTo.toISOString() : null,
     }))
     return NextResponse.json({ rules }, { headers: v2TileBiasCorsHeaders() })
   } catch (e) {

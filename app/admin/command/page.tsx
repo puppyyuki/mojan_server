@@ -70,6 +70,9 @@ function ruleNoEffectReason(rule: BiasRuleRow): string | null {
   })
   if (invalid.length > 0) return `含不適用台型: ${invalid.join(', ')}`
   if (!(rule.probability > 0)) return '機率為 0，不會生效'
+  const vf = rule.validFrom ? Date.parse(rule.validFrom) : NaN
+  const vt = rule.validTo ? Date.parse(rule.validTo) : NaN
+  if (Number.isFinite(vf) && Number.isFinite(vt) && vf > vt) return '生效日期區間無效（From > To）'
   return null
 }
 

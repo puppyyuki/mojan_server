@@ -19,7 +19,19 @@ export async function OPTIONS() {
 function normalizePatternIds(raw: unknown): string[] | undefined {
   if (raw === undefined) return undefined
   if (!Array.isArray(raw)) return []
-  return raw.map((x) => String(x ?? '').trim()).filter(Boolean)
+  return Array.from(new Set(raw.map((x) => String(x ?? '').trim()).filter(Boolean)))
+}
+
+function parseNullableDateInput(
+  raw: unknown,
+  label: 'validFrom' | 'validTo'
+): { value: Date | null; error: string | null } {
+  if (raw == null || String(raw).trim().length === 0) return { value: null, error: null }
+  const parsed = new Date(String(raw))
+  if (Number.isNaN(parsed.getTime())) {
+    return { value: null, error: `${label} 日期格式無效` }
+  }
+  return { value: parsed, error: null }
 }
 
 function findInvalidPatternIds(
@@ -106,16 +118,24 @@ export async function PATCH(
     if (body.priority != null) data.priority = Math.floor(Number(body.priority) || 0)
     if (body.enabled != null) data.enabled = Boolean(body.enabled)
     if (body.validFrom !== undefined) {
-      data.validFrom =
-        body.validFrom != null && String(body.validFrom).length > 0
-          ? new Date(String(body.validFrom))
-          : null
+      const parsed = parseNullableDateInput(body.validFrom, 'validFrom')
+      if (parsed.error) {
+        return NextResponse.json(
+          { success: false, error: parsed.error },
+          { status: 400, headers: corsHeaders() }
+        )
+      }
+      data.validFrom = parsed.value
     }
     if (body.validTo !== undefined) {
-      data.validTo =
-        body.validTo != null && String(body.validTo).length > 0
-          ? new Date(String(body.validTo))
-          : null
+      const parsed = parseNullableDateInput(body.validTo, 'validTo')
+      if (parsed.error) {
+        return NextResponse.json(
+          { success: false, error: parsed.error },
+          { status: 400, headers: corsHeaders() }
+        )
+      }
+      data.validTo = parsed.value
     }
 
     const effectivePhase = (data.phase ?? existing.phase) as 'opening' | 'draw'
@@ -135,6 +155,20 @@ export async function PATCH(
     if (invalidPatternIds.length > 0) {
       return NextResponse.json(
         { success: false, error: `包含無效台型或不適用此階段: ${invalidPatternIds.join(', ')}` },
+        { status: 400, headers: corsHeaders() }
+      )
+    }
+    const effectiveValidFrom = (data.validFrom !== undefined
+      ? data.validFrom
+      : existing.validFrom) as Date | null
+    const effectiveValidTo = (data.validTo !== undefined ? data.validTo : existing.validTo) as Date | null
+    if (
+      effectiveValidFrom &&
+      effectiveValidTo &&
+      effectiveValidFrom.getTime() > effectiveValidTo.getTime()
+    ) {
+      return NextResponse.json(
+        { success: false, error: 'validFrom 不可晚於 validTo' },
         { status: 400, headers: corsHeaders() }
       )
     }
