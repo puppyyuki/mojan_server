@@ -230,17 +230,17 @@ export default function ReportPage() {
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1180px] divide-y divide-gray-200 text-sm">
+          <table className="w-full min-w-[1180px] table-fixed divide-y divide-gray-200 text-sm">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">時間區間</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">俱樂部 ID</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">俱樂部名稱</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">玩家暱稱 + ID</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">戰績</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">大贏家</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">圈數</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">場次</th>
+                <th className="w-1/8 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap border-r border-gray-200">時間區間</th>
+                <th className="w-1/8 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap border-r border-gray-200">俱樂部 ID</th>
+                <th className="w-1/8 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap border-r border-gray-200">俱樂部名稱</th>
+                <th className="w-1/8 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap border-r border-gray-200">玩家暱稱 + ID</th>
+                <th className="w-1/8 px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap border-r border-gray-200">戰績</th>
+                <th className="w-1/8 px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap border-r border-gray-200">大贏家</th>
+                <th className="w-1/8 px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap border-r border-gray-200">圈數</th>
+                <th className="w-1/8 px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">場次</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -266,13 +266,13 @@ export default function ReportPage() {
               ) : (
                 data.rows.map((r, i) => (
                   <tr key={`${r.playerId}-${r.timeRange}`} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/80'}>
-                    <td className="px-4 py-2 text-gray-700">{r.timeRange}</td>
-                    <td className="px-4 py-2 font-mono text-xs text-gray-900">{r.clubSixId}</td>
-                    <td className="px-4 py-2 text-gray-900">{r.clubName}</td>
-                    <td className="px-4 py-2 text-gray-700">{r.playerDisplay}</td>
-                    <td className="px-4 py-2 text-center font-medium text-gray-900">{r.battleScore}</td>
-                    <td className="px-4 py-2 text-center text-gray-700">{r.bigWinnerCount}</td>
-                    <td className="px-4 py-2 text-center text-emerald-800 font-medium">{r.estimatedRounds}</td>
+                    <td className="px-4 py-2 text-gray-700 border-r border-gray-200">{r.timeRange}</td>
+                    <td className="px-4 py-2 font-mono text-xs text-gray-900 border-r border-gray-200">{r.clubSixId}</td>
+                    <td className="px-4 py-2 text-gray-900 border-r border-gray-200">{r.clubName}</td>
+                    <td className="px-4 py-2 text-gray-700 border-r border-gray-200">{r.playerDisplay}</td>
+                    <td className="px-4 py-2 text-center font-medium text-gray-900 border-r border-gray-200">{r.battleScore}</td>
+                    <td className="px-4 py-2 text-center text-gray-700 border-r border-gray-200">{r.bigWinnerCount}</td>
+                    <td className="px-4 py-2 text-center text-emerald-800 font-medium border-r border-gray-200">{r.estimatedRounds}</td>
                     <td className="px-4 py-2 text-center text-gray-700">{r.completedGames}</td>
                   </tr>
                 ))
