@@ -78,7 +78,7 @@ function classifyRecord(
   if (
     participantCount === 0 ||
     wrongParticipantIdSet.has(row.id) ||
-    ((row.status === 'FINISHED' || row.status === 'DISBANDED') && roundCount === 0) ||
+    (row.status === 'FINISHED' && roundCount === 0) ||
     (row.status === 'IN_PROGRESS' && !live)
   ) {
     return { code: 'ERROR', label: '錯誤戰績' }
@@ -86,7 +86,7 @@ function classifyRecord(
   if (row.status === 'FINISHED' && roundCount >= 1) {
     return { code: 'COMPLETED_FULL', label: '全局完結' }
   }
-  if (row.status === 'DISBANDED' && roundCount >= 1) {
+  if (row.status === 'DISBANDED') {
     return { code: 'DISBANDED_MID', label: '中途解散' }
   }
   if (row.status === 'IN_PROGRESS' && live) {
@@ -112,9 +112,9 @@ async function fetchWrongParticipantSessionIds(): Promise<string[]> {
  * status（戰績分類）:
  * - ALL
  * - COMPLETED_FULL — 全局完結（session FINISHED 且至少 1 局戰績）
- * - DISBANDED_MID — 中途解散（DISBANDED 且至少 1 局）
+ * - DISBANDED_MID — 中途解散（session DISBANDED，不限制局數）
  * - LIVE — 進行中（IN_PROGRESS 且對應大廳房間仍為 PLAYING，即仍存活且對局中）
- * - ERROR — 錯誤戰績（參與者非 4 人、已結束/解散但 0 局、或 IN_PROGRESS 但房間已非對局中等）
+ * - ERROR — 錯誤戰績（參與者非 4 人、已結束但 0 局、或 IN_PROGRESS 但房間已非對局中等）
  *
  * 相容舊參數：FINISHED→COMPLETED_FULL，DISBANDED→DISBANDED_MID，IN_PROGRESS→LIVE
  */
@@ -146,7 +146,7 @@ export async function GET(request: NextRequest) {
     if (category === 'COMPLETED_FULL') {
       andParts.push({ status: 'FINISHED', rounds: { some: {} } })
     } else if (category === 'DISBANDED_MID') {
-      andParts.push({ status: 'DISBANDED', rounds: { some: {} } })
+      andParts.push({ status: 'DISBANDED' })
     } else if (category === 'LIVE') {
       if (playingInternalIds.size === 0 && playingRoomCodes.size === 0) {
         andParts.push({ id: '__admin_no_live_lobby_room__' })
@@ -189,7 +189,7 @@ export async function GET(request: NextRequest) {
         { participants: { none: {} } },
         {
           AND: [
-            { status: { in: ['FINISHED', 'DISBANDED'] } },
+            { status: 'FINISHED' },
             { rounds: { none: {} } },
           ],
         },
