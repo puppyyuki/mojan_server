@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { parseTaipeiDateEnd, parseTaipeiDateStart } from '@/lib/taipei-time'
 
@@ -17,142 +16,221 @@ export async function OPTIONS() {
 
 /**
  * GET /api/admin/reports/club-summary
- * 俱樂部對戰彙總：區間內對局數、總局數、總耗卡等
- * Query: startDate, endDate (YYYY-MM-DD), keyword（俱樂部名稱或 clubId 片段）
+ * 俱樂部玩家報表：指定時間區間＋俱樂部 ID，彙整玩家戰績/大贏家/圈數/場次
+ * Query: startDate, endDate (YYYY-MM-DD), clubId（俱樂部 6 碼）
  */
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const startRaw = (searchParams.get('startDate') || '').trim()
     const endRaw = (searchParams.get('endDate') || '').trim()
-    const keyword = (searchParams.get('keyword') || '').trim()
+    const clubSixId = (searchParams.get('clubId') || '').trim()
 
-    const where: Prisma.ClubGameResultWhereInput = {}
-
-    if (startRaw || endRaw) {
-      where.endedAt = {}
-      if (startRaw) {
-        const s = parseTaipeiDateStart(startRaw)
-        if (s) where.endedAt.gte = s
-      }
-      if (endRaw) {
-        const e = parseTaipeiDateEnd(endRaw)
-        if (e) where.endedAt.lte = e
-      }
+    if (!startRaw || !endRaw || !clubSixId) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: '請提供完整查詢條件（時間區間與俱樂部 ID）',
+        },
+        { status: 400, headers: corsHeaders() }
+      )
     }
 
-    if (keyword) {
-      where.club = {
-        OR: [
-          { clubId: { contains: keyword } },
-          { name: { contains: keyword, mode: 'insensitive' } },
-        ],
-      }
+    const startAt = parseTaipeiDateStart(startRaw)
+    const endAt = parseTaipeiDateEnd(endRaw)
+    if (!startAt || !endAt) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: '時間格式錯誤，請使用 YYYY-MM-DD',
+        },
+        { status: 400, headers: corsHeaders() }
+      )
+    }
+    if (startAt > endAt) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: '開始日期不可晚於結束日期',
+        },
+        { status: 400, headers: corsHeaders() }
+      )
     }
 
-    const grouped = await prisma.clubGameResult.groupBy({
-      by: ['clubId'],
-      where,
-      _count: { id: true },
-      _sum: {
-        roomCardConsumedTotal: true,
-        totalRounds: true,
+    const club = await prisma.club.findFirst({
+      where: { clubId: clubSixId },
+      select: { id: true, clubId: true, name: true },
+    })
+    if (!club) {
+      return NextResponse.json(
+        {
+          success: true,
+          data: {
+            rows: [],
+            totals: { playerCount: 0, totalBattleScore: 0, totalEstimatedRounds: 0, totalCompletedGames: 0 },
+            filter: { startDate: startRaw, endDate: endRaw, clubId: clubSixId },
+            club: { clubInternalId: null, clubSixId, clubName: '俱樂部不存在' },
+          },
+        },
+        { headers: corsHeaders() }
+      )
+    }
+
+    const gameResults = await prisma.clubGameResult.findMany({
+      where: {
+        clubId: club.id,
+        endedAt: {
+          gte: startAt,
+          lte: endAt,
+        },
       },
-    })
-
-    const clubIds = grouped.map((g) => g.clubId)
-    const clubs = await prisma.club.findMany({
-      where: { id: { in: clubIds } },
-      select: { id: true, clubId: true, name: true, cardCount: true },
-    })
-    const clubMap = new Map(clubs.map((c) => [c.id, c]))
-
-    const winnerCounterByClub = new Map<string, Map<string, number>>()
-    const clubGames = await prisma.clubGameResult.findMany({
-      where,
+      orderBy: [{ endedAt: 'desc' }, { createdAt: 'desc' }],
       select: {
-        clubId: true,
+        id: true,
+        roomInternalId: true,
+        totalRounds: true,
         players: true,
       },
     })
-    for (const game of clubGames) {
-      const players = Array.isArray(game.players) ? game.players : []
-      for (const item of players) {
-        if (!item || typeof item !== 'object') continue
-        const row = item as Record<string, unknown>
-        const isBigWinner = row.isBigWinner === true
-        const playerId = typeof row.playerId === 'string' ? row.playerId : ''
-        if (!isBigWinner || !playerId) continue
-        let counter = winnerCounterByClub.get(game.clubId)
-        if (!counter) {
-          counter = new Map<string, number>()
-          winnerCounterByClub.set(game.clubId, counter)
-        }
-        counter.set(playerId, (counter.get(playerId) || 0) + 1)
-      }
-    }
-    const winnerPlayerIds = Array.from(
-      new Set(
-        Array.from(winnerCounterByClub.values()).flatMap((counter) => Array.from(counter.keys()))
-      )
-    )
-    const winnerPlayers = winnerPlayerIds.length
-      ? await prisma.player.findMany({
-          where: { id: { in: winnerPlayerIds } },
-          select: { id: true, userId: true, nickname: true },
+
+    const roomInternalIds = gameResults
+      .map((row) => row.roomInternalId)
+      .filter((v): v is string => typeof v === 'string' && v.length > 0)
+
+    const sessions = roomInternalIds.length
+      ? await prisma.v2MatchSession.findMany({
+          where: { roomInternalId: { in: roomInternalIds } },
+          select: { id: true, roomInternalId: true, status: true },
         })
       : []
-    const winnerPlayerMap = new Map(winnerPlayers.map((p) => [p.id, p]))
 
-    const rows = grouped
-      .map((g) => {
-        const c = clubMap.get(g.clubId)
-        const gameCount = g._count.id
-        const totalRounds = g._sum.totalRounds ?? 0
-        const totalCards = g._sum.roomCardConsumedTotal ?? 0
-        const avgCardsPerGame = gameCount > 0 ? totalCards / gameCount : 0
-        const winnerCounter = winnerCounterByClub.get(g.clubId)
-        let topBigWinner: {
-          playerId: string
-          userId: string
-          nickname: string
-          winCount: number
-        } | null = null
-        if (winnerCounter) {
-          for (const [playerId, winCount] of winnerCounter.entries()) {
-            if (!topBigWinner || winCount > topBigWinner.winCount) {
-              const player = winnerPlayerMap.get(playerId)
-              topBigWinner = {
-                playerId,
-                userId: player?.userId || '未知玩家',
-                nickname: player?.nickname || '未知玩家',
-                winCount,
-              }
-            }
-          }
-        }
-        return {
-          clubInternalId: g.clubId,
-          clubSixId: c?.clubId ?? '—',
-          clubName: c?.name ?? '（已刪或異常）',
-          clubCardBalance: c?.cardCount ?? null,
-          gameCount,
-          totalRounds,
-          totalRoomCardsConsumed: totalCards,
-          avgRoomCardsPerGame: Math.round(avgCardsPerGame * 100) / 100,
-          topBigWinner,
-        }
+    const sessionByRoomInternalId = new Map<string, { id: string; status: string }>()
+    for (const session of sessions) {
+      if (!session.roomInternalId) continue
+      sessionByRoomInternalId.set(session.roomInternalId, {
+        id: session.id,
+        status: session.status,
       })
-      .sort((a, b) => b.gameCount - a.gameCount)
+    }
+
+    const sessionIds = sessions.map((s) => s.id)
+    const rounds = sessionIds.length
+      ? await prisma.v2MatchRound.findMany({
+          where: { sessionId: { in: sessionIds } },
+          select: { sessionId: true, roundIndex: true, roundEndPayload: true },
+        })
+      : []
+
+    const roundsBySessionId = new Map<string, Map<number, unknown>>()
+    for (const row of rounds) {
+      let roundMap = roundsBySessionId.get(row.sessionId)
+      if (!roundMap) {
+        roundMap = new Map<number, unknown>()
+        roundsBySessionId.set(row.sessionId, roundMap)
+      }
+      roundMap.set(row.roundIndex, row.roundEndPayload)
+    }
+
+    type PlayerAgg = {
+      playerId: string
+      userId: string
+      nickname: string
+      battleScore: number
+      bigWinnerCount: number
+      estimatedRounds: number
+      completedGames: number
+    }
+
+    const playerAggMap = new Map<string, PlayerAgg>()
+
+    for (const result of gameResults) {
+      const players = Array.isArray(result.players) ? result.players : []
+      const roomInternalId = result.roomInternalId || ''
+      const session = roomInternalId ? sessionByRoomInternalId.get(roomInternalId) : null
+      const roundPayload = session
+        ? roundsBySessionId.get(session.id)?.get(Number(result.totalRounds) || 0)
+        : null
+
+      const payloadObj =
+        roundPayload && typeof roundPayload === 'object' && !Array.isArray(roundPayload)
+          ? (roundPayload as Record<string, unknown>)
+          : null
+      const winnerSeat = Number(payloadObj?.winnerSeat ?? NaN)
+      const isExhaustiveDraw = payloadObj?.isExhaustiveDraw === true
+      const hasHuWinner = Number.isFinite(winnerSeat) && winnerSeat >= 0 && !isExhaustiveDraw
+      const isCompletedGame = session?.status === 'FINISHED' && hasHuWinner
+
+      for (const item of players) {
+        if (!item || typeof item !== 'object') continue
+        const p = item as Record<string, unknown>
+        const playerId = typeof p.playerId === 'string' ? p.playerId : ''
+        if (!playerId) continue
+
+        const userId = typeof p.userId === 'string' && p.userId.trim() ? p.userId.trim() : '—'
+        const nickname =
+          typeof p.nickname === 'string' && p.nickname.trim() ? p.nickname.trim() : '未知玩家'
+        const score = Number(p.score ?? 0) || 0
+        const roomCardConsumed = Number(p.roomCardConsumed ?? 0) || 0
+        const isBigWinner = p.isBigWinner === true
+
+        const existing = playerAggMap.get(playerId)
+        if (!existing) {
+          playerAggMap.set(playerId, {
+            playerId,
+            userId,
+            nickname,
+            battleScore: score,
+            bigWinnerCount: isBigWinner ? 1 : 0,
+            estimatedRounds: roomCardConsumed,
+            completedGames: isCompletedGame ? 1 : 0,
+          })
+          continue
+        }
+
+        existing.battleScore += score
+        existing.bigWinnerCount += isBigWinner ? 1 : 0
+        existing.estimatedRounds += roomCardConsumed
+        if (isCompletedGame) {
+          existing.completedGames += 1
+        }
+        if (existing.userId === '—' && userId !== '—') {
+          existing.userId = userId
+        }
+        if (existing.nickname === '未知玩家' && nickname !== '未知玩家') {
+          existing.nickname = nickname
+        }
+      }
+    }
+
+    const rows = Array.from(playerAggMap.values())
+      .map((r) => ({
+        timeRange: `${startRaw} ~ ${endRaw}`,
+        clubSixId: club.clubId,
+        clubName: club.name,
+        playerDisplay: `${r.nickname} (${r.userId})`,
+        playerId: r.playerId,
+        playerUserId: r.userId,
+        playerNickname: r.nickname,
+        battleScore: r.battleScore,
+        bigWinnerCount: r.bigWinnerCount,
+        estimatedRounds: r.estimatedRounds,
+        completedGames: r.completedGames,
+      }))
+      .sort((a, b) => {
+        if (b.battleScore !== a.battleScore) return b.battleScore - a.battleScore
+        if (b.completedGames !== a.completedGames) return b.completedGames - a.completedGames
+        return b.bigWinnerCount - a.bigWinnerCount
+      })
 
     const totals = rows.reduce(
-      (acc, r) => {
-        acc.gameCount += r.gameCount
-        acc.totalRounds += r.totalRounds
-        acc.totalRoomCardsConsumed += r.totalRoomCardsConsumed
+      (acc, row) => {
+        acc.playerCount += 1
+        acc.totalBattleScore += row.battleScore
+        acc.totalEstimatedRounds += row.estimatedRounds
+        acc.totalCompletedGames += row.completedGames
         return acc
       },
-      { gameCount: 0, totalRounds: 0, totalRoomCardsConsumed: 0 }
+      { playerCount: 0, totalBattleScore: 0, totalEstimatedRounds: 0, totalCompletedGames: 0 }
     )
 
     return NextResponse.json(
@@ -161,7 +239,12 @@ export async function GET(request: NextRequest) {
         data: {
           rows,
           totals,
-          filter: { startDate: startRaw || null, endDate: endRaw || null, keyword: keyword || null },
+          filter: { startDate: startRaw, endDate: endRaw, clubId: clubSixId },
+          club: {
+            clubInternalId: club.id,
+            clubSixId: club.clubId,
+            clubName: club.name,
+          },
         },
       },
       { headers: corsHeaders() }

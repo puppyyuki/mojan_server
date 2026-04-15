@@ -1,46 +1,56 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
-import { BarChart3, RefreshCw, Search, ExternalLink, FileSpreadsheet } from 'lucide-react'
+import { useCallback, useState } from 'react'
+import { BarChart3, RefreshCw, ExternalLink, FileSpreadsheet } from 'lucide-react'
 import { apiGet } from '@/lib/api-client'
 import Link from 'next/link'
 
-interface ClubRow {
-  clubInternalId: string
+interface PlayerReportRow {
+  timeRange: string
   clubSixId: string
   clubName: string
-  clubCardBalance: number | null
-  gameCount: number
-  totalRounds: number
-  totalRoomCardsConsumed: number
-  avgRoomCardsPerGame: number
-  topBigWinner: {
-    playerId: string
-    userId: string
-    nickname: string
-    winCount: number
-  } | null
+  playerDisplay: string
+  playerId: string
+  playerUserId: string
+  playerNickname: string
+  battleScore: number
+  bigWinnerCount: number
+  estimatedRounds: number
+  completedGames: number
 }
 
 interface SummaryData {
-  rows: ClubRow[]
-  totals: { gameCount: number; totalRounds: number; totalRoomCardsConsumed: number }
-  filter: { startDate: string | null; endDate: string | null; keyword: string | null }
+  rows: PlayerReportRow[]
+  totals: {
+    playerCount: number
+    totalBattleScore: number
+    totalEstimatedRounds: number
+    totalCompletedGames: number
+  }
+  filter: { startDate: string; endDate: string; clubId: string }
+  club: { clubInternalId: string | null; clubSixId: string; clubName: string }
+}
+
+interface QueryDraft {
+  startDate: string
+  endDate: string
+  clubId: string
 }
 
 export default function ReportPage() {
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState<SummaryData | null>(null)
-  const [draft, setDraft] = useState({ startDate: '', endDate: '', keyword: '' })
-  const [applied, setApplied] = useState(draft)
+  const [draft, setDraft] = useState<QueryDraft>({ startDate: '', endDate: '', clubId: '' })
+  const [applied, setApplied] = useState<QueryDraft | null>(null)
+  const [queried, setQueried] = useState(false)
 
-  const fetchReport = useCallback(async () => {
+  const fetchReport = useCallback(async (query: QueryDraft) => {
     setLoading(true)
     try {
       const q = new URLSearchParams()
-      if (applied.startDate) q.set('startDate', applied.startDate)
-      if (applied.endDate) q.set('endDate', applied.endDate)
-      if (applied.keyword.trim()) q.set('keyword', applied.keyword.trim())
+      q.set('startDate', query.startDate)
+      q.set('endDate', query.endDate)
+      q.set('clubId', query.clubId.trim())
       const res = await apiGet(`/api/admin/reports/club-summary?${q.toString()}`)
       const json = await res.json()
       if (json.success && json.data) {
@@ -54,14 +64,25 @@ export default function ReportPage() {
     } finally {
       setLoading(false)
     }
-  }, [applied])
-
-  useEffect(() => {
-    fetchReport()
-  }, [fetchReport])
+  }, [])
 
   const handleQuery = () => {
-    setApplied({ ...draft })
+    const next = {
+      startDate: draft.startDate.trim(),
+      endDate: draft.endDate.trim(),
+      clubId: draft.clubId.trim(),
+    }
+    if (!next.startDate || !next.endDate || !next.clubId) {
+      alert('請先完整選擇時間區間與輸入俱樂部 ID')
+      return
+    }
+    if (next.startDate > next.endDate) {
+      alert('開始日期不可晚於結束日期')
+      return
+    }
+    setApplied(next)
+    setQueried(true)
+    void fetchReport(next)
   }
 
   const handleExportCsv = () => {
@@ -69,28 +90,19 @@ export default function ReportPage() {
       alert('沒有可匯出的資料')
       return
     }
-    const headers = [
-      '俱樂部6碼',
-      '俱樂部名稱',
-      '目前俱樂部房卡餘額',
-      '對局數',
-      '總局數',
-      '大贏家',
-      '總消耗房卡',
-      '平均每局耗卡',
-    ]
+    const headers = ['時間區間', '俱樂部 ID', '俱樂部名稱', '玩家暱稱 + ID', '戰績', '大贏家', '圈數', '場次']
     const lines = [
       headers.join(','),
       ...data.rows.map((r) =>
         [
+          `"${r.timeRange}"`,
           r.clubSixId,
           `"${(r.clubName || '').replace(/"/g, '""')}"`,
-          r.clubCardBalance ?? '',
-          r.gameCount,
-          r.totalRounds,
-          r.topBigWinner ? `"${r.topBigWinner.nickname} (${r.topBigWinner.userId}) x${r.topBigWinner.winCount}"` : '—',
-          r.totalRoomCardsConsumed,
-          r.avgRoomCardsPerGame,
+          `"${(r.playerDisplay || '').replace(/"/g, '""')}"`,
+          r.battleScore,
+          r.bigWinnerCount,
+          r.estimatedRounds,
+          r.completedGames,
         ].join(',')
       ),
     ]
@@ -98,7 +110,7 @@ export default function ReportPage() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `club-report-${applied.startDate || 'all'}-${applied.endDate || 'all'}.csv`
+    a.download = `club-player-report-${data.filter.startDate}-${data.filter.endDate}-${data.filter.clubId}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -116,7 +128,7 @@ export default function ReportPage() {
           <div>
             <h2 className="text-lg font-semibold text-gray-900">俱樂部報表</h2>
             <p className="text-sm text-gray-600 mt-1">
-              依<strong className="text-gray-800">結算時間</strong>統計各俱樂部在區間內的對局數、總局數與房卡消耗彙總。計分細節、逐局紀錄請至
+              依<strong className="text-gray-800">時間區間 + 俱樂部 ID</strong>，統計該俱樂部每位玩家在區間內的戰績、圈數與場次。逐局紀錄請至
               <Link
                 href="/admin/game-record-management"
                 className="text-blue-600 hover:underline inline-flex items-center gap-0.5 mx-1"
@@ -133,7 +145,7 @@ export default function ReportPage() {
       <div className="sticky top-0 z-10 bg-white rounded-lg shadow-sm border border-gray-200 p-4 mb-4">
         <div className="flex flex-wrap items-end gap-3">
           <div>
-            <label className="block text-xs text-gray-500 mb-1">開始日期（結算日）</label>
+            <label className="block text-xs text-gray-500 mb-1">開始日期</label>
             <input
               type="date"
               value={draft.startDate}
@@ -151,16 +163,13 @@ export default function ReportPage() {
             />
           </div>
           <div>
-            <label className="block text-xs text-gray-500 mb-1">俱樂部關鍵字</label>
-            <div className="relative">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input
-                value={draft.keyword}
-                onChange={(e) => setDraft((d) => ({ ...d, keyword: e.target.value }))}
-                placeholder="6 碼或名稱片段"
-                className={`pl-8 pr-3 py-1.5 text-sm w-52 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 ${inputBase}`}
-              />
-            </div>
+            <label className="block text-xs text-gray-500 mb-1">俱樂部 ID</label>
+            <input
+              value={draft.clubId}
+              onChange={(e) => setDraft((d) => ({ ...d, clubId: e.target.value.replace(/\s+/g, '') }))}
+              placeholder="輸入 6 碼 ID"
+              className={`px-3 py-1.5 text-sm w-44 focus:ring-1 focus:ring-blue-500 focus:border-blue-500 ${inputBase}`}
+            />
           </div>
           <button
             type="button"
@@ -172,8 +181,11 @@ export default function ReportPage() {
           </button>
           <button
             type="button"
-            onClick={() => fetchReport()}
-            disabled={loading}
+            onClick={() => {
+              if (!applied) return
+              void fetchReport(applied)
+            }}
+            disabled={loading || !applied}
             className="flex items-center gap-1 px-3 py-1.5 bg-green-600 text-white text-sm rounded hover:bg-green-700 disabled:opacity-50"
             title="以目前條件重新載入"
           >
@@ -193,50 +205,49 @@ export default function ReportPage() {
         {data?.filter && (
           <p className="text-xs text-gray-500 mt-2">
             目前條件：
-            {data.filter.startDate || '（不限起）'} ~ {data.filter.endDate || '（不限迄）'}
-            {data.filter.keyword ? ` · 關鍵字「${data.filter.keyword}」` : ''}
+            {data.filter.startDate} ~ {data.filter.endDate}
+            {` · 俱樂部 ID「${data.filter.clubId}」`}
           </p>
         )}
       </div>
 
-      {data && (
+      {data && queried && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
           <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
-            <div className="text-xs text-gray-500 uppercase">對局數（筆）</div>
-            <div className="text-2xl font-semibold text-gray-900 mt-1">{data.totals.gameCount}</div>
+            <div className="text-xs text-gray-500 uppercase">玩家數</div>
+            <div className="text-2xl font-semibold text-gray-900 mt-1">{data.totals.playerCount}</div>
           </div>
           <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
-            <div className="text-xs text-gray-500 uppercase">總局數加總</div>
-            <div className="text-2xl font-semibold text-gray-900 mt-1">{data.totals.totalRounds}</div>
+            <div className="text-xs text-gray-500 uppercase">圈數加總</div>
+            <div className="text-2xl font-semibold text-gray-900 mt-1">{data.totals.totalEstimatedRounds}</div>
           </div>
           <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
-            <div className="text-xs text-gray-500 uppercase">總消耗房卡</div>
-            <div className="text-2xl font-semibold text-emerald-800 mt-1">{data.totals.totalRoomCardsConsumed}</div>
+            <div className="text-xs text-gray-500 uppercase">完整場次加總</div>
+            <div className="text-2xl font-semibold text-emerald-800 mt-1">{data.totals.totalCompletedGames}</div>
           </div>
         </div>
       )}
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1080px] divide-y divide-gray-200 text-sm">
+          <table className="w-full min-w-[1180px] divide-y divide-gray-200 text-sm">
             <thead className="bg-gray-50">
               <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">俱樂部 6 碼</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">名稱</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">俱樂部房卡餘額</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">區間對局數</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">區間總局數</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">區間大贏家</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">區間耗卡</th>
-                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">平均每局耗卡</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">時間區間</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">俱樂部 ID</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">俱樂部名稱</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap">玩家暱稱 + ID</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">戰績</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">大贏家</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">圈數</th>
+                <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">場次</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
-              {loading && !data ? (
+              {!queried ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-12 text-center text-gray-500">
-                    <RefreshCw className="w-6 h-6 animate-spin inline mr-2" />
-                    載入中…
+                    請先設定時間區間與俱樂部 ID，再按「查詢」
                   </td>
                 </tr>
               ) : loading ? (
@@ -249,24 +260,20 @@ export default function ReportPage() {
               ) : !data?.rows.length ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-12 text-center text-gray-500">
-                    無資料，請調整日期或關鍵字後查詢
+                    此條件下無符合資料
                   </td>
                 </tr>
               ) : (
                 data.rows.map((r, i) => (
-                  <tr key={r.clubInternalId} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/80'}>
+                  <tr key={`${r.playerId}-${r.timeRange}`} className={i % 2 === 0 ? 'bg-white' : 'bg-gray-50/80'}>
+                    <td className="px-4 py-2 text-gray-700">{r.timeRange}</td>
                     <td className="px-4 py-2 font-mono text-xs text-gray-900">{r.clubSixId}</td>
                     <td className="px-4 py-2 text-gray-900">{r.clubName}</td>
-                    <td className="px-4 py-2 text-center text-gray-700">{r.clubCardBalance ?? '—'}</td>
-                    <td className="px-4 py-2 text-center font-medium text-gray-900">{r.gameCount}</td>
-                    <td className="px-4 py-2 text-center text-gray-700">{r.totalRounds}</td>
-                    <td className="px-4 py-2 text-center text-gray-700">
-                      {r.topBigWinner
-                        ? `${r.topBigWinner.nickname} (${r.topBigWinner.userId}) x${r.topBigWinner.winCount}`
-                        : '—'}
-                    </td>
-                    <td className="px-4 py-2 text-center text-emerald-800 font-medium">{r.totalRoomCardsConsumed}</td>
-                    <td className="px-4 py-2 text-center text-gray-600">{r.avgRoomCardsPerGame}</td>
+                    <td className="px-4 py-2 text-gray-700">{r.playerDisplay}</td>
+                    <td className="px-4 py-2 text-center font-medium text-gray-900">{r.battleScore}</td>
+                    <td className="px-4 py-2 text-center text-gray-700">{r.bigWinnerCount}</td>
+                    <td className="px-4 py-2 text-center text-emerald-800 font-medium">{r.estimatedRounds}</td>
+                    <td className="px-4 py-2 text-center text-gray-700">{r.completedGames}</td>
                   </tr>
                 ))
               )}
