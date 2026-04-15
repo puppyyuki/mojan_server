@@ -95,6 +95,86 @@ router.post('/buy', async (req, res) => {
             });
         }
 
+        // 檢查是否已有待付款訂單（僅限已成功取號/產生虛擬帳號的代理購買訂單）
+        const pendingOrders = await prisma.roomCardOrder.findMany({
+            where: {
+                playerId: agentId,
+                status: 'PENDING',
+            },
+            include: {
+                product: {
+                    select: {
+                        isActive: true,
+                    },
+                },
+            },
+            orderBy: { createdAt: 'desc' },
+            take: 20,
+        });
+
+        const isAgentOrder = (order) => {
+            const raw = order.raw;
+            if (!raw || typeof raw !== 'object') {
+                const hasInactiveProduct = order.product && order.product.isActive === false;
+                return hasInactiveProduct;
+            }
+            if (raw.isAgentPurchase === true || raw.agentId === agentId || !!raw.agentProductId) {
+                return true;
+            }
+            const hasInactiveProduct = order.product && order.product.isActive === false;
+            return hasInactiveProduct;
+        };
+
+        const hasVirtualPaymentAccount = (order) => {
+            if (order.virtualAccount && order.virtualAccount.trim() !== '') {
+                return true;
+            }
+            const raw = order.raw;
+            if (!raw || typeof raw !== 'object') {
+                return false;
+            }
+            const rawAccount = raw.vAccount || raw.virtualAccount;
+            return typeof rawAccount === 'string' && rawAccount.trim() !== '';
+        };
+
+        const pendingAgentOrders = pendingOrders.filter((order) => isAgentOrder(order));
+        const validPendingOrder = pendingAgentOrders.find((order) => hasVirtualPaymentAccount(order));
+        const stalePendingOrderIds = pendingAgentOrders
+            .filter((order) => !hasVirtualPaymentAccount(order))
+            .map((order) => order.id);
+
+        // 兼容舊資料：舊流程可能在未取號前就誤標記為 PENDING，統一修正為 FAILED
+        if (stalePendingOrderIds.length > 0) {
+            await prisma.roomCardOrder.updateMany({
+                where: {
+                    id: { in: stalePendingOrderIds },
+                },
+                data: {
+                    status: 'FAILED',
+                },
+            });
+        }
+
+        if (validPendingOrder) {
+            const pendingCardAmount = validPendingOrder.cardAmount;
+            const pendingBankCode = validPendingOrder.bankCode || '---';
+            const pendingVirtualAccount = validPendingOrder.virtualAccount || '--------';
+
+            setCorsHeaders(res);
+            return res.status(409).json({
+                success: false,
+                error: '您目前有尚未付款的訂單，請先完成付款或聯繫客服協助取消',
+                code: 'PENDING_ORDER_EXISTS',
+                pendingOrder: {
+                    id: validPendingOrder.id,
+                    cardAmount: pendingCardAmount,
+                    bankCode: pendingBankCode,
+                    virtualAccount: pendingVirtualAccount,
+                    message: `您目前有尚未付款的訂單\n${pendingCardAmount} 張\n付款帳號：(${pendingBankCode})${pendingVirtualAccount}\n如有問題請聯繫官方客服：@DJ5353`,
+                },
+            });
+        }
+
         // 計算總金額（數量固定為 1，因為產品已經定義了 cardAmount）
         const cardAmount = product.cardAmount;
         const price = product.price;
@@ -160,13 +240,15 @@ router.post('/buy', async (req, res) => {
                 merchantTradeNo,
                 cardAmount,
                 price,
-                status: 'PENDING',
+                // 未取號前屬於失敗分類；待 PaymentInfoURL 成功回傳後才會更新為 PENDING
+                status: 'FAILED',
                 paymentType: finalPaymentType,
                 raw: {
                     ...paymentData,
                     isAgentPurchase: true, // 標記為代理購買
                     agentId: agentId,
                     agentProductId: productId, // 保存真實的 AgentRoomCardProduct ID
+                    waitingForPaymentInfo: true,
                 },
             },
         });
