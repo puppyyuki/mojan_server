@@ -57,12 +57,15 @@ async function resolveClubV2HistoryVisibility(prisma, club, actorPlayerId) {
  * @param {string|null|undefined} clubInternalId
  * @param {string} actorPlayerId
  * @param {boolean} isSessionParticipant
+ * @param {{ id: string, creatorId: string } | null | undefined} preloadedClub
+ *        若已由上層查過 Club（例如與戰績詳情／俱樂部 meta 同一筆），可省略重複查詢
  */
 async function mayReadClubV2MatchAsNonParticipant(
   prisma,
   clubInternalId,
   actorPlayerId,
-  isSessionParticipant
+  isSessionParticipant,
+  preloadedClub
 ) {
   if (isSessionParticipant) {
     return true;
@@ -70,10 +73,13 @@ async function mayReadClubV2MatchAsNonParticipant(
   if (!clubInternalId) {
     return false;
   }
-  const club = await prisma.club.findUnique({
-    where: { id: clubInternalId },
-    select: { id: true, creatorId: true },
-  });
+  const club =
+    preloadedClub && preloadedClub.id
+      ? preloadedClub
+      : await prisma.club.findUnique({
+          where: { id: clubInternalId },
+          select: { id: true, creatorId: true },
+        });
   if (!club) {
     return false;
   }

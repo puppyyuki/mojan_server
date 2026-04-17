@@ -27,6 +27,17 @@ async function v2ClubSettlementMeta(prisma, sessionClubInternalId) {
   };
 }
 
+/** 已由 Prisma 載入之 Club 列（含顯示用 clubId 欄位），避免再查一次 */
+function v2ClubSettlementMetaFromRow(clubRow) {
+  if (!clubRow) {
+    return { clubDisplayCode: null, clubAvatarUrl: null };
+  }
+  return {
+    clubDisplayCode: clubRow.clubId ?? null,
+    clubAvatarUrl: clubRow.avatarUrl ?? null,
+  };
+}
+
 /**
  * GET /api/client/v2/matches/:sessionId
  * 戰績詳情：各局列表與分數
@@ -42,22 +53,40 @@ router.get('/matches/:sessionId', async (req, res) => {
       return errorResponse(res, '請提供 actorPlayerId', null, 400);
     }
 
-    const slimSession = await prisma.v2MatchSession.findUnique({
+    // 先只做可見性判斷（不含暱稱等 PII），通過後再載入完整局次
+    const gate = await prisma.v2MatchSession.findUnique({
       where: { id: sessionId },
-      select: { id: true, clubId: true },
+      select: {
+        id: true,
+        clubId: true,
+        participants: { select: { playerId: true } },
+      },
     });
-    if (!slimSession) {
+
+    if (!gate) {
       return errorResponse(res, '戰績不存在', null, 404);
     }
 
-    const membership = await prisma.v2MatchParticipant.findFirst({
-      where: { sessionId, playerId: actorPlayerId },
-    });
+    const isSessionParticipant = gate.participants.some(
+      (p) => p.playerId === actorPlayerId
+    );
+
+    let clubRow = null;
+    if (gate.clubId) {
+      clubRow = await prisma.club.findUnique({
+        where: { id: gate.clubId },
+        select: { id: true, creatorId: true, clubId: true, avatarUrl: true },
+      });
+    }
+
     const allowed = await mayReadClubV2MatchAsNonParticipant(
       prisma,
-      slimSession.clubId,
+      gate.clubId,
       actorPlayerId,
-      !!membership
+      isSessionParticipant,
+      clubRow && clubRow.id
+        ? { id: clubRow.id, creatorId: clubRow.creatorId }
+        : null
     );
     if (!allowed) {
       return errorResponse(res, '無權查看此戰績', null, 403);
@@ -91,7 +120,7 @@ router.get('/matches/:sessionId', async (req, res) => {
     const gameType = session.gameSettings?.game_type || 'NORTHERN';
     const gameLabel = gameType === 'NORTHERN' ? '北部麻將' : String(gameType);
 
-    const clubMeta = await v2ClubSettlementMeta(prisma, session.clubId);
+    const clubMeta = v2ClubSettlementMetaFromRow(clubRow);
 
     return successResponse(res, {
       sessionId: session.id,
@@ -161,11 +190,22 @@ router.get('/rounds/:roundId/replay', async (req, res) => {
     const isParticipant = round.session.participants.some(
       (p) => p.playerId === viewerPlayerId
     );
+    let clubRow = null;
+    if (round.session.clubId) {
+      clubRow = await prisma.club.findUnique({
+        where: { id: round.session.clubId },
+        select: { id: true, creatorId: true, clubId: true, avatarUrl: true },
+      });
+    }
+
     const ok = await mayReadClubV2MatchAsNonParticipant(
       prisma,
       round.session.clubId,
       viewerPlayerId,
-      isParticipant
+      isParticipant,
+      clubRow && clubRow.id
+        ? { id: clubRow.id, creatorId: clubRow.creatorId }
+        : null
     );
     if (!ok) {
       return errorResponse(res, '無權查看此重播', null, 403);
@@ -192,7 +232,7 @@ router.get('/rounds/:roundId/replay', async (req, res) => {
       }
     }
 
-    const clubMeta = await v2ClubSettlementMeta(prisma, round.session.clubId);
+    const clubMeta = v2ClubSettlementMetaFromRow(clubRow);
 
     return successResponse(res, {
       roundId: round.id,
