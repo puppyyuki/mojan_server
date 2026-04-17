@@ -59,7 +59,14 @@ router.get('/:id/v2/matches', async (req, res) => {
           },
         },
         rounds: {
-          select: { id: true },
+          orderBy: { roundIndex: 'asc' },
+          select: {
+            id: true,
+            roundIndex: true,
+            endedAt: true,
+            scoreChangeBySeat: true,
+            shareCode: true,
+          },
         },
       },
     });
@@ -70,6 +77,13 @@ router.get('/:id/v2/matches', async (req, res) => {
       const gameType = s.gameSettings?.game_type || 'NORTHERN';
       const gameLabel =
         gameType === 'NORTHERN' ? '北部麻將' : String(gameType);
+      const rounds = (s.rounds || []).map((r) => ({
+        roundId: r.id,
+        roundIndex: r.roundIndex,
+        endedAt: r.endedAt,
+        scoreChangeBySeat: r.scoreChangeBySeat,
+        shareCode: r.shareCode,
+      }));
       return {
         sessionId: s.id,
         roomCode: s.roomCode,
@@ -78,11 +92,13 @@ router.get('/:id/v2/matches', async (req, res) => {
         startedAt: s.startedAt,
         endedAt: s.endedAt,
         gameTypeLabel: gameLabel,
+        gameSettings: s.gameSettings,
         hostPlayerId: s.hostPlayerId,
         mySeat: row.seat,
         myTotalScore: row.matchTotalScore,
         isHost: row.isHost,
-        roundCount: s.rounds?.length ?? 0,
+        roundCount: rounds.length,
+        rounds,
         players: (s.participants || []).map((p) => ({
           playerId: p.playerId,
           userId: p.userId ?? p.player?.userId,

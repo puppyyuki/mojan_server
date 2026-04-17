@@ -1217,7 +1217,10 @@ router.get('/:clubId/match-history', async (req, res) => {
         },
         rounds: {
           select: {
+            id: true,
             roundIndex: true,
+            endedAt: true,
+            scoreChangeBySeat: true,
             shareCode: true,
           },
           orderBy: { roundIndex: 'asc' },
@@ -1240,6 +1243,13 @@ router.get('/:clubId/match-history', async (req, res) => {
       const gameTypeLabel = gameType === 'SOUTHERN' ? '南部麻將' : '北部麻將';
       const rulesSummary = buildClubV2RulesSummary(gameSettings);
       const replayCodeSummary = buildV2ReplayCodeSummaryFromRounds(s.rounds || []);
+      const rounds = (s.rounds || []).map((r) => ({
+        roundId: r.id,
+        roundIndex: r.roundIndex,
+        endedAt: r.endedAt,
+        scoreChangeBySeat: r.scoreChangeBySeat,
+        shareCode: r.shareCode,
+      }));
 
       const players = (s.participants || []).map((p) => ({
         playerId: p.playerId,
@@ -1271,6 +1281,7 @@ router.get('/:clubId/match-history', async (req, res) => {
         gameTypeLabel,
         rulesSummary,
         replayCodeSummary,
+        rounds,
         players,
         bigWinnerPlayerIds,
       };
