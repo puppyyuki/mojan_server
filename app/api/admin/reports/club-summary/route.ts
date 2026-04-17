@@ -16,7 +16,7 @@ export async function OPTIONS() {
 
 /**
  * GET /api/admin/reports/club-summary
- * 俱樂部玩家報表：指定時間區間＋俱樂部 ID，彙整玩家戰績/大贏家/圈數/場次
+ * 俱樂部玩家報表：指定時間區間＋俱樂部 ID，彙整玩家戰績/大贏家/房卡消耗/場次（房卡與俱樂部排行榜一致，來自結算 players[].roomCardConsumed）
  * Query: startDate, endDate (YYYY-MM-DD), clubId（俱樂部 6 碼）
  */
 export async function GET(request: NextRequest) {
@@ -67,7 +67,12 @@ export async function GET(request: NextRequest) {
           success: true,
           data: {
             rows: [],
-            totals: { playerCount: 0, totalBattleScore: 0, totalEstimatedRounds: 0, totalCompletedGames: 0 },
+            totals: {
+              playerCount: 0,
+              totalBattleScore: 0,
+              totalRoomCardConsumed: 0,
+              totalCompletedGames: 0,
+            },
             filter: { startDate: startRaw, endDate: endRaw, clubId: clubSixId },
             club: { clubInternalId: null, clubSixId, clubName: '俱樂部不存在' },
           },
@@ -137,7 +142,7 @@ export async function GET(request: NextRequest) {
       nickname: string
       battleScore: number
       bigWinnerCount: number
-      estimatedRounds: number
+      roomCardConsumed: number
       completedGames: number
     }
 
@@ -181,7 +186,7 @@ export async function GET(request: NextRequest) {
             nickname,
             battleScore: score,
             bigWinnerCount: isBigWinner ? 1 : 0,
-            estimatedRounds: roomCardConsumed,
+            roomCardConsumed,
             completedGames: isCompletedGame ? 1 : 0,
           })
           continue
@@ -189,7 +194,7 @@ export async function GET(request: NextRequest) {
 
         existing.battleScore += score
         existing.bigWinnerCount += isBigWinner ? 1 : 0
-        existing.estimatedRounds += roomCardConsumed
+        existing.roomCardConsumed += roomCardConsumed
         if (isCompletedGame) {
           existing.completedGames += 1
         }
@@ -213,7 +218,7 @@ export async function GET(request: NextRequest) {
         playerNickname: r.nickname,
         battleScore: r.battleScore,
         bigWinnerCount: r.bigWinnerCount,
-        estimatedRounds: r.estimatedRounds,
+        roomCardConsumed: r.roomCardConsumed,
         completedGames: r.completedGames,
       }))
       .sort((a, b) => {
@@ -226,11 +231,11 @@ export async function GET(request: NextRequest) {
       (acc, row) => {
         acc.playerCount += 1
         acc.totalBattleScore += row.battleScore
-        acc.totalEstimatedRounds += row.estimatedRounds
+        acc.totalRoomCardConsumed += row.roomCardConsumed
         acc.totalCompletedGames += row.completedGames
         return acc
       },
-      { playerCount: 0, totalBattleScore: 0, totalEstimatedRounds: 0, totalCompletedGames: 0 }
+      { playerCount: 0, totalBattleScore: 0, totalRoomCardConsumed: 0, totalCompletedGames: 0 }
     )
 
     return NextResponse.json(

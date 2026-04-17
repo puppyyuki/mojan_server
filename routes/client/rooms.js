@@ -15,6 +15,34 @@ function normalizeDeduction(raw) {
   return 'AA_DEDUCTION';
 }
 
+/**
+ * 本桌房卡總消耗（與開局扣卡一致），再平均分攤到每位參與玩家（俱樂部排行／報表統計）。
+ * AA：每人付 rounds 張 → 總計 rounds * 人數；俱樂部／房主扣卡：總計 rounds * 4，由四人分攤。
+ */
+function buildRoomCardConsumedByPlayerId(deduction, rounds, players) {
+  const roomCardConsumedByPlayerId = new Map();
+  if (!Array.isArray(players) || players.length === 0) {
+    return { roomCardConsumedByPlayerId, roomCardConsumedTotal: 0 };
+  }
+  const sortedUniqueIds = [
+    ...new Set(players.map((p) => p.playerId).filter(Boolean)),
+  ].sort();
+  const splitN = sortedUniqueIds.length;
+  if (splitN <= 0) {
+    return { roomCardConsumedByPlayerId, roomCardConsumedTotal: 0 };
+  }
+  const totalTableCardCost =
+    deduction === 'AA_DEDUCTION' ? rounds * players.length : rounds * 4;
+  const base = Math.floor(totalTableCardCost / splitN);
+  let remainder = totalTableCardCost - base * splitN;
+  for (const playerId of sortedUniqueIds) {
+    const extra = remainder > 0 ? 1 : 0;
+    if (remainder > 0) remainder -= 1;
+    roomCardConsumedByPlayerId.set(playerId, base + extra);
+  }
+  return { roomCardConsumedByPlayerId, roomCardConsumedTotal: totalTableCardCost };
+}
+
 function normalizeScoresBySeat(raw) {
   const src = raw && typeof raw === 'object' ? raw : {};
   return {
@@ -655,16 +683,8 @@ router.post('/:roomId/final-settlement', async (req, res) => {
       .filter((p) => p.score === highestScore)
       .map((p) => p.playerId);
 
-    const roomCardConsumedByPlayerId = new Map();
-    if (deduction === 'AA_DEDUCTION') {
-      for (const p of players) {
-        roomCardConsumedByPlayerId.set(p.playerId, rounds);
-      }
-    } else if (deduction === 'HOST_DEDUCTION' || deduction === 'CLUB_DEDUCTION') {
-      roomCardConsumedByPlayerId.set(room.creatorId, rounds * 4);
-    }
-    const roomCardConsumedTotal = Array.from(roomCardConsumedByPlayerId.values())
-      .reduce((sum, v) => sum + (Number(v) || 0), 0);
+    const { roomCardConsumedByPlayerId, roomCardConsumedTotal } =
+      buildRoomCardConsumedByPlayerId(deduction, rounds, players);
 
     const persisted = await prisma.$transaction(async (tx) => {
       const existing = await tx.clubGameResult.findUnique({
