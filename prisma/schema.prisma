@@ -315,6 +315,7 @@ model Room {
   updatedAt      DateTime          @updatedAt
   participants   RoomParticipant[] @relation("RoomParticipants")
 
+  @@index([clubId, status])
   @@map("rooms")
 }
 

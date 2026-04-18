@@ -106,6 +106,25 @@ async function getPlayerClubMembershipCount(prisma, playerId) {
   });
 }
 
+/** 各俱樂部「進行中／等待中」房間數（用於列表顯示，避免載入全部房資料） */
+async function getActiveRoomCountsByClubId(prisma, clubInternalIds) {
+  const ids = (clubInternalIds || []).filter(Boolean);
+  if (ids.length === 0) return new Map();
+  const rows = await prisma.room.groupBy({
+    by: ['clubId'],
+    where: {
+      clubId: { in: ids },
+      status: { in: ['WAITING', 'PLAYING'] },
+    },
+    _count: { _all: true },
+  });
+  const m = new Map();
+  for (const row of rows) {
+    if (row.clubId) m.set(row.clubId, row._count._all);
+  }
+  return m;
+}
+
 /** 俱樂部對戰列表：與房卡顯示一致的規則摘要 */
 function buildClubV2RulesSummary(gameSettings) {
   const g = gameSettings && typeof gameSettings === 'object' ? gameSettings : {};
@@ -502,6 +521,64 @@ router.get('/:clubId', async (req, res) => {
       return errorResponse(res, '俱樂部不存在', null, 404);
     }
 
+    const summaryRaw = (req.query.summary || '').toString().trim().toLowerCase();
+    const wantSummary =
+      summaryRaw === '1' || summaryRaw === 'true' || summaryRaw === 'header';
+    const actorPlayerId = (req.query.actorPlayerId || '').toString().trim();
+
+    // 俱樂部內頁 header：僅需本人權限列、總人數等，避免載入全部成員（成長後 payload 與查詢成本過高）
+    if (wantSummary && actorPlayerId) {
+      const slim = await prisma.club.findUnique({
+        where: { id: club.id },
+        select: {
+          id: true,
+          clubId: true,
+          name: true,
+          cardCount: true,
+          avatarUrl: true,
+          logoUrl: true,
+          description: true,
+          createdAt: true,
+          updatedAt: true,
+          creator: {
+            select: {
+              id: true,
+              userId: true,
+              nickname: true,
+              avatarUrl: true,
+            },
+          },
+          _count: {
+            select: { members: true },
+          },
+          members: {
+            where: { playerId: actorPlayerId },
+            take: 1,
+            include: {
+              player: {
+                select: {
+                  id: true,
+                  userId: true,
+                  nickname: true,
+                  cardCount: true,
+                },
+              },
+            },
+          },
+        },
+      });
+      if (!slim) {
+        return errorResponse(res, '俱樂部不存在', null, 404);
+      }
+      const totalMembers = slim._count?.members ?? 0;
+      const { _count, ...rest } = slim;
+      return successResponse(res, {
+        ...rest,
+        totalMembers,
+        memberCount: totalMembers,
+      });
+    }
+
     // 獲取完整資訊
     const fullClub = await prisma.club.findUnique({
       where: { id: club.id },
@@ -560,8 +637,12 @@ router.get('/:clubId/rooms', async (req, res) => {
       return errorResponse(res, '俱樂部不存在', null, 404);
     }
 
+    // 僅查「等待／進行中」房間：已結束房間會隨時間累積，全表載入會越來越慢且無必要
     const rooms = await prisma.room.findMany({
-      where: { clubId: club.id },
+      where: {
+        clubId: club.id,
+        status: { in: ['WAITING', 'PLAYING'] },
+      },
       orderBy: { createdAt: 'desc' },
       include: {
         participants: {
@@ -1435,20 +1516,8 @@ router.get('/players/:playerId/clubs', async (req, res) => {
                 avatarUrl: true,
               },
             },
-            members: {
-              select: {
-                id: true,
-                playerId: true,
-                role: true,
-                bannedTablePlayers: true,
-                player: {
-                  select: {
-                    id: true,
-                    userId: true,
-                    nickname: true,
-                  },
-                },
-              },
+            _count: {
+              select: { members: true },
             },
           },
         },
@@ -1456,8 +1525,27 @@ router.get('/players/:playerId/clubs', async (req, res) => {
       orderBy: { joinedAt: 'desc' },
     });
 
+    const clubInternalIds = [
+      ...new Set(
+        memberships.map((m) => m.club?.id).filter((id) => typeof id === 'string' && id)
+      ),
+    ];
+    const activeRoomMap = await getActiveRoomCountsByClubId(prisma, clubInternalIds);
+
     // 將 memberships 轉換為 clubs 陣列（前端期望的格式）
-    const clubs = memberships.map((membership) => membership.club);
+    // 不再附帶完整 members[]：人數多時 JSON 與序列化成本會線性惡化
+    const clubs = memberships.map((membership) => {
+      const c = membership.club;
+      if (!c) return null;
+      const totalMembers = c._count?.members ?? 0;
+      const { _count, ...rest } = c;
+      return {
+        ...rest,
+        totalMembers,
+        memberCount: totalMembers,
+        activeRooms: activeRoomMap.get(c.id) ?? 0,
+      };
+    }).filter(Boolean);
 
     return successResponse(res, clubs);
   } catch (error) {
