@@ -5,6 +5,7 @@ const { generateUniqueId } = require('../../utils/idGenerator');
 const {
   resolveClubV2HistoryVisibility,
 } = require('../../utils/clubV2HistoryAccess');
+const { isV2RoundCompletedForStatistics } = require('../../utils/v2RoundStatistics');
 
 // 房間列表輪詢頻繁：只在統計值變化時輸出一次，避免終端重複洗版。
 const _lastClubRoomsListLogSignatureByClubId = new Map();
@@ -1158,12 +1159,46 @@ router.get('/:clubId/rankings', async (req, res) => {
           if (!pid || !byPlayerId.has(pid)) continue;
           const row = byPlayerId.get(pid);
           row.clubScore += Number(p?.score ?? 0) || 0;
-          row.totalGames += 1;
           if (p?.isBigWinner === true) row.bigWinnerCount += 1;
           row.roomCardConsumed += Number(p?.roomCardConsumed ?? 0) || 0;
           row.lastGameTime =
             !row.lastGameTime || row.lastGameTime < game.endedAt
               ? game.endedAt
+              : row.lastGameTime;
+        }
+      }
+
+      const roundWhere = {
+        session: { clubId: club.id },
+      };
+      if (startDate || endDate) {
+        roundWhere.endedAt = {};
+        if (startDate) roundWhere.endedAt.gte = startDate;
+        if (endDate) roundWhere.endedAt.lte = endDate;
+      }
+      const clubRounds = await prisma.v2MatchRound.findMany({
+        where: roundWhere,
+        select: {
+          endedAt: true,
+          roundEndPayload: true,
+          session: {
+            select: {
+              participants: { select: { playerId: true } },
+            },
+          },
+        },
+      });
+      for (const r of clubRounds) {
+        if (!isV2RoundCompletedForStatistics(r.roundEndPayload)) continue;
+        const plist = r.session?.participants || [];
+        for (const part of plist) {
+          const pid = part?.playerId?.toString?.() ?? '';
+          if (!pid || !byPlayerId.has(pid)) continue;
+          const row = byPlayerId.get(pid);
+          row.totalGames += 1;
+          row.lastGameTime =
+            !row.lastGameTime || row.lastGameTime < r.endedAt
+              ? r.endedAt
               : row.lastGameTime;
         }
       }

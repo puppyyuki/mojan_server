@@ -266,7 +266,7 @@ model ClubMember {
   scoreLimit          Int?
   noSameTable         Boolean    @default(false)
   clubScore           Int        @default(0) // 俱樂部內分數
-  totalGames          Int        @default(0) // 俱樂部內總局數
+  totalGames          Int        @default(0) // 俱樂部內總局數（V2：每小局胡牌／自摸／流局結束累加一次）
   bigWinnerCount      Int        @default(0) // 俱樂部內大贏家次數
   roomCardConsumed    Int        @default(0) // 俱樂部內房卡消耗
   hostCount           Int        @default(0) // 俱樂部內房主次數

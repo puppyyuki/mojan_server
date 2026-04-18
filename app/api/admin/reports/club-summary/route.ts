@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { parseTaipeiDateEnd, parseTaipeiDateStart } from '@/lib/taipei-time'
 
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const { isV2RoundCompletedForStatistics } = require('../../../../../utils/v2RoundStatistics')
+
 function corsHeaders() {
   return {
     'Access-Control-Allow-Origin': '*',
@@ -16,7 +19,7 @@ export async function OPTIONS() {
 
 /**
  * GET /api/admin/reports/club-summary
- * 俱樂部玩家報表：指定時間區間＋俱樂部 ID，彙整玩家戰績/大贏家/房卡消耗/場次（房卡與俱樂部排行榜一致，來自結算 players[].roomCardConsumed）
+ * 俱樂部玩家報表：指定時間區間＋俱樂部 ID，彙整玩家戰績/大贏家/房卡消耗/場次（場次＝該區間內已結束小局數：胡牌、自摸或流局；房卡與俱樂部排行榜一致，來自結算 players[].roomCardConsumed）
  * Query: startDate, endDate (YYYY-MM-DD), clubId（俱樂部 6 碼）
  */
 export async function GET(request: NextRequest) {
@@ -92,48 +95,33 @@ export async function GET(request: NextRequest) {
       orderBy: [{ endedAt: 'desc' }, { createdAt: 'desc' }],
       select: {
         id: true,
-        roomInternalId: true,
-        totalRounds: true,
         players: true,
       },
     })
 
-    const roomInternalIds = gameResults
-      .map((row) => row.roomInternalId)
-      .filter((v): v is string => typeof v === 'string' && v.length > 0)
+    const completedRounds = await prisma.v2MatchRound.findMany({
+      where: {
+        session: { clubId: club.id },
+        endedAt: { gte: startAt, lte: endAt },
+      },
+      select: {
+        roundEndPayload: true,
+        session: {
+          select: {
+            participants: { select: { playerId: true } },
+          },
+        },
+      },
+    })
 
-    const sessions = roomInternalIds.length
-      ? await prisma.v2MatchSession.findMany({
-          where: { roomInternalId: { in: roomInternalIds } },
-          select: { id: true, roomInternalId: true, status: true },
-        })
-      : []
-
-    const sessionByRoomInternalId = new Map<string, { id: string; status: string }>()
-    for (const session of sessions) {
-      if (!session.roomInternalId) continue
-      sessionByRoomInternalId.set(session.roomInternalId, {
-        id: session.id,
-        status: session.status,
-      })
-    }
-
-    const sessionIds = sessions.map((s) => s.id)
-    const rounds = sessionIds.length
-      ? await prisma.v2MatchRound.findMany({
-          where: { sessionId: { in: sessionIds } },
-          select: { sessionId: true, roundIndex: true, roundEndPayload: true },
-        })
-      : []
-
-    const roundsBySessionId = new Map<string, Map<number, unknown>>()
-    for (const row of rounds) {
-      let roundMap = roundsBySessionId.get(row.sessionId)
-      if (!roundMap) {
-        roundMap = new Map<number, unknown>()
-        roundsBySessionId.set(row.sessionId, roundMap)
+    const completedGamesByPlayer = new Map<string, number>()
+    for (const rr of completedRounds) {
+      if (!isV2RoundCompletedForStatistics(rr.roundEndPayload)) continue
+      for (const part of rr.session?.participants ?? []) {
+        const pid = part.playerId
+        if (!pid) continue
+        completedGamesByPlayer.set(pid, (completedGamesByPlayer.get(pid) || 0) + 1)
       }
-      roundMap.set(row.roundIndex, row.roundEndPayload)
     }
 
     type PlayerAgg = {
@@ -150,20 +138,6 @@ export async function GET(request: NextRequest) {
 
     for (const result of gameResults) {
       const players = Array.isArray(result.players) ? result.players : []
-      const roomInternalId = result.roomInternalId || ''
-      const session = roomInternalId ? sessionByRoomInternalId.get(roomInternalId) : null
-      const roundPayload = session
-        ? roundsBySessionId.get(session.id)?.get(Number(result.totalRounds) || 0)
-        : null
-
-      const payloadObj =
-        roundPayload && typeof roundPayload === 'object' && !Array.isArray(roundPayload)
-          ? (roundPayload as Record<string, unknown>)
-          : null
-      const winnerSeat = Number(payloadObj?.winnerSeat ?? NaN)
-      const isExhaustiveDraw = payloadObj?.isExhaustiveDraw === true
-      const hasHuWinner = Number.isFinite(winnerSeat) && winnerSeat >= 0 && !isExhaustiveDraw
-      const isCompletedGame = session?.status === 'FINISHED' && hasHuWinner
 
       for (const item of players) {
         if (!item || typeof item !== 'object') continue
@@ -187,7 +161,7 @@ export async function GET(request: NextRequest) {
             battleScore: score,
             bigWinnerCount: isBigWinner ? 1 : 0,
             roomCardConsumed,
-            completedGames: isCompletedGame ? 1 : 0,
+            completedGames: 0,
           })
           continue
         }
@@ -195,9 +169,6 @@ export async function GET(request: NextRequest) {
         existing.battleScore += score
         existing.bigWinnerCount += isBigWinner ? 1 : 0
         existing.roomCardConsumed += roomCardConsumed
-        if (isCompletedGame) {
-          existing.completedGames += 1
-        }
         if (existing.userId === '—' && userId !== '—') {
           existing.userId = userId
         }
@@ -205,6 +176,37 @@ export async function GET(request: NextRequest) {
           existing.nickname = nickname
         }
       }
+    }
+
+    const roundOnlyIds = [...completedGamesByPlayer.keys()].filter((id) => !playerAggMap.has(id))
+    if (roundOnlyIds.length) {
+      const playersMeta = await prisma.player.findMany({
+        where: { id: { in: roundOnlyIds } },
+        select: { id: true, userId: true, nickname: true },
+      })
+      const metaById = new Map(playersMeta.map((pl) => [pl.id, pl]))
+      for (const pid of roundOnlyIds) {
+        const meta = metaById.get(pid)
+        const userId =
+          typeof meta?.userId === 'string' && meta.userId.trim() ? meta.userId.trim() : '—'
+        const nickname =
+          typeof meta?.nickname === 'string' && meta.nickname.trim()
+            ? meta.nickname.trim()
+            : '未知玩家'
+        playerAggMap.set(pid, {
+          playerId: pid,
+          userId,
+          nickname,
+          battleScore: 0,
+          bigWinnerCount: 0,
+          roomCardConsumed: 0,
+          completedGames: 0,
+        })
+      }
+    }
+
+    for (const row of playerAggMap.values()) {
+      row.completedGames = completedGamesByPlayer.get(row.playerId) || 0
     }
 
     const rows = Array.from(playerAggMap.values())

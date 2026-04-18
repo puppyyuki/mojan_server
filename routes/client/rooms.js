@@ -3,6 +3,7 @@ const router = express.Router();
 const { successResponse, errorResponse } = require('../../utils/response');
 const { generateUniqueId } = require('../../utils/idGenerator');
 const { allocateShareCodeInTx } = require('../../utils/v2ReplayShareCode');
+const { isV2RoundCompletedForStatistics } = require('../../utils/v2RoundStatistics');
 
 function normalizeRounds(raw) {
   const n = Number(raw);
@@ -735,7 +736,6 @@ router.post('/:roomId/final-settlement', async (req, res) => {
       for (const p of playersWithRanking) {
         const increments = {
           clubScore: { increment: p.score },
-          totalGames: { increment: 1 },
           bigWinnerCount: { increment: p.isBigWinner ? 1 : 0 },
           roomCardConsumed: { increment: p.roomCardConsumed },
           lastGameTime: now,
@@ -876,7 +876,7 @@ router.post('/:roomId/v2/round', async (req, res) => {
 
     const session = await prisma.v2MatchSession.findUnique({
       where: { id: sessionId },
-      select: { id: true, roomCode: true, hostPlayerId: true, status: true },
+      select: { id: true, roomCode: true, hostPlayerId: true, status: true, clubId: true },
     });
     if (!session || session.roomCode !== roomId) {
       return errorResponse(res, 'session 與房號不符', null, 400);
@@ -900,7 +900,28 @@ router.post('/:roomId/v2/round', async (req, res) => {
         where: {
           sessionId_roundIndex: { sessionId, roundIndex },
         },
+        select: { id: true, roundEndPayload: true },
       });
+
+      const clubIdForStats = session.clubId ?? room?.clubId ?? null;
+      const roundEndedAt = new Date();
+      const completedNow = isV2RoundCompletedForStatistics(roundEndPayload);
+      const wasStatsCounted = isV2RoundCompletedForStatistics(
+        existingRound?.roundEndPayload ?? null
+      );
+
+      const bumpClubTotalGamesIfNeeded = async (participantRows) => {
+        if (!clubIdForStats || !completedNow || wasStatsCounted) return;
+        for (const p of participantRows) {
+          await tx.clubMember.updateMany({
+            where: { clubId: clubIdForStats, playerId: p.playerId },
+            data: {
+              totalGames: { increment: 1 },
+              lastGameTime: roundEndedAt,
+            },
+          });
+        }
+      };
 
       if (existingRound) {
         await tx.v2MatchRound.update({
@@ -909,10 +930,14 @@ router.post('/:roomId/v2/round', async (req, res) => {
             scoreChangeBySeat,
             roundEndPayload,
             eventsJson: events,
-            endedAt: new Date(),
+            endedAt: roundEndedAt,
           },
         });
         persistedRoundId = existingRound.id;
+        const partsAfterUpdate = await tx.v2MatchParticipant.findMany({
+          where: { sessionId },
+        });
+        await bumpClubTotalGamesIfNeeded(partsAfterUpdate);
       } else {
         const parts = await tx.v2MatchParticipant.findMany({
           where: { sessionId },
@@ -978,6 +1003,8 @@ router.post('/:roomId/v2/round', async (req, res) => {
             data: { matchTotalScore: { increment: delta } },
           });
         }
+
+        await bumpClubTotalGamesIfNeeded(parts);
       }
     });
 
