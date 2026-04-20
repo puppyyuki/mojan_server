@@ -240,10 +240,16 @@ function normalizeRoomGameSettings(raw) {
     ? pointCapRaw
     : 'UP_TO_8_POINTS';
   const basePointsNum = Number(input.base_points);
-  const scoringUnitNum = Number(input.scoring_unit);
+  let scoringUnitNum = Number(input.scoring_unit);
+  if (Number.isFinite(scoringUnitNum)) {
+    scoringUnitNum = Math.max(0, Math.floor(scoringUnitNum));
+    // 21／22 台已停用：與客戶端選項一致，正規化為鄰近合法值
+    if (scoringUnitNum === 21) scoringUnitNum = 20;
+    if (scoringUnitNum === 22) scoringUnitNum = 30;
+  }
   return {
     base_points: Number.isFinite(basePointsNum) ? Math.max(0, Math.floor(basePointsNum)) : 100,
-    scoring_unit: Number.isFinite(scoringUnitNum) ? Math.max(0, Math.floor(scoringUnitNum)) : 20,
+    scoring_unit: Number.isFinite(scoringUnitNum) ? scoringUnitNum : 20,
     rounds,
     game_type,
     special_rules: {
@@ -295,10 +301,20 @@ function applyClubGameSettingsPolicy(clubSettingsRaw, requestedRaw) {
     const maxBase = Number(clubSettings.maximum_base_point);
     if (Number.isFinite(minBase)) out.base_points = Math.max(out.base_points, minBase);
     if (Number.isFinite(maxBase)) out.base_points = Math.min(out.base_points, maxBase);
-    const minUnit = Number(clubSettings.minimum_scoring_unit);
-    const maxUnit = Number(clubSettings.maximum_scoring_unit);
-    if (Number.isFinite(minUnit)) out.scoring_unit = Math.max(out.scoring_unit, minUnit);
-    if (Number.isFinite(maxUnit)) out.scoring_unit = Math.min(out.scoring_unit, maxUnit);
+    let minUnit = Number(clubSettings.minimum_scoring_unit);
+    let maxUnit = Number(clubSettings.maximum_scoring_unit);
+    if (Number.isFinite(minUnit)) {
+      minUnit = Math.floor(minUnit);
+      if (minUnit === 21) minUnit = 20;
+      if (minUnit === 22) minUnit = 30;
+      out.scoring_unit = Math.max(out.scoring_unit, minUnit);
+    }
+    if (Number.isFinite(maxUnit)) {
+      maxUnit = Math.floor(maxUnit);
+      if (maxUnit === 21) maxUnit = 20;
+      if (maxUnit === 22) maxUnit = 30;
+      out.scoring_unit = Math.min(out.scoring_unit, maxUnit);
+    }
     lockOrValidateEnum('rounds', out.rounds, clubSettings.rounds);
     lockOrValidateEnum('point_cap', out.point_cap, clubSettings.point_cap);
   }
@@ -322,12 +338,24 @@ function applyClubGameSettingsPolicy(clubSettingsRaw, requestedRaw) {
     }
   }
 
-  for (const key of ['li_gu', 'eye_tile_feature', 'forced_win', 'no_points_dealer']) {
-    const policy = specialRulePolicy[key];
-    if (isForced) {
+  if (isForced) {
+    for (const key of ['li_gu', 'eye_tile_feature', 'forced_win', 'no_points_dealer']) {
+      const policy = specialRulePolicy[key];
       if (policy != null) out.special_rules[key] = policy === true;
-    } else if (policy === false) {
-      out.special_rules[key] = false;
+    }
+  } else {
+    // 自由模式：俱樂部 special_rules 表示「是否開放成員開房時自選」
+    // eye_tile_feature === false → 房間固定關閉眼牌
+    // forced_win === false → 房間固定啟用強制胡牌（不可關閉）
+    for (const key of ['li_gu', 'no_points_dealer']) {
+      const policy = specialRulePolicy[key];
+      if (policy === false) out.special_rules[key] = false;
+    }
+    if (specialRulePolicy.eye_tile_feature === false) {
+      out.special_rules.eye_tile_feature = false;
+    }
+    if (specialRulePolicy.forced_win === false) {
+      out.special_rules.forced_win = true;
     }
   }
 
