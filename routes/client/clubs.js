@@ -10,6 +10,37 @@ const { isV2RoundCompletedForStatistics } = require('../../utils/v2RoundStatisti
 // 房間列表輪詢頻繁：只在統計值變化時輸出一次，避免終端重複洗版。
 const _lastClubRoomsListLogSignatureByClubId = new Map();
 
+/** 俱樂部排行：query 的 YYYY-MM-DD 視為台灣日曆日（UTC+8），與前端 TaiwanTime 一致。 */
+function parseTaipeiDateStartYmd(raw) {
+  const r = (raw ?? '').toString().trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(r);
+  if (!m) return null;
+  const iso = `${m[1]}-${m[2]}-${m[3]}T00:00:00.000+08:00`;
+  const dt = new Date(iso);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
+
+function parseTaipeiDateEndYmd(raw) {
+  const r = (raw ?? '').toString().trim();
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(r);
+  if (!m) return null;
+  const iso = `${m[1]}-${m[2]}-${m[3]}T23:59:59.999+08:00`;
+  const dt = new Date(iso);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
+
+function parseRankingQueryDate(raw, isEnd) {
+  if (!raw) return null;
+  const s = raw.toString().trim();
+  const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(s);
+  if (isDateOnly) {
+    return isEnd ? parseTaipeiDateEndYmd(s) : parseTaipeiDateStartYmd(s);
+  }
+  const dt = new Date(s);
+  if (Number.isNaN(dt.getTime())) return null;
+  return dt;
+}
+
 /**
  * 查找俱樂部（支持內部ID或俱樂部ID）
  */
@@ -1059,7 +1090,7 @@ router.post('/:clubId/join-requests/:requestId', async (req, res) => {
 /**
  * GET /api/client/clubs/:clubId/rankings
  * 獲取俱樂部排行榜（可依日期區間聚合）
- * Query: startDate, endDate (YYYY-MM-DD，可選)
+ * Query: startDate, endDate（YYYY-MM-DD 視為台灣日曆日 UTC+8 區間；可選）
  *        playerId（可選，子字串比對 member 的 userId / playerId，篩選後重新編排名次）
  */
 router.get('/:clubId/rankings', async (req, res) => {
@@ -1075,18 +1106,8 @@ router.get('/:clubId/rankings', async (req, res) => {
     const startDateRaw = req.query.startDate?.toString?.() ?? '';
     const endDateRaw = req.query.endDate?.toString?.() ?? '';
     const hasDateFilter = !!(startDateRaw || endDateRaw);
-    const parseDateMaybe = (raw, isEnd) => {
-      if (!raw) return null;
-      const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(raw);
-      const dt = new Date(raw);
-      if (Number.isNaN(dt.getTime())) return null;
-      if (isDateOnly && isEnd) {
-        dt.setHours(23, 59, 59, 999);
-      }
-      return dt;
-    };
-    const startDate = parseDateMaybe(startDateRaw, false);
-    const endDate = parseDateMaybe(endDateRaw, true);
+    const startDate = parseRankingQueryDate(startDateRaw, false);
+    const endDate = parseRankingQueryDate(endDateRaw, true);
     if ((startDateRaw && !startDate) || (endDateRaw && !endDate)) {
       return errorResponse(res, '日期格式錯誤，請使用 YYYY-MM-DD', null, 400);
     }

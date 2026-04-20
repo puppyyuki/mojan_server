@@ -186,7 +186,7 @@ export async function POST(request: NextRequest) {
           nickname: finalNickname,
           lineUserId: lineUserId,
           avatarUrl: pictureUrl || null,
-          cardCount: 0,
+          cardCount: 6,
           lastLoginAt: new Date(),
         },
       })
@@ -247,7 +247,7 @@ export async function POST(request: NextRequest) {
       data: {
         userId,
         nickname: nickname.trim(),
-        cardCount: 0,
+        cardCount: 6,
         lastLoginAt: new Date(), // 新玩家也記錄登入時間
       },
     })

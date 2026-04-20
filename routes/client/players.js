@@ -202,7 +202,7 @@ router.post('/', async (req, res) => {
           nickname: finalNickname,
           appleUserId: String(appleUserId),
           avatarUrl: pictureUrl || null,
-          cardCount: 0,
+          cardCount: 6,
           lastLoginAt: new Date(),
         },
       });
@@ -258,7 +258,7 @@ router.post('/', async (req, res) => {
           nickname: finalNickname,
           lineUserId: lineUserId,
           avatarUrl: pictureUrl || null,
-          cardCount: 0,
+          cardCount: 6,
           lastLoginAt: new Date(),
         },
       });
@@ -301,7 +301,7 @@ router.post('/', async (req, res) => {
       data: {
         userId,
         nickname: nickname.trim(),
-        cardCount: 0,
+        cardCount: 6,
         lastLoginAt: new Date(),
       },
     });
