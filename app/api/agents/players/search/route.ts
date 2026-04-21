@@ -20,29 +20,24 @@ export async function POST(request: NextRequest) {
     try {
         const body = await request.json()
         const { search } = body
+        const keyword = String(search || '').trim()
 
         console.log('[Next.js Player Search] Received search request:', { search })
         console.log('[Next.js Player Search] DATABASE_URL:', process.env.DATABASE_URL ? 'Set' : 'Not set')
 
-        // 先測試：獲取所有玩家
-        const allPlayers = await prisma.player.findMany({
-            select: {
-                id: true,
-                userId: true,
-                nickname: true,
-            },
-            take: 5,
-        })
-        console.log('[Next.js Player Search] Total players in DB (first 5):', allPlayers)
+        if (!/^\d{6}$/.test(keyword)) {
+            return NextResponse.json(
+                {
+                    success: false,
+                    error: '僅支援 6 位數玩家ID搜尋',
+                },
+                { status: 400, headers: corsHeaders() }
+            )
+        }
 
         // 搜索玩家
         const players = await prisma.player.findMany({
-            where: search ? {
-                OR: [
-                    { userId: { contains: search } },
-                    { nickname: { contains: search } },
-                ],
-            } : {},
+            where: { userId: keyword },
             select: {
                 id: true,
                 userId: true,

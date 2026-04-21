@@ -967,8 +967,23 @@ router.get('/:clubId/activity', async (req, res) => {
       }
       return r;
     });
+    const playerIds = [...new Set(
+      normalizedRows.flatMap((r) => [r?.actorPlayerId, r?.targetPlayerId]).filter((id) => isNonEmptyString(id))
+    )];
+    const idRows = playerIds.length > 0
+      ? await prisma.player.findMany({
+          where: { id: { in: playerIds } },
+          select: { id: true, userId: true },
+        })
+      : [];
+    const userIdMap = new Map(idRows.map((p) => [p.id, p.userId]));
+    const enrichedRows = normalizedRows.map((r) => ({
+      ...r,
+      actorUserId: isNonEmptyString(r?.actorPlayerId) ? (userIdMap.get(r.actorPlayerId) ?? null) : null,
+      targetUserId: isNonEmptyString(r?.targetPlayerId) ? (userIdMap.get(r.targetPlayerId) ?? null) : null,
+    }));
 
-    return successResponse(res, normalizedRows);
+    return successResponse(res, enrichedRows);
   } catch (error) {
     console.error('[Clubs API] 獲取俱樂部動態失敗:', error);
     return errorResponse(res, '獲取俱樂部動態失敗', error.message, 500);
@@ -1296,7 +1311,7 @@ router.get('/:clubId/rankings', async (req, res) => {
  *        startDate, endDate (YYYY-MM-DD，依結束時間為主，無 endedAt 則用 startedAt)
  *        playerId（可選，比對參與者 playerId / userId 子字串；一般成員僅能看到含自己的場次）
  *
- * 可見範圍：擁有者、副會長、已核准公關代理可看全部；其餘成員僅看自己參與的場次。
+ * 可見範圍：擁有者、副會長、已核准公關代理/大代理可看全部；其餘成員僅看自己參與的場次。
  */
 router.get('/:clubId/match-history', async (req, res) => {
   try {
@@ -1338,7 +1353,7 @@ router.get('/:clubId/match-history', async (req, res) => {
       return errorResponse(res, '開始日期不可晚於結束日期', null, 400);
     }
 
-    const searchParticipantFilter = isNonEmptyString(playerIdRaw)
+    const searchParticipantFilter = canSeeAllClubMatches && isNonEmptyString(playerIdRaw)
       ? {
           some: {
             OR: [

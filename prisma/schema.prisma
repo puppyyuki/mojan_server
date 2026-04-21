@@ -361,7 +361,7 @@ model AgentApplication {
   phoneOtpCode String
   emailOtpCode String
   status       String    @default("pending") // pending, approved, rejected
-  agentLevel   String    @default("normal") // normal (一般代理), vip (公關代理)
+  agentLevel   String    @default("normal") // normal (一般代理), master (大代理), vip (公關代理)
   maxClubCreateCount Int @default(1) // 代理可創建俱樂部數量上限
   reviewedAt   DateTime?
   reviewedBy   String? // 審核者 ID (User ID)

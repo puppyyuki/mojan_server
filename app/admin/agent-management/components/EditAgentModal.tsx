@@ -11,7 +11,7 @@ interface Agent {
   playerDbId: string
   playerName: string
   roomCardBalance: number
-  agentLevel?: 'normal' | 'vip'
+  agentLevel?: 'normal' | 'master' | 'vip'
   maxClubCreateCount?: number
   status?: 'pending' | 'approved' | 'rejected'
 }
@@ -30,7 +30,7 @@ export default function EditAgentModal({
   agent
 }: EditAgentModalProps) {
   const [cardCount, setCardCount] = useState<string>('0')
-  const [agentLevel, setAgentLevel] = useState<'normal' | 'vip'>('normal')
+  const [agentLevel, setAgentLevel] = useState<'normal' | 'master' | 'vip'>('normal')
   const [maxClubCreateCount, setMaxClubCreateCount] = useState<string>('1')
   const [loading, setLoading] = useState<boolean>(false)
 
@@ -163,14 +163,15 @@ export default function EditAgentModal({
                 </label>
                 <select
                   value={agentLevel}
-                  onChange={(e) => setAgentLevel(e.target.value as 'normal' | 'vip')}
+                  onChange={(e) => setAgentLevel(e.target.value as 'normal' | 'master' | 'vip')}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white"
                 >
                   <option value="normal">一般代理</option>
+                  <option value="master">大代理</option>
                   <option value="vip">公關代理</option>
                 </select>
                 <p className="mt-1 text-xs text-gray-500">
-                  公關代理可以售卡給玩家也可以售卡給代理，一般代理只能售卡給玩家
+                  房卡權限階層：公司 {'>'} 公關代理 {'>'} 大代理 {'>'} 一般代理 {'>'} 玩家；僅可向下轉卡且不可同階互轉
                 </p>
               </div>
               <div>

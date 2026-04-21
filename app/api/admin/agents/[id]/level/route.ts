@@ -25,7 +25,7 @@ export async function PATCH(
     const body = await request.json()
     const { agentLevel, maxClubCreateCount } = body
 
-    if (!agentLevel || !['normal', 'vip'].includes(agentLevel)) {
+    if (!agentLevel || !['normal', 'master', 'vip'].includes(agentLevel)) {
       return NextResponse.json(
         {
           success: false,

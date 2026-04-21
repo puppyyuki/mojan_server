@@ -8,6 +8,18 @@ function setCorsHeaders(res) {
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 }
 
+const VALID_AGENT_LEVELS = ['normal', 'master', 'vip'];
+const AGENT_LEVEL_ORDER = {
+    normal: 1,
+    master: 2,
+    vip: 3,
+};
+
+function normalizeAgentLevel(level) {
+    const raw = String(level || '').trim().toLowerCase();
+    return VALID_AGENT_LEVELS.includes(raw) ? raw : 'normal';
+}
+
 /**
  * POST /api/agents/apply
  * 提交代理申請
@@ -194,6 +206,7 @@ router.get('/status', async (req, res) => {
                         fullName: approvedApplication.fullName,
                         email: approvedApplication.email,
                         phone: approvedApplication.phone,
+                        agentLevel: normalizeAgentLevel(approvedApplication.agentLevel),
                         approvedAt: approvedApplication.reviewedAt?.toISOString() || null,
                         approvedBy: approvedApplication.reviewer?.username || null,
                     },
@@ -314,14 +327,18 @@ router.post('/players/search', async (req, res) => {
         const { search } = req.body;
         console.log('[Agents API] [Player Search] Received search request:', { search });
 
+        const keyword = String(search || '').trim();
+        if (!/^\d{6}$/.test(keyword)) {
+            setCorsHeaders(res);
+            return res.status(400).json({
+                success: false,
+                error: '僅支援 6 位數玩家ID搜尋',
+            });
+        }
+
         // For now, we'll search all players. In production, you'd want to verify agent status
         const players = await prisma.player.findMany({
-            where: search ? {
-                OR: [
-                    { userId: { contains: search } },
-                    { nickname: { contains: search } },
-                ],
-            } : {},
+            where: { userId: keyword },
             select: {
                 id: true,
                 userId: true,
@@ -421,9 +438,19 @@ router.post('/sell-room-card', async (req, res) => {
                 },
             });
 
-            // If buyer is an agent and seller is not a VIP agent, prevent the sale
-            if (buyerAgentApplication && (!sellerAgentApplication || sellerAgentApplication.agentLevel !== 'vip')) {
-                throw new Error('一般代理不能向其他代理出售房卡，只有公關代理可以售卡給代理');
+            if (buyerAgentApplication && sellerAgentApplication) {
+                const sellerLevel = normalizeAgentLevel(sellerAgentApplication.agentLevel);
+                const buyerLevel = normalizeAgentLevel(buyerAgentApplication.agentLevel);
+
+                // 轉卡僅允許往下且不可同階互轉：公司 > 公關代理 > 大代理 > 一般代理 > 玩家
+                if (sellerLevel === buyerLevel) {
+                    throw new Error('同層級代理不可互相轉卡');
+                }
+                if ((AGENT_LEVEL_ORDER[sellerLevel] || 0) <= (AGENT_LEVEL_ORDER[buyerLevel] || 0)) {
+                    throw new Error('僅可向下層級代理轉卡');
+                }
+            } else if (buyerAgentApplication && !sellerAgentApplication) {
+                throw new Error('僅代理可執行代理轉卡');
             }
 
             // Deduct from agent and add to buyer

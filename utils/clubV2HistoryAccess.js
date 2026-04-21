@@ -1,6 +1,6 @@
 /**
  * 俱樂部 v2 對戰歷史／戰績詳情可見性：
- * - 擁有者、副會長 (CO_LEADER)、已核准之公關代理 (agentLevel=vip)：可看同俱樂部全部場次
+ * - 擁有者、副會長 (CO_LEADER)、已核准之公關代理/大代理 (agentLevel=vip/master)：可看同俱樂部全部場次
  * - 其餘成員：僅能看自己有參與 (V2MatchParticipant) 的場次
  */
 
@@ -35,16 +35,16 @@ async function resolveClubV2HistoryVisibility(prisma, club, actorPlayerId) {
     return { ok: true, canSeeAll: true };
   }
 
-  const vipApp = await prisma.agentApplication.findFirst({
+  const elevatedAgentApp = await prisma.agentApplication.findFirst({
     where: {
       playerId: pid,
       status: 'approved',
-      agentLevel: 'vip',
+      agentLevel: { in: ['vip', 'master'] },
     },
     select: { id: true },
   });
 
-  if (vipApp) {
+  if (elevatedAgentApp) {
     return { ok: true, canSeeAll: true };
   }
 

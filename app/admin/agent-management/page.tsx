@@ -45,7 +45,7 @@ interface Agent {
     createdAt: string
   }>
   lastLoginAt: string | null
-  agentLevel: 'normal' | 'vip' // 代理層級：normal (一般代理), vip (公關代理)
+  agentLevel: 'normal' | 'master' | 'vip' // 代理層級：normal (一般代理), master (大代理), vip (公關代理)
   maxClubCreateCount: number
   createdAt: string
   reviewedAt: string | null
@@ -341,11 +341,17 @@ export default function AgentManagementPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200">
                       {item.status === 'approved' ? (
                         <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                          item.agentLevel === 'vip' 
-                            ? 'bg-purple-100 text-purple-800' 
-                            : 'bg-gray-100 text-gray-800'
+                          item.agentLevel === 'vip'
+                            ? 'bg-purple-100 text-purple-800'
+                            : item.agentLevel === 'master'
+                              ? 'bg-indigo-100 text-indigo-800'
+                              : 'bg-gray-100 text-gray-800'
                         }`}>
-                          {item.agentLevel === 'vip' ? '公關代理' : '一般代理'}
+                          {item.agentLevel === 'vip'
+                            ? '公關代理'
+                            : item.agentLevel === 'master'
+                              ? '大代理'
+                              : '一般代理'}
                         </span>
                       ) : (
                         <span className="text-gray-400 text-xs">-</span>
