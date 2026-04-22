@@ -13,6 +13,7 @@ import Image from 'next/image'
 interface Club {
   id: string
   clubId: string
+  joinRequiresOwnerApproval?: boolean
   name: string
   creatorId: string
   creator: {

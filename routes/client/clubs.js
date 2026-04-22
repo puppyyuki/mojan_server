@@ -593,6 +593,7 @@ router.get('/:clubId', async (req, res) => {
         select: {
           id: true,
           clubId: true,
+          joinRequiresOwnerApproval: true,
           name: true,
           cardCount: true,
           avatarUrl: true,
@@ -645,6 +646,7 @@ router.get('/:clubId', async (req, res) => {
       select: {
         id: true,
         clubId: true,
+        joinRequiresOwnerApproval: true,
         name: true,
         cardCount: true,
         avatarUrl: true,
@@ -859,6 +861,50 @@ router.post('/:clubId/join-requests', async (req, res) => {
     const joinedClubCount = await getPlayerClubMembershipCount(prisma, playerId);
     if (joinedClubCount >= 3) {
       return errorResponse(res, '已達可加入俱樂部上限（3）', null, 400);
+    }
+
+    const requiresApproval = club.joinRequiresOwnerApproval !== false;
+
+    if (!requiresApproval) {
+      const pendingRows = await prisma.clubJoinRequest.findMany({
+        where: { clubId: club.id, playerId, status: 'PENDING' },
+      });
+      if (pendingRows.length > 0) {
+        await prisma.clubJoinRequest.updateMany({
+          where: { clubId: club.id, playerId, status: 'PENDING' },
+          data: { status: 'CANCELLED' },
+        });
+      }
+
+      const member = await prisma.clubMember.create({
+        data: {
+          clubId: club.id,
+          playerId,
+        },
+        include: {
+          player: {
+            select: {
+              id: true,
+              userId: true,
+              nickname: true,
+              cardCount: true,
+            },
+          },
+        },
+      });
+
+      await createClubActivity(prisma, club.id, 'MEMBER_JOINED_DIRECT', {
+        actorPlayerId: playerId,
+        targetPlayerId: playerId,
+        actorNickname: member.player?.nickname ?? player.nickname ?? null,
+        targetNickname: member.player?.nickname ?? player.nickname ?? null,
+      });
+
+      return successResponse(
+        res,
+        { joinedDirectly: true, member },
+        '已加入俱樂部'
+      );
     }
 
     const existingRequest = await prisma.clubJoinRequest.findFirst({
@@ -1604,6 +1650,7 @@ router.get('/players/:playerId/clubs', async (req, res) => {
           select: {
             id: true,
             clubId: true,
+            joinRequiresOwnerApproval: true,
             name: true,
             cardCount: true,
             avatarUrl: true,
@@ -2426,6 +2473,7 @@ router.put('/:clubId', async (req, res) => {
       select: {
         id: true,
         clubId: true,
+        joinRequiresOwnerApproval: true,
         name: true,
         cardCount: true,
         avatarUrl: true,

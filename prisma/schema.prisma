@@ -103,6 +103,8 @@ model Club {
   name         String
   creatorId    String
   creator      Player   @relation("ClubCreator", fields: [creatorId], references: [id], onDelete: Cascade)
+  /// 玩家加入時是否須經擁有者／有權限者審核（false 時直接成為成員）
+  joinRequiresOwnerApproval Boolean @default(true)
   cardCount    Int      @default(0)
   avatarUrl    String? // 俱樂部頭像URL (通常是創建者的頭像)
   logoUrl      String? // 俱樂部 Logo
@@ -228,6 +230,7 @@ enum ClubActivityType {
   JOIN_APPROVED
   JOIN_REJECTED
   JOIN_REQUESTED
+  MEMBER_JOINED_DIRECT
   MEMBER_KICKED
   MEMBER_BANNED
   MEMBER_LEFT

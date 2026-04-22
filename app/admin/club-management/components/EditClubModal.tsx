@@ -9,6 +9,7 @@ import { requestAdminOpCode, withAdminOpCodeHeader } from '@/lib/admin-op-code-c
 interface Club {
   id: string
   clubId: string
+  joinRequiresOwnerApproval?: boolean
   name: string
   creatorId: string
   creator: {
@@ -41,6 +42,8 @@ export default function EditClubModal({
   onSuccess,
   club
 }: EditClubModalProps) {
+  const [editClubId, setEditClubId] = useState<string>('')
+  const [joinRequiresApproval, setJoinRequiresApproval] = useState<boolean>(true)
   const [name, setName] = useState<string>('')
   const [cardCount, setCardCount] = useState<string>('0')
   const [avatarUrl, setAvatarUrl] = useState<string>('')
@@ -48,11 +51,18 @@ export default function EditClubModal({
 
   useEffect(() => {
     if (isOpen && club) {
+      setEditClubId(club.clubId)
+      setJoinRequiresApproval(club.joinRequiresOwnerApproval !== false)
       setName(club.name)
       setCardCount(club.cardCount.toString())
       setAvatarUrl(club.avatarUrl || club.creator?.avatarUrl || '')
     }
   }, [isOpen, club])
+
+  const handleClubIdChange = (raw: string) => {
+    const digits = raw.replace(/\D/g, '').slice(0, 6)
+    setEditClubId(digits)
+  }
 
   const handleSave = async () => {
     if (loading || !club) return
@@ -62,7 +72,18 @@ export default function EditClubModal({
       return
     }
 
-    const opCode = requestAdminOpCode('確定要調整俱樂部資料與房卡嗎？')
+    const trimmedClubId = editClubId.trim()
+    if (!/^\d{6}$/.test(trimmedClubId)) {
+      alert('請輸入有效的 6 位數俱樂部 ID（僅數字）')
+      return
+    }
+
+    const cardParsed = Number.parseInt(cardCount, 10)
+    const cardSafe = Number.isFinite(cardParsed) ? cardParsed : 0
+
+    const opCode = requestAdminOpCode(
+      '確定要儲存俱樂部資料嗎？（含公開 ID、房卡、加入審核設定時須驗證）'
+    )
     if (!opCode) {
       return
     }
@@ -71,8 +92,10 @@ export default function EditClubModal({
     try {
       const response = await apiPatch(`/api/clubs/${club.id}`, {
         name: name.trim(),
-        cardCount: parseInt(cardCount),
+        cardCount: cardSafe,
         avatarUrl: avatarUrl.trim() || null,
+        clubId: trimmedClubId,
+        joinRequiresOwnerApproval: joinRequiresApproval,
       }, {
         headers: withAdminOpCodeHeader(opCode),
       })
@@ -120,11 +143,48 @@ export default function EditClubModal({
         <div className="px-6 py-4 space-y-4">
           <div>
             <p className="text-sm text-gray-600 mb-2">
-              俱樂部ID：<span className="font-semibold text-gray-900">{club.clubId}</span>
-            </p>
-            <p className="text-sm text-gray-600 mb-2">
               創建者：<span className="font-semibold text-gray-900">{club.creator.nickname} ({club.creator.userId})</span>
             </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              6 位數俱樂部 ID（公開） <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              maxLength={6}
+              value={editClubId}
+              onChange={(e) => handleClubIdChange(e.target.value)}
+              placeholder="請輸入 6 位數字"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400 tracking-widest font-mono"
+            />
+          </div>
+
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-2">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-gray-900">加入須經擁有者／管理員審核</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                關閉後，玩家輸入俱樂部 ID 將直接成為成員（仍受每人最多 3 個俱樂部限制）。
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={joinRequiresApproval}
+              onClick={() => setJoinRequiresApproval((v) => !v)}
+              className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                joinRequiresApproval ? 'bg-blue-600' : 'bg-gray-200'
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                  joinRequiresApproval ? 'translate-x-5' : 'translate-x-0.5'
+                }`}
+              />
+            </button>
           </div>
 
           <div>

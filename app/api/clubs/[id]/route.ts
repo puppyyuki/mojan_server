@@ -29,6 +29,7 @@ export async function GET(
       select: {
         id: true,
         clubId: true,
+        joinRequiresOwnerApproval: true,
         name: true,
         description: true,
         logoUrl: true,
@@ -88,9 +89,22 @@ export async function PATCH(
   try {
     const { id } = await params
     const body = await request.json()
-    const { name, cardCount, avatarUrl, description, logoUrl } = body
+    const {
+      name,
+      cardCount,
+      avatarUrl,
+      description,
+      logoUrl,
+      clubId: bodyClubId,
+      joinRequiresOwnerApproval,
+    } = body
 
-    if (cardCount !== undefined) {
+    const needsSensitiveGuard =
+      cardCount !== undefined ||
+      bodyClubId !== undefined ||
+      joinRequiresOwnerApproval !== undefined
+
+    if (needsSensitiveGuard) {
       const opCodeGuard = assertAdminOpCode(request, body)
       if (opCodeGuard.ok === false) {
         return opCodeGuard.response
@@ -119,6 +133,41 @@ export async function PATCH(
     }
     if (logoUrl !== undefined) {
       updateData.logoUrl = logoUrl ? logoUrl.trim() : null
+    }
+    if (joinRequiresOwnerApproval !== undefined) {
+      updateData.joinRequiresOwnerApproval = Boolean(joinRequiresOwnerApproval)
+    }
+    if (bodyClubId !== undefined) {
+      const trimmed = String(bodyClubId).trim()
+      if (!/^\d{6}$/.test(trimmed)) {
+        return NextResponse.json(
+          { success: false, error: '俱樂部 ID 須為 6 位數字' },
+          { status: 400, headers: corsHeaders() }
+        )
+      }
+      const existing = await prisma.club.findUnique({
+        where: { id },
+        select: { clubId: true },
+      })
+      if (!existing) {
+        return NextResponse.json(
+          { success: false, error: '俱樂部不存在' },
+          { status: 404, headers: corsHeaders() }
+        )
+      }
+      if (trimmed !== existing.clubId) {
+        const taken = await prisma.club.findUnique({
+          where: { clubId: trimmed },
+          select: { id: true },
+        })
+        if (taken && taken.id !== id) {
+          return NextResponse.json(
+            { success: false, error: '此 6 位數俱樂部 ID 已被其他俱樂部使用' },
+            { status: 400, headers: corsHeaders() }
+          )
+        }
+        updateData.clubId = trimmed
+      }
     }
 
     const club = await prisma.club.update({
@@ -155,7 +204,14 @@ export async function PATCH(
       },
       { headers: corsHeaders() }
     )
-  } catch (error) {
+  } catch (error: unknown) {
+    const code = error && typeof error === 'object' ? (error as { code?: string }).code : undefined
+    if (code === 'P2002') {
+      return NextResponse.json(
+        { success: false, error: '此 6 位數俱樂部 ID 已被使用' },
+        { status: 400, headers: corsHeaders() }
+      )
+    }
     console.error('更新俱樂部失敗:', error)
     return NextResponse.json(
       { success: false, error: '更新俱樂部失敗' },
