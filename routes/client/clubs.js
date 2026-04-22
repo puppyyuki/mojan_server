@@ -1566,12 +1566,8 @@ router.post('/:clubId/rooms', async (req, res) => {
     if (member.isBanned === true) {
       return errorResponse(res, '您目前被禁止開房', null, 403);
     }
-    if (
-      member.role === 'CO_LEADER' &&
-      getCoLeaderPerms(member)?.modifyClubRules === false
-    ) {
-      return errorResponse(res, '沒有開房權限', null, 403);
-    }
+    // 開房權限不與副會長細項權限綁定：
+    // 只要是俱樂部成員且未被禁開房，即可建立房間。
 
     // 生成唯一的6位數字ID
     const roomId = await generateUniqueId(async (id) => {
