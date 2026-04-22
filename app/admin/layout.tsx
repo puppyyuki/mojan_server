@@ -5,6 +5,12 @@ import { useRouter, usePathname } from 'next/navigation'
 import AdminNavigation from '@/components/admin/AdminNavigation'
 import AdminTabs, { Tab } from '@/components/admin/AdminTabs'
 import { LogOut } from 'lucide-react'
+import {
+  canAccessAdminPath,
+  getDefaultAdminPath,
+  normalizeAdminRole,
+  type AdminRole,
+} from '@/lib/admin-permissions'
 
 export default function AdminLayout({
   children,
@@ -17,9 +23,14 @@ export default function AdminLayout({
   const [tabs, setTabs] = useState<Tab[]>([])
   const [activeTab, setActiveTab] = useState('home')
   const [tabsInitialized, setTabsInitialized] = useState(false)
+  const [adminRole, setAdminRole] = useState<AdminRole>('ADMIN')
 
   // 載入保存的頁籤
   useEffect(() => {
+    const role = normalizeAdminRole(localStorage.getItem('adminRole'))
+    const defaultPath = getDefaultAdminPath(role)
+    const defaultLabel = defaultPath === '/admin' ? '首頁' : '代理管理'
+    const defaultId = defaultPath.replace('/admin/', '') || 'home'
     const savedTabs = localStorage.getItem('adminTabs')
     const savedActiveTab = localStorage.getItem('adminActiveTab')
     
@@ -33,18 +44,19 @@ export default function AdminLayout({
           }
           return tab
         })
-        setTabs(updatedTabs)
+        const authorizedTabs = updatedTabs.filter((tab: Tab) => canAccessAdminPath(role, tab.path))
+        setTabs(authorizedTabs.length > 0 ? authorizedTabs : [{ id: defaultId, label: defaultLabel, path: defaultPath, closable: false }])
         if (savedActiveTab) {
           setActiveTab(savedActiveTab)
         }
       } catch (error) {
         console.error('載入頁籤失敗:', error)
         // 如果載入失敗，使用預設頁籤
-        setTabs([{ id: 'home', label: '首頁', path: '/admin', closable: false }])
+        setTabs([{ id: defaultId, label: defaultLabel, path: defaultPath, closable: false }])
       }
     } else {
       // 如果沒有保存的頁籤，使用預設頁籤
-      setTabs([{ id: 'home', label: '首頁', path: '/admin', closable: false }])
+      setTabs([{ id: defaultId, label: defaultLabel, path: defaultPath, closable: false }])
     }
     setTabsInitialized(true)
   }, [])
@@ -66,12 +78,35 @@ export default function AdminLayout({
   useEffect(() => {
     // 檢查是否已登入
     const adminToken = localStorage.getItem('adminToken')
+    const role = normalizeAdminRole(localStorage.getItem('adminRole'))
     if (!adminToken && pathname !== '/admin/login') {
       router.push('/admin/login')
     } else if (adminToken) {
+      setAdminRole(role)
       setIsAuthenticated(true)
+      if (pathname && pathname !== '/admin/login' && !canAccessAdminPath(role, pathname)) {
+        router.push(getDefaultAdminPath(role))
+      }
     }
   }, [router, pathname])
+
+  useEffect(() => {
+    if (!tabsInitialized) {
+      return
+    }
+
+    const filteredTabs = tabs.filter((tab) => canAccessAdminPath(adminRole, tab.path))
+    if (filteredTabs.length !== tabs.length) {
+      const defaultPath = getDefaultAdminPath(adminRole)
+      const defaultLabel = defaultPath === '/admin' ? '首頁' : '代理管理'
+      const defaultId = defaultPath.replace('/admin/', '') || 'home'
+      setTabs(filteredTabs.length > 0 ? filteredTabs : [{ id: defaultId, label: defaultLabel, path: defaultPath, closable: false }])
+    }
+
+    if (pathname && pathname !== '/admin/login' && !canAccessAdminPath(adminRole, pathname)) {
+      router.push(getDefaultAdminPath(adminRole))
+    }
+  }, [adminRole, pathname, router, tabs, tabsInitialized])
 
   // 根據當前路徑設定活動頁籤
   useEffect(() => {
@@ -86,6 +121,10 @@ export default function AdminLayout({
   }, [pathname, tabs, tabsInitialized])
 
   const handleMenuClick = (path: string, label: string) => {
+    if (!canAccessAdminPath(adminRole, path)) {
+      return
+    }
+
     const tabId = path.replace('/admin/', '') || 'home'
     
     // 檢查是否已存在該頁籤
@@ -135,6 +174,7 @@ export default function AdminLayout({
 
   const handleLogout = () => {
     localStorage.removeItem('adminToken')
+    localStorage.removeItem('adminRole')
     localStorage.removeItem('adminTabs')
     localStorage.removeItem('adminActiveTab')
     router.push('/admin/login')
@@ -152,7 +192,11 @@ export default function AdminLayout({
   return (
     <div className="flex h-screen overflow-hidden bg-gray-50">
       {/* 左側導覽 */}
-      <AdminNavigation onMenuClick={handleMenuClick} activeMenu={tabs.find(t => t.id === activeTab)?.path} />
+      <AdminNavigation
+        onMenuClick={handleMenuClick}
+        activeMenu={tabs.find(t => t.id === activeTab)?.path}
+        role={adminRole}
+      />
 
       {/* 右側內容區域 */}
       <div className="flex-1 flex flex-col overflow-hidden">

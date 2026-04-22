@@ -47,7 +47,7 @@ export default function EditAgentModal({
   const handleSave = async () => {
     if (loading || !agent) return
 
-    const opCode = requestAdminOpCode('確定要調整代理房卡資料嗎？')
+    const opCode = await requestAdminOpCode('確定要調整代理房卡資料嗎？')
     if (!opCode) {
       return
     }

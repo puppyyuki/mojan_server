@@ -14,6 +14,7 @@ import {
   PieChart,
   Bell
 } from 'lucide-react'
+import { canAccessAdminPath, type AdminRole } from '@/lib/admin-permissions'
 
 interface MenuItem {
   id: string
@@ -26,9 +27,10 @@ interface MenuItem {
 interface AdminNavigationProps {
   onMenuClick: (path: string, label: string) => void
   activeMenu?: string
+  role?: AdminRole
 }
 
-export default function AdminNavigation({ onMenuClick, activeMenu }: AdminNavigationProps) {
+export default function AdminNavigation({ onMenuClick, activeMenu, role = 'ADMIN' }: AdminNavigationProps) {
   const menuItems: MenuItem[] = [
     {
       id: 'dashboard',
@@ -104,6 +106,13 @@ export default function AdminNavigation({ onMenuClick, activeMenu }: AdminNaviga
     }
   ]
 
+  const visibleMenuItems = menuItems.filter((item) => {
+    if (!item.path) {
+      return true
+    }
+    return canAccessAdminPath(role, item.path)
+  })
+
   const handleMenuClick = (item: MenuItem) => {
     if (item.path) {
       onMenuClick(item.path, item.label)
@@ -131,7 +140,7 @@ export default function AdminNavigation({ onMenuClick, activeMenu }: AdminNaviga
 
       {/* 導覽選單 */}
       <nav className="flex-1 py-2">
-        {menuItems.map((item) => (
+        {visibleMenuItems.map((item) => (
           <div key={item.id}>
             {/* 主選單項目 */}
             <button

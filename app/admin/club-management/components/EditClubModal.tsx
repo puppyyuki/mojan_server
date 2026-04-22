@@ -81,7 +81,7 @@ export default function EditClubModal({
     const cardParsed = Number.parseInt(cardCount, 10)
     const cardSafe = Number.isFinite(cardParsed) ? cardParsed : 0
 
-    const opCode = requestAdminOpCode(
+    const opCode = await requestAdminOpCode(
       '確定要儲存俱樂部資料嗎？（含公開 ID、房卡、加入審核設定時須驗證）'
     )
     if (!opCode) {

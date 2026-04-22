@@ -189,7 +189,7 @@ export default function UserManagementPage() {
 
   // 刪除玩家
   const handleDelete = async (id: string) => {
-    const opCode = requestAdminOpCode('確定要刪除此玩家嗎？')
+    const opCode = await requestAdminOpCode('確定要刪除此玩家嗎？')
     if (!opCode) {
       return
     }
@@ -218,7 +218,7 @@ export default function UserManagementPage() {
       return
     }
 
-    const opCode = requestAdminOpCode(`確定要刪除 ${selectedItems.length} 個玩家嗎？`)
+    const opCode = await requestAdminOpCode(`確定要刪除 ${selectedItems.length} 個玩家嗎？`)
     if (!opCode) {
       return
     }

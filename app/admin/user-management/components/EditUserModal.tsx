@@ -48,7 +48,7 @@ export default function EditUserModal({
       return
     }
 
-    const opCode = requestAdminOpCode('確定要調整玩家資料與房卡嗎？')
+    const opCode = await requestAdminOpCode('確定要調整玩家資料與房卡嗎？')
     if (!opCode) {
       return
     }

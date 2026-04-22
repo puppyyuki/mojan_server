@@ -27,6 +27,37 @@ async function main() {
     console.log('預設帳號已存在')
   }
 
+  const generalStaffAccounts = [
+    { username: 'DJ1021', password: 'dj1021' },
+    { username: 'DJ1022', password: 'dj1022' },
+  ]
+
+  for (const account of generalStaffAccounts) {
+    const existingStaff = await prisma.user.findUnique({
+      where: { username: account.username },
+    })
+
+    if (!existingStaff) {
+      const hashedPassword = await bcrypt.hash(account.password, 10)
+      await prisma.user.create({
+        data: {
+          username: account.username,
+          password: hashedPassword,
+          role: 'GENERAL_STAFF',
+        },
+      })
+      console.log(`一般職員帳號已建立：${account.username} / ${account.password}`)
+    } else if (existingStaff.role !== 'GENERAL_STAFF') {
+      await prisma.user.update({
+        where: { id: existingStaff.id },
+        data: { role: 'GENERAL_STAFF' },
+      })
+      console.log(`一般職員帳號角色已更新：${account.username} -> GENERAL_STAFF`)
+    } else {
+      console.log(`一般職員帳號已存在：${account.username}`)
+    }
+  }
+
   // 建立房卡產品
   const products = [
     { cardAmount: 3000, price: 9000 },

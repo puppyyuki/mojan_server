@@ -46,6 +46,7 @@ export default function AdminLoginPage() {
       if (response.ok && data.success) {
         // 登入成功
         localStorage.setItem('adminToken', data.token || 'admin-token-' + Date.now())
+        localStorage.setItem('adminRole', data.user?.role || 'ADMIN')
         
         // 處理記住帳號
         if (remember) {

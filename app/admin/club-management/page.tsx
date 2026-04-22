@@ -146,7 +146,7 @@ export default function ClubManagementPage() {
 
   // 刪除俱樂部
   const handleDelete = async (id: string) => {
-    const opCode = requestAdminOpCode('確定要刪除此俱樂部嗎？')
+    const opCode = await requestAdminOpCode('確定要刪除此俱樂部嗎？')
     if (!opCode) {
       return
     }
@@ -175,7 +175,7 @@ export default function ClubManagementPage() {
       return
     }
 
-    const opCode = requestAdminOpCode(`確定要刪除 ${selectedItems.length} 個俱樂部嗎？`)
+    const opCode = await requestAdminOpCode(`確定要刪除 ${selectedItems.length} 個俱樂部嗎？`)
     if (!opCode) {
       return
     }

@@ -156,7 +156,7 @@ export default function AgentManagementPage() {
 
   // 刪除代理
   const handleDelete = async (id: string) => {
-    const opCode = requestAdminOpCode('確定要刪除此代理申請嗎？')
+    const opCode = await requestAdminOpCode('確定要刪除此代理申請嗎？')
     if (!opCode) {
       return
     }

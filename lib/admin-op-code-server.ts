@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { ADMIN_OPERATION_CODE_HEADER, isValidAdminOperationCode, readOpCodeFromBody } from './admin-op-code'
+import { ADMIN_OPERATION_CODE_HEADER } from './admin-op-code-header'
+import { isValidAdminOperationCode, readOpCodeFromBody } from './admin-op-code'
 
 export function assertAdminOpCode(
   request: NextRequest,
