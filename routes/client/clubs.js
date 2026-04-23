@@ -1615,7 +1615,19 @@ router.post('/:clubId/rooms', async (req, res) => {
       },
     });
 
-    return successResponse(res, room, '房間創建成功');
+    const clubDisplayCode = club.clubId ?? null;
+    const clubAvatarUrl = club.avatarUrl ?? club.logoUrl ?? null;
+    return successResponse(
+      res,
+      {
+        ...room,
+        clubDisplayCode,
+        clubAvatarUrl,
+        club_display_code: clubDisplayCode,
+        club_avatar_url: clubAvatarUrl,
+      },
+      '房間創建成功'
+    );
   } catch (error) {
     console.error('[Clubs API] 創建房間失敗:', error);
     return errorResponse(res, '創建房間失敗', error.message, 500);
