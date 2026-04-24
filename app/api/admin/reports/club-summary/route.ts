@@ -73,6 +73,7 @@ export async function GET(request: NextRequest) {
             totals: {
               playerCount: 0,
               totalBattleScore: 0,
+              totalSelfDrawCount: 0,
               totalRoomCardConsumed: 0,
               totalCompletedGames: 0,
             },
@@ -130,6 +131,7 @@ export async function GET(request: NextRequest) {
       nickname: string
       battleScore: number
       bigWinnerCount: number
+      selfDrawCount: number
       roomCardConsumed: number
       completedGames: number
     }
@@ -149,6 +151,11 @@ export async function GET(request: NextRequest) {
         const nickname =
           typeof p.nickname === 'string' && p.nickname.trim() ? p.nickname.trim() : '未知玩家'
         const score = Number(p.score ?? 0) || 0
+        const statistics =
+          p.statistics && typeof p.statistics === 'object'
+            ? (p.statistics as Record<string, unknown>)
+            : null
+        const selfDrawCount = Number(statistics?.selfDraws ?? p.selfDrawCount ?? 0) || 0
         const roomCardConsumed = Number(p.roomCardConsumed ?? 0) || 0
         const isBigWinner = p.isBigWinner === true
 
@@ -160,6 +167,7 @@ export async function GET(request: NextRequest) {
             nickname,
             battleScore: score,
             bigWinnerCount: isBigWinner ? 1 : 0,
+            selfDrawCount,
             roomCardConsumed,
             completedGames: 0,
           })
@@ -168,6 +176,7 @@ export async function GET(request: NextRequest) {
 
         existing.battleScore += score
         existing.bigWinnerCount += isBigWinner ? 1 : 0
+        existing.selfDrawCount += selfDrawCount
         existing.roomCardConsumed += roomCardConsumed
         if (existing.userId === '—' && userId !== '—') {
           existing.userId = userId
@@ -199,6 +208,7 @@ export async function GET(request: NextRequest) {
           nickname,
           battleScore: 0,
           bigWinnerCount: 0,
+          selfDrawCount: 0,
           roomCardConsumed: 0,
           completedGames: 0,
         })
@@ -220,6 +230,7 @@ export async function GET(request: NextRequest) {
         playerNickname: r.nickname,
         battleScore: r.battleScore,
         bigWinnerCount: r.bigWinnerCount,
+        selfDrawCount: r.selfDrawCount,
         roomCardConsumed: r.roomCardConsumed,
         completedGames: r.completedGames,
       }))
@@ -233,11 +244,18 @@ export async function GET(request: NextRequest) {
       (acc, row) => {
         acc.playerCount += 1
         acc.totalBattleScore += row.battleScore
+        acc.totalSelfDrawCount += row.selfDrawCount
         acc.totalRoomCardConsumed += row.roomCardConsumed
         acc.totalCompletedGames += row.completedGames
         return acc
       },
-      { playerCount: 0, totalBattleScore: 0, totalRoomCardConsumed: 0, totalCompletedGames: 0 }
+      {
+        playerCount: 0,
+        totalBattleScore: 0,
+        totalSelfDrawCount: 0,
+        totalRoomCardConsumed: 0,
+        totalCompletedGames: 0,
+      }
     )
 
     return NextResponse.json(

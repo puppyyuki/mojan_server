@@ -1232,6 +1232,7 @@ router.get('/:clubId/rankings', async (req, res) => {
         clubScore: m.clubScore ?? 0,
         totalGames: m.totalGames ?? 0,
         bigWinnerCount: m.bigWinnerCount ?? 0,
+        selfDrawCount: 0,
         roomCardConsumed: m.roomCardConsumed ?? 0,
         lastGameTime: m.lastGameTime ?? null,
       });
@@ -1242,6 +1243,7 @@ router.get('/:clubId/rankings', async (req, res) => {
         row.clubScore = 0;
         row.totalGames = 0;
         row.bigWinnerCount = 0;
+        row.selfDrawCount = 0;
         row.roomCardConsumed = 0;
         row.lastGameTime = null;
       }
@@ -1270,6 +1272,7 @@ router.get('/:clubId/rankings', async (req, res) => {
           const row = byPlayerId.get(pid);
           row.clubScore += Number(p?.score ?? 0) || 0;
           if (p?.isBigWinner === true) row.bigWinnerCount += 1;
+          row.selfDrawCount += Number(p?.statistics?.selfDraws ?? p?.selfDrawCount ?? 0) || 0;
           row.roomCardConsumed += Number(p?.roomCardConsumed ?? 0) || 0;
           row.lastGameTime =
             !row.lastGameTime || row.lastGameTime < game.endedAt
