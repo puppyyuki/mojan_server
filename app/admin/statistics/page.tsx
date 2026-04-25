@@ -43,10 +43,10 @@ interface PlayerRankRow {
 }
 
 interface StatisticsData {
-  salesCards: { daily: number; weekly: number; monthly: number }
-  roomOpenStats: { hourly: TrendPoint[]; weekly: TrendPoint[] }
-  newPlayers: { weekly: TrendPoint[]; monthly: TrendPoint[] }
-  playerActivity: { weekly: TrendPoint[]; monthly: TrendPoint[] }
+  salesCards: { daily: number; weekly: number; monthly: number; last7Days?: number; last4Weeks?: number; last12Months?: number }
+  roomOpenStats: { hourly: TrendPoint[]; daily?: TrendPoint[]; weekly: TrendPoint[]; monthly?: TrendPoint[] }
+  newPlayers: { hourly?: TrendPoint[]; daily?: TrendPoint[]; weekly: TrendPoint[]; monthly: TrendPoint[] }
+  playerActivity: { hourly?: TrendPoint[]; daily?: TrendPoint[]; weekly: TrendPoint[]; monthly: TrendPoint[] }
   clubRanking: ClubRankRow[]
   playerRanking: PlayerRankRow[]
   playerRankingMeta?: {
@@ -58,6 +58,62 @@ interface StatisticsData {
 function tailRows(rows: TrendPoint[], count: number): TrendPoint[] {
   if (rows.length <= count) return rows
   return rows.slice(rows.length - count)
+}
+
+type ChartPeriod =
+  | 'last6h'
+  | 'last12h'
+  | 'last24h'
+  | 'today'
+  | 'last7days'
+  | 'last4weeks'
+  | 'last8weeks'
+  | 'last3months'
+  | 'last6months'
+  | 'last12months'
+type SalesPeriod = 'last7days' | 'last4weeks' | 'last12months'
+
+const chartPeriodOptions: Array<{ value: ChartPeriod; label: string }> = [
+  { value: 'last6h', label: '最近6小時' },
+  { value: 'last12h', label: '最近12小時' },
+  { value: 'last24h', label: '最近24小時' },
+  { value: 'today', label: '今日' },
+  { value: 'last7days', label: '最近7天' },
+  { value: 'last4weeks', label: '最近4週' },
+  { value: 'last8weeks', label: '最近8週' },
+  { value: 'last3months', label: '最近3個月' },
+  { value: 'last6months', label: '最近6個月' },
+  { value: 'last12months', label: '最近12個月' },
+]
+
+const salesPeriodOptions: Array<{ value: SalesPeriod; label: string }> = [
+  { value: 'last7days', label: '最近7天' },
+  { value: 'last4weeks', label: '最近4週' },
+  { value: 'last12months', label: '最近12個月' },
+]
+
+function getTrendRows(
+  source: { hourly?: TrendPoint[]; daily?: TrendPoint[]; weekly?: TrendPoint[]; monthly?: TrendPoint[] } | undefined,
+  period: ChartPeriod
+): TrendPoint[] {
+  if (!source) return []
+  if (period === 'last6h') return tailRows(source.hourly || [], 6)
+  if (period === 'last12h') return tailRows(source.hourly || [], 12)
+  if (period === 'last24h') return source.hourly || []
+  if (period === 'today') return source.hourly?.filter((row) => row.label.startsWith('今日 ')) || source.hourly || []
+  if (period === 'last7days') return source.daily || []
+  if (period === 'last4weeks') return tailRows(source.weekly || [], 4)
+  if (period === 'last8weeks') return source.weekly || []
+  if (period === 'last3months') return tailRows(source.monthly || [], 3)
+  if (period === 'last6months') return tailRows(source.monthly || [], 6)
+  return source.monthly || []
+}
+
+function getSalesValue(data: StatisticsData | null, period: SalesPeriod): number {
+  if (!data) return 0
+  if (period === 'last7days') return data.salesCards.last7Days ?? data.salesCards.weekly ?? 0
+  if (period === 'last4weeks') return data.salesCards.last4Weeks ?? data.salesCards.monthly ?? 0
+  return data.salesCards.last12Months ?? data.salesCards.monthly ?? 0
 }
 
 function TrendTable({
@@ -197,15 +253,12 @@ function TrendTable({
 export default function StatisticsPage() {
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState<StatisticsData | null>(null)
-  const [roomHourlyCount, setRoomHourlyCount] = useState(24)
-  const [roomWeeklyCount, setRoomWeeklyCount] = useState(8)
-  const [newWeeklyCount, setNewWeeklyCount] = useState(8)
-  const [newMonthlyCount, setNewMonthlyCount] = useState(6)
-  const [activeWeeklyCount, setActiveWeeklyCount] = useState(8)
-  const [activeMonthlyCount, setActiveMonthlyCount] = useState(6)
+  const [roomOpenPeriod, setRoomOpenPeriod] = useState<ChartPeriod>('last24h')
+  const [newPlayerPeriod, setNewPlayerPeriod] = useState<ChartPeriod>('last7days')
+  const [activePlayerPeriod, setActivePlayerPeriod] = useState<ChartPeriod>('last7days')
   const [clubRankCount, setClubRankCount] = useState(20)
   const [playerRankCount, setPlayerRankCount] = useState(20)
-  const [salesView, setSalesView] = useState<'daily' | 'weekly' | 'monthly'>('daily')
+  const [salesView, setSalesView] = useState<SalesPeriod>('last7days')
   const [chartMode, setChartMode] = useState<'line' | 'area'>('line')
   const [lineType, setLineType] = useState<'monotone' | 'linear' | 'step'>('monotone')
   const [showTable, setShowTable] = useState(true)
@@ -251,6 +304,18 @@ export default function StatisticsPage() {
     .slice(0, playerRankCount)
     .map((row, idx) => ({ ...row, rank: idx + 1 }))
 
+  const chartPeriodSelect = (value: ChartPeriod, onChange: (value: ChartPeriod) => void) => (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value as ChartPeriod)}
+      className="border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 bg-white"
+    >
+      {chartPeriodOptions.map((option) => (
+        <option key={option.value} value={option.value}>{option.label}</option>
+      ))}
+    </select>
+  )
+
   return (
     <div className="p-6 bg-gray-50 min-h-screen text-gray-900 space-y-6">
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 flex items-center justify-between">
@@ -275,21 +340,15 @@ export default function StatisticsPage() {
             <div className="text-xs text-gray-500 uppercase">公司銷售房卡</div>
             <select
               value={salesView}
-              onChange={(e) => setSalesView(e.target.value as 'daily' | 'weekly' | 'monthly')}
+              onChange={(e) => setSalesView(e.target.value as SalesPeriod)}
               className="border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 bg-white"
             >
-              <option value="daily">每日</option>
-              <option value="weekly">每週</option>
-              <option value="monthly">每月</option>
+              {salesPeriodOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
             </select>
           </div>
-          <div className="text-2xl font-semibold mt-2">
-            {salesView === 'daily'
-              ? data?.salesCards.daily ?? 0
-              : salesView === 'weekly'
-                ? data?.salesCards.weekly ?? 0
-                : data?.salesCards.monthly ?? 0}
-          </div>
+          <div className="text-2xl font-semibold mt-2">{getSalesValue(data, salesView)}</div>
           <p className="text-xs text-gray-500 mt-1">可切換時間篩選查看銷售房卡統計</p>
         </div>
       </div>
@@ -345,121 +404,33 @@ export default function StatisticsPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <TrendTable
-          title="開桌數（每小時）"
-          rows={tailRows(data?.roomOpenStats.hourly || [], roomHourlyCount)}
+          title="開桌數"
+          rows={getTrendRows(data?.roomOpenStats, roomOpenPeriod)}
           chartMode={chartMode}
           lineType={lineType}
           showTable={showTable}
           showAverage={showAverage}
-          rightControl={
-            <select
-              value={roomHourlyCount}
-              onChange={(e) => setRoomHourlyCount(Number(e.target.value))}
-              className="border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 bg-white"
-            >
-              <option value={6}>最近 6 小時</option>
-              <option value={12}>最近 12 小時</option>
-              <option value={24}>最近 24 小時</option>
-            </select>
-          }
+          rightControl={chartPeriodSelect(roomOpenPeriod, setRoomOpenPeriod)}
         />
         <TrendTable
-          title="開桌數（每週）"
-          rows={tailRows(data?.roomOpenStats.weekly || [], roomWeeklyCount)}
+          title="玩家新增"
+          rows={getTrendRows(data?.newPlayers, newPlayerPeriod)}
           chartMode={chartMode}
           lineType={lineType}
           showTable={showTable}
           showAverage={showAverage}
-          rightControl={
-            <select
-              value={roomWeeklyCount}
-              onChange={(e) => setRoomWeeklyCount(Number(e.target.value))}
-              className="border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 bg-white"
-            >
-              <option value={4}>最近 4 週</option>
-              <option value={8}>最近 8 週</option>
-            </select>
-          }
-        />
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <TrendTable
-          title="玩家新增（每週）"
-          rows={tailRows(data?.newPlayers.weekly || [], newWeeklyCount)}
-          chartMode={chartMode}
-          lineType={lineType}
-          showTable={showTable}
-          showAverage={showAverage}
-          rightControl={
-            <select
-              value={newWeeklyCount}
-              onChange={(e) => setNewWeeklyCount(Number(e.target.value))}
-              className="border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 bg-white"
-            >
-              <option value={4}>最近 4 週</option>
-              <option value={8}>最近 8 週</option>
-            </select>
-          }
+          rightControl={chartPeriodSelect(newPlayerPeriod, setNewPlayerPeriod)}
         />
         <TrendTable
-          title="玩家新增（每月）"
-          rows={tailRows(data?.newPlayers.monthly || [], newMonthlyCount)}
+          title="玩家活躍"
+          rows={getTrendRows(data?.playerActivity, activePlayerPeriod)}
           chartMode={chartMode}
           lineType={lineType}
           showTable={showTable}
           showAverage={showAverage}
-          rightControl={
-            <select
-              value={newMonthlyCount}
-              onChange={(e) => setNewMonthlyCount(Number(e.target.value))}
-              className="border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 bg-white"
-            >
-              <option value={3}>最近 3 個月</option>
-              <option value={6}>最近 6 個月</option>
-            </select>
-          }
-        />
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <TrendTable
-          title="玩家活躍（每週，依最後登入）"
-          rows={tailRows(data?.playerActivity.weekly || [], activeWeeklyCount)}
-          chartMode={chartMode}
-          lineType={lineType}
-          showTable={showTable}
-          showAverage={showAverage}
-          rightControl={
-            <select
-              value={activeWeeklyCount}
-              onChange={(e) => setActiveWeeklyCount(Number(e.target.value))}
-              className="border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 bg-white"
-            >
-              <option value={4}>最近 4 週</option>
-              <option value={8}>最近 8 週</option>
-            </select>
-          }
-        />
-        <TrendTable
-          title="玩家活躍（每月，依最後登入）"
-          rows={tailRows(data?.playerActivity.monthly || [], activeMonthlyCount)}
-          chartMode={chartMode}
-          lineType={lineType}
-          showTable={showTable}
-          showAverage={showAverage}
-          rightControl={
-            <select
-              value={activeMonthlyCount}
-              onChange={(e) => setActiveMonthlyCount(Number(e.target.value))}
-              className="border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 bg-white"
-            >
-              <option value={3}>最近 3 個月</option>
-              <option value={6}>最近 6 個月</option>
-            </select>
-          }
+          rightControl={chartPeriodSelect(activePlayerPeriod, setActivePlayerPeriod)}
         />
       </div>
 

@@ -74,6 +74,20 @@ function formatTaipeiHour(date: Date): string {
   return `${String(x.getUTCHours()).padStart(2, '0')}:00`
 }
 
+function formatTaipeiDay(date: Date): string {
+  const x = toTaipeiPseudoUtc(date)
+  return `${x.getUTCMonth() + 1}/${x.getUTCDate()}`
+}
+
+function isSameTaipeiDay(a: Date, b: Date): boolean {
+  return startOfTaipeiDay(a).getTime() === startOfTaipeiDay(b).getTime()
+}
+
+function formatTaipeiHourWithDay(date: Date, now: Date): string {
+  const prefix = isSameTaipeiDay(date, now) ? '今日' : formatTaipeiDay(date)
+  return `${prefix} ${formatTaipeiHour(date)}`
+}
+
 function formatTaipeiMonth(date: Date): string {
   const x = toTaipeiPseudoUtc(date)
   return `${x.getUTCFullYear()}-${String(x.getUTCMonth() + 1).padStart(2, '0')}`
@@ -233,8 +247,11 @@ export async function GET(request: NextRequest) {
     const dayStart = startOfTaipeiDay(now)
     const weekStart = startOfTaipeiWeek(now)
     const monthStart = startOfTaipeiMonth(now)
+    const last7DayStart = addTaipeiDays(dayStart, -6)
+    const last4WeekStart = addTaipeiDays(weekStart, -3 * 7)
+    const last12MonthStart = addTaipeiMonths(monthStart, -11)
 
-    const [daySales, weekSales, monthSales] = await Promise.all([
+    const [daySales, weekSales, monthSales, last7DaySales, last4WeekSales, last12MonthSales] = await Promise.all([
       prisma.roomCardOrder.aggregate({
         where: { status: 'PAID', createdAt: { gte: dayStart } },
         _sum: { cardAmount: true },
@@ -247,20 +264,45 @@ export async function GET(request: NextRequest) {
         where: { status: 'PAID', createdAt: { gte: monthStart } },
         _sum: { cardAmount: true },
       }),
+      prisma.roomCardOrder.aggregate({
+        where: { status: 'PAID', createdAt: { gte: last7DayStart } },
+        _sum: { cardAmount: true },
+      }),
+      prisma.roomCardOrder.aggregate({
+        where: { status: 'PAID', createdAt: { gte: last4WeekStart } },
+        _sum: { cardAmount: true },
+      }),
+      prisma.roomCardOrder.aggregate({
+        where: { status: 'PAID', createdAt: { gte: last12MonthStart } },
+        _sum: { cardAmount: true },
+      }),
     ])
 
     const currentHourStart = startOfTaipeiHour(now)
     const last24h = addTaipeiHours(currentHourStart, -23)
     const weekWindowStart = addTaipeiDays(weekStart, -7 * 7)
-    const deductedRoomOpenTimes = await loadDeductedRoomOpenTimes(weekWindowStart)
+    const deductedRoomOpenTimes = await loadDeductedRoomOpenTimes(last12MonthStart)
     const roomByHour = new Map<string, number>()
     for (let i = 0; i < 24; i++) {
-      roomByHour.set(formatTaipeiHour(addTaipeiHours(last24h, i)), 0)
+      const hour = addTaipeiHours(last24h, i)
+      roomByHour.set(formatTaipeiHourWithDay(hour, now), 0)
     }
     for (const openedAt of deductedRoomOpenTimes) {
       if (openedAt < last24h) continue
-      const key = formatTaipeiHour(openedAt)
+      const key = formatTaipeiHourWithDay(startOfTaipeiHour(openedAt), now)
       roomByHour.set(key, (roomByHour.get(key) || 0) + 1)
+    }
+
+    const dailyRoomMap = new Map<string, number>()
+    for (let i = 6; i >= 0; i--) {
+      dailyRoomMap.set(formatTaipeiDay(addTaipeiDays(dayStart, -i)), 0)
+    }
+    for (const openedAt of deductedRoomOpenTimes) {
+      if (openedAt < last7DayStart) continue
+      const key = formatTaipeiDay(openedAt)
+      if (dailyRoomMap.has(key)) {
+        dailyRoomMap.set(key, (dailyRoomMap.get(key) || 0) + 1)
+      }
     }
 
     const weeklyRoomMap = new Map<string, number>()
@@ -277,17 +319,56 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const weeklyPlayerRaw = await prisma.player.findMany({
-      where: { createdAt: { gte: weekWindowStart } },
+    const monthlyRoomMap = new Map<string, number>()
+    for (let i = 11; i >= 0; i--) {
+      const m = addTaipeiMonths(monthStart, -i)
+      monthlyRoomMap.set(formatTaipeiMonth(m), 0)
+    }
+    for (const openedAt of deductedRoomOpenTimes) {
+      if (openedAt < last12MonthStart) continue
+      const key = formatTaipeiMonth(openedAt)
+      if (monthlyRoomMap.has(key)) {
+        monthlyRoomMap.set(key, (monthlyRoomMap.get(key) || 0) + 1)
+      }
+    }
+
+    const newPlayerRaw = await prisma.player.findMany({
+      where: { createdAt: { gte: last12MonthStart } },
       select: { createdAt: true },
       orderBy: { createdAt: 'asc' },
     })
+    const hourlyPlayerMap = new Map<string, number>()
+    for (let i = 0; i < 24; i++) {
+      const hour = addTaipeiHours(last24h, i)
+      hourlyPlayerMap.set(formatTaipeiHourWithDay(hour, now), 0)
+    }
+    for (const row of newPlayerRaw) {
+      if (row.createdAt < last24h) continue
+      const key = formatTaipeiHourWithDay(startOfTaipeiHour(row.createdAt), now)
+      if (hourlyPlayerMap.has(key)) {
+        hourlyPlayerMap.set(key, (hourlyPlayerMap.get(key) || 0) + 1)
+      }
+    }
+
+    const dailyPlayerMap = new Map<string, number>()
+    for (let i = 6; i >= 0; i--) {
+      dailyPlayerMap.set(formatTaipeiDay(addTaipeiDays(dayStart, -i)), 0)
+    }
+    for (const row of newPlayerRaw) {
+      if (row.createdAt < last7DayStart) continue
+      const key = formatTaipeiDay(row.createdAt)
+      if (dailyPlayerMap.has(key)) {
+        dailyPlayerMap.set(key, (dailyPlayerMap.get(key) || 0) + 1)
+      }
+    }
+
     const weeklyPlayerMap = new Map<string, number>()
     for (let i = 7; i >= 0; i--) {
       const ws = addTaipeiDays(weekStart, -i * 7)
       weeklyPlayerMap.set(formatTaipeiWeekLabel(ws), 0)
     }
-    for (const row of weeklyPlayerRaw) {
+    for (const row of newPlayerRaw) {
+      if (row.createdAt < weekWindowStart) continue
       const ws = startOfTaipeiWeek(new Date(row.createdAt))
       const key = formatTaipeiWeekLabel(ws)
       if (weeklyPlayerMap.has(key)) {
@@ -295,36 +376,56 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const monthWindowStart = addTaipeiMonths(monthStart, -5)
-    const monthlyPlayerRaw = await prisma.player.findMany({
-      where: { createdAt: { gte: monthWindowStart } },
-      select: { createdAt: true },
-      orderBy: { createdAt: 'asc' },
-    })
     const monthlyPlayerMap = new Map<string, number>()
-    for (let i = 5; i >= 0; i--) {
+    for (let i = 11; i >= 0; i--) {
       const m = addTaipeiMonths(monthStart, -i)
       monthlyPlayerMap.set(formatTaipeiMonth(m), 0)
     }
-    for (const row of monthlyPlayerRaw) {
+    for (const row of newPlayerRaw) {
       const key = formatTaipeiMonth(new Date(row.createdAt))
       if (monthlyPlayerMap.has(key)) {
         monthlyPlayerMap.set(key, (monthlyPlayerMap.get(key) || 0) + 1)
       }
     }
 
-    const weeklyActiveRaw = await prisma.player.findMany({
-      where: { lastLoginAt: { gte: weekWindowStart } },
+    const activePlayerRaw = await prisma.player.findMany({
+      where: { lastLoginAt: { gte: last12MonthStart } },
       select: { lastLoginAt: true },
       orderBy: { lastLoginAt: 'asc' },
     })
+    const hourlyActiveMap = new Map<string, number>()
+    for (let i = 0; i < 24; i++) {
+      const hour = addTaipeiHours(last24h, i)
+      hourlyActiveMap.set(formatTaipeiHourWithDay(hour, now), 0)
+    }
+    for (const row of activePlayerRaw) {
+      if (!row.lastLoginAt || row.lastLoginAt < last24h) continue
+      const key = formatTaipeiHourWithDay(startOfTaipeiHour(row.lastLoginAt), now)
+      if (hourlyActiveMap.has(key)) {
+        hourlyActiveMap.set(key, (hourlyActiveMap.get(key) || 0) + 1)
+      }
+    }
+
+    const dailyActiveMap = new Map<string, number>()
+    for (let i = 6; i >= 0; i--) {
+      dailyActiveMap.set(formatTaipeiDay(addTaipeiDays(dayStart, -i)), 0)
+    }
+    for (const row of activePlayerRaw) {
+      if (!row.lastLoginAt || row.lastLoginAt < last7DayStart) continue
+      const key = formatTaipeiDay(row.lastLoginAt)
+      if (dailyActiveMap.has(key)) {
+        dailyActiveMap.set(key, (dailyActiveMap.get(key) || 0) + 1)
+      }
+    }
+
     const weeklyActiveMap = new Map<string, number>()
     for (let i = 7; i >= 0; i--) {
       const ws = addTaipeiDays(weekStart, -i * 7)
       weeklyActiveMap.set(formatTaipeiWeekLabel(ws), 0)
     }
-    for (const row of weeklyActiveRaw) {
+    for (const row of activePlayerRaw) {
       if (!row.lastLoginAt) continue
+      if (row.lastLoginAt < weekWindowStart) continue
       const ws = startOfTaipeiWeek(new Date(row.lastLoginAt))
       const key = formatTaipeiWeekLabel(ws)
       if (weeklyActiveMap.has(key)) {
@@ -332,17 +433,12 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const monthlyActiveRaw = await prisma.player.findMany({
-      where: { lastLoginAt: { gte: monthWindowStart } },
-      select: { lastLoginAt: true },
-      orderBy: { lastLoginAt: 'asc' },
-    })
     const monthlyActiveMap = new Map<string, number>()
-    for (let i = 5; i >= 0; i--) {
+    for (let i = 11; i >= 0; i--) {
       const m = addTaipeiMonths(monthStart, -i)
       monthlyActiveMap.set(formatTaipeiMonth(m), 0)
     }
-    for (const row of monthlyActiveRaw) {
+    for (const row of activePlayerRaw) {
       if (!row.lastLoginAt) continue
       const key = formatTaipeiMonth(new Date(row.lastLoginAt))
       if (monthlyActiveMap.has(key)) {
@@ -512,16 +608,25 @@ export async function GET(request: NextRequest) {
             daily: daySales._sum.cardAmount || 0,
             weekly: weekSales._sum.cardAmount || 0,
             monthly: monthSales._sum.cardAmount || 0,
+            last7Days: last7DaySales._sum.cardAmount || 0,
+            last4Weeks: last4WeekSales._sum.cardAmount || 0,
+            last12Months: last12MonthSales._sum.cardAmount || 0,
           },
           roomOpenStats: {
             hourly: Array.from(roomByHour.entries()).map(([label, value]) => ({ label, value })),
+            daily: Array.from(dailyRoomMap.entries()).map(([label, value]) => ({ label, value })),
             weekly: Array.from(weeklyRoomMap.entries()).map(([label, value]) => ({ label, value })),
+            monthly: Array.from(monthlyRoomMap.entries()).map(([label, value]) => ({ label, value })),
           },
           newPlayers: {
+            hourly: Array.from(hourlyPlayerMap.entries()).map(([label, value]) => ({ label, value })),
+            daily: Array.from(dailyPlayerMap.entries()).map(([label, value]) => ({ label, value })),
             weekly: Array.from(weeklyPlayerMap.entries()).map(([label, value]) => ({ label, value })),
             monthly: Array.from(monthlyPlayerMap.entries()).map(([label, value]) => ({ label, value })),
           },
           playerActivity: {
+            hourly: Array.from(hourlyActiveMap.entries()).map(([label, value]) => ({ label, value })),
+            daily: Array.from(dailyActiveMap.entries()).map(([label, value]) => ({ label, value })),
             weekly: Array.from(weeklyActiveMap.entries()).map(([label, value]) => ({ label, value })),
             monthly: Array.from(monthlyActiveMap.entries()).map(([label, value]) => ({ label, value })),
           },
