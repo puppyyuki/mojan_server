@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { parseTaipeiDateEnd, parseTaipeiDateStart } from '@/lib/taipei-time'
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const { isV2RoundCompletedForStatistics } = require('../../../../../utils/v2RoundStatistics')
 
 function corsHeaders() {

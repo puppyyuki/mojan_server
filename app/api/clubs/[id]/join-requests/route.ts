@@ -117,6 +117,14 @@ export async function POST(
       )
     }
 
+    const player = await prisma.player.findUnique({ where: { id: playerId } })
+    if (!player) {
+      return NextResponse.json(
+        { success: false, error: '玩家不存在' },
+        { status: 404, headers: corsHeaders() }
+      )
+    }
+
     const joinedClubCount = await prisma.clubMember.count({
       where: { playerId },
     })
@@ -129,14 +137,6 @@ export async function POST(
       return NextResponse.json(
         { success: false, error: `已達可加入俱樂部上限（${joinLimit}）` },
         { status: 400, headers: corsHeaders() }
-      )
-    }
-
-    const player = await prisma.player.findUnique({ where: { id: playerId } })
-    if (!player) {
-      return NextResponse.json(
-        { success: false, error: '玩家不存在' },
-        { status: 404, headers: corsHeaders() }
       )
     }
 

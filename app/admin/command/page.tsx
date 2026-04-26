@@ -310,6 +310,7 @@ export default function CommandPage() {
                   <button
                     type="button"
                     role="option"
+                    aria-selected={selectedPlayer?.id === p.id}
                     className={`w-full px-3 py-2 text-left text-sm text-gray-800 hover:bg-gray-100 ${
                       selectedPlayer?.id === p.id ? 'bg-amber-100 text-gray-900' : ''
                     }`}
