@@ -238,6 +238,8 @@ enum ClubActivityType {
   MEMBER_UNBANNED
   SCORE_LIMIT_SET
   SCORE_LIMIT_INCREASED
+  BASE_TAI_LIMIT_SET
+  BASE_TAI_LIMIT_CLEARED
 }
 
 enum MultiplayerVersion {
@@ -271,6 +273,8 @@ model ClubMember {
   role                MemberRole @default(MEMBER)
   isBanned            Boolean    @default(false)
   scoreLimit          Int?
+  basePointLimit      Int?
+  taiCountLimit       Int?
   noSameTable         Boolean    @default(false)
   clubScore           Int        @default(0) // 俱樂部內分數
   totalGames          Int        @default(0) // 俱樂部內總局數（V2：每小局胡牌／自摸／流局結束累加一次）

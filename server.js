@@ -5469,7 +5469,11 @@ io.on('connection', (socket) => {
             clubId: roomRecord.clubId,
             playerId: playerId,
           },
-          select: { isBanned: true },
+          select: {
+            isBanned: true,
+            basePointLimit: true,
+            taiCountLimit: true,
+          },
         });
 
         if (member?.isBanned === true) {
@@ -5477,6 +5481,35 @@ io.on('connection', (socket) => {
             success: false,
             error: 'PLAYER_BANNED',
             message: '您已被限制加入房間'
+          });
+          return;
+        }
+
+        const roomBasePointsRaw = Number(gameSettings?.base_points ?? 0);
+        const roomTaiCountRaw = Number(gameSettings?.scoring_unit ?? 0);
+        const roomBasePoints = Number.isFinite(roomBasePointsRaw)
+          ? Math.max(0, Math.floor(roomBasePointsRaw))
+          : 0;
+        const roomTaiCount = Number.isFinite(roomTaiCountRaw)
+          ? Math.max(0, Math.floor(roomTaiCountRaw))
+          : 0;
+        const basePointLimit =
+          member?.basePointLimit === null || member?.basePointLimit === undefined
+            ? null
+            : Number(member.basePointLimit);
+        const taiCountLimit =
+          member?.taiCountLimit === null || member?.taiCountLimit === undefined
+            ? null
+            : Number(member.taiCountLimit);
+        const isOverBaseLimit =
+          Number.isFinite(basePointLimit) && roomBasePoints > Math.max(0, Math.floor(basePointLimit));
+        const isOverTaiLimit =
+          Number.isFinite(taiCountLimit) && roomTaiCount > Math.max(0, Math.floor(taiCountLimit));
+        if (isOverBaseLimit || isOverTaiLimit) {
+          socket.emit('joinTableError', {
+            success: false,
+            error: 'BASE_TAI_LIMIT_EXCEEDED',
+            message: '該房間超過您能遊玩的底台上限'
           });
           return;
         }

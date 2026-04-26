@@ -65,6 +65,7 @@ export async function POST(
         banMembers: true,
         banSameTable: true,
         setScoreLimit: true,
+        setBaseTaiLimit: true,
         manageRoomCards: false,
       }
     } else {

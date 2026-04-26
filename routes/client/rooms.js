@@ -63,6 +63,26 @@ function normalizeDeductionForRoom(gameSettings) {
   return gameSettings?.deduction || 'AA_DEDUCTION';
 }
 
+function parseNonNegativeIntOrNull(raw) {
+  if (raw === null || raw === undefined || raw === '') return null;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.max(0, Math.floor(Math.abs(parsed)));
+}
+
+function isRoomOverMemberBaseTaiLimit(member, roomGameSettings) {
+  if (!member || !roomGameSettings || typeof roomGameSettings !== 'object') {
+    return false;
+  }
+  const roomBase = parseNonNegativeIntOrNull(roomGameSettings.base_points);
+  const roomTai = parseNonNegativeIntOrNull(roomGameSettings.scoring_unit);
+  const baseLimit = parseNonNegativeIntOrNull(member.basePointLimit);
+  const taiLimit = parseNonNegativeIntOrNull(member.taiCountLimit);
+  const baseExceeded = baseLimit !== null && roomBase !== null && roomBase > baseLimit;
+  const taiExceeded = taiLimit !== null && roomTai !== null && roomTai > taiLimit;
+  return baseExceeded || taiExceeded;
+}
+
 /**
  * v2 扣卡：改為「第一次中間結算（roundIndex=1）時」才扣卡，且同房只扣一次。
  */
@@ -415,6 +435,9 @@ router.get('/:roomId', async (req, res) => {
       isClubRoom: !!room.clubId,
       isClubMember: false,
       isBanned: false,
+      isOverBaseTaiLimit: false,
+      basePointLimit: null,
+      taiCountLimit: null,
       canJoinViaLobby: room.clubId ? false : true,
       canJoinViaClub: room.clubId ? false : true,
     };
@@ -427,16 +450,24 @@ router.get('/:roomId', async (req, res) => {
             playerId: viewerPlayerId,
           },
         },
-        select: { isBanned: true },
+        select: {
+          isBanned: true,
+          basePointLimit: true,
+          taiCountLimit: true,
+        },
       });
       const isClubMember = !!member;
       const isBanned = member?.isBanned === true;
+      const isOverBaseTaiLimit = isRoomOverMemberBaseTaiLimit(member, room.gameSettings);
       access = {
         isClubRoom: true,
         isClubMember,
         isBanned,
+        isOverBaseTaiLimit,
+        basePointLimit: member?.basePointLimit ?? null,
+        taiCountLimit: member?.taiCountLimit ?? null,
         canJoinViaLobby: false,
-        canJoinViaClub: isClubMember && !isBanned,
+        canJoinViaClub: isClubMember && !isBanned && !isOverBaseTaiLimit,
       };
     }
 

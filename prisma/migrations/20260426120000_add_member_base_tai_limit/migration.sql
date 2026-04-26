@@ -1,0 +1,6 @@
+ALTER TABLE "club_members"
+ADD COLUMN "basePointLimit" INTEGER,
+ADD COLUMN "taiCountLimit" INTEGER;
+
+ALTER TYPE "ClubActivityType" ADD VALUE 'BASE_TAI_LIMIT_SET';
+ALTER TYPE "ClubActivityType" ADD VALUE 'BASE_TAI_LIMIT_CLEARED';

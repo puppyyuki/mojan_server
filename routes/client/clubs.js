@@ -218,6 +218,7 @@ function normalizeBoolPermissions(raw) {
     'banMembers',
     'banSameTable',
     'setScoreLimit',
+    'setBaseTaiLimit',
   ];
   const out = {};
   for (const key of allowedKeys) {
@@ -231,6 +232,28 @@ function getCoLeaderPerms(member) {
   const perms = member?.coLeaderPermissions;
   if (!perms || typeof perms !== 'object') return null;
   return perms;
+}
+
+function parseNonNegativeIntOrNull(raw) {
+  if (raw === null || raw === undefined || raw === '') return null;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.max(0, Math.floor(Math.abs(parsed)));
+}
+
+function isRoomOverMemberBaseTaiLimit(member, roomGameSettings) {
+  if (!member || !roomGameSettings || typeof roomGameSettings !== 'object') {
+    return false;
+  }
+  const roomBase = parseNonNegativeIntOrNull(roomGameSettings.base_points);
+  const roomTai = parseNonNegativeIntOrNull(roomGameSettings.scoring_unit);
+  const memberBaseLimit = parseNonNegativeIntOrNull(member.basePointLimit);
+  const memberTaiLimit = parseNonNegativeIntOrNull(member.taiCountLimit);
+  const baseExceeded =
+    memberBaseLimit !== null && roomBase !== null && roomBase > memberBaseLimit;
+  const taiExceeded =
+    memberTaiLimit !== null && roomTai !== null && roomTai > memberTaiLimit;
+  return baseExceeded || taiExceeded;
 }
 
 function normalizeRoomGameSettings(raw) {
@@ -2167,6 +2190,94 @@ router.post('/:clubId/members/score-limit', async (req, res) => {
   }
 });
 
+router.post('/:clubId/members/base-tai-limit', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { clubId } = req.params;
+    const { playerId, basePointLimit, taiCountLimit, actorPlayerId } = req.body || {};
+
+    if (!playerId) {
+      return errorResponse(res, '請提供玩家ID', null, 400);
+    }
+
+    if (!isNonEmptyString(actorPlayerId)) {
+      return errorResponse(res, '請提供操作者ID', null, 400);
+    }
+
+    const club = await findClub(prisma, clubId);
+    if (!club) {
+      return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    if (club.creatorId === playerId) {
+      return errorResponse(res, '不可修改擁有者設定', null, 400);
+    }
+
+    const authz = await requireClubOwnerOrPermission(
+      prisma,
+      club.id,
+      actorPlayerId,
+      'setBaseTaiLimit'
+    );
+    if (!authz.ok) {
+      return errorResponse(res, authz.error, null, authz.status);
+    }
+
+    const member = await prisma.clubMember.findUnique({
+      where: { clubId_playerId: { clubId: club.id, playerId } },
+    });
+    if (!member) {
+      return errorResponse(res, '玩家不是俱樂部成員', null, 404);
+    }
+
+    const nextBasePointLimit = parseNonNegativeIntOrNull(basePointLimit);
+    const nextTaiCountLimit = parseNonNegativeIntOrNull(taiCountLimit);
+    const hasBaseInput =
+      basePointLimit !== null &&
+      basePointLimit !== undefined &&
+      String(basePointLimit).trim() !== '';
+    const hasTaiInput =
+      taiCountLimit !== null &&
+      taiCountLimit !== undefined &&
+      String(taiCountLimit).trim() !== '';
+    if (hasBaseInput && nextBasePointLimit === null) {
+      return errorResponse(res, '請輸入有效底分上限', null, 400);
+    }
+    if (hasTaiInput && nextTaiCountLimit === null) {
+      return errorResponse(res, '請輸入有效台數上限', null, 400);
+    }
+
+    const updated = await prisma.clubMember.update({
+      where: { clubId_playerId: { clubId: club.id, playerId } },
+      data: {
+        basePointLimit: nextBasePointLimit,
+        taiCountLimit: nextTaiCountLimit,
+      },
+    });
+
+    const hasAnyLimit = nextBasePointLimit !== null || nextTaiCountLimit !== null;
+
+    await createClubActivity(
+      prisma,
+      club.id,
+      hasAnyLimit ? 'BASE_TAI_LIMIT_SET' : 'BASE_TAI_LIMIT_CLEARED',
+      {
+        actorPlayerId: actorPlayerId ?? null,
+        targetPlayerId: playerId,
+        metadata: {
+          basePointLimit: nextBasePointLimit,
+          taiCountLimit: nextTaiCountLimit,
+        },
+      }
+    );
+
+    return successResponse(res, updated, hasAnyLimit ? '設定底台上限成功' : '清除底台上限成功');
+  } catch (error) {
+    console.error('[Clubs API] 設定底台上限失敗:', error);
+    return errorResponse(res, '設定底台上限失敗', error.message, 500);
+  }
+});
+
 router.post('/:clubId/members/no-same-table', async (req, res) => {
   try {
     const { prisma } = req.app.locals;
@@ -2330,7 +2441,7 @@ router.post('/:clubId/table-restrictions/check-join', async (req, res) => {
   try {
     const { prisma } = req.app.locals;
     const { clubId } = req.params;
-    const { joinerPlayerId, seatedPlayerIds } = req.body || {};
+    const { joinerPlayerId, seatedPlayerIds, roomGameSettings } = req.body || {};
 
     if (!isNonEmptyString(joinerPlayerId)) {
       return errorResponse(res, '請提供加入者玩家ID', null, 400);
@@ -2353,8 +2464,26 @@ router.post('/:clubId/table-restrictions/check-join', async (req, res) => {
       where: {
         clubId_playerId: { clubId: club.id, playerId: joinerPlayerId },
       },
-      select: { bannedTablePlayers: true },
+      select: {
+        bannedTablePlayers: true,
+        basePointLimit: true,
+        taiCountLimit: true,
+      },
     });
+    if (!joinerMember) {
+      return successResponse(
+        res,
+        { ok: false, message: '僅俱樂部成員可加入此房間' },
+        '成員檢查未通過'
+      );
+    }
+    if (isRoomOverMemberBaseTaiLimit(joinerMember, roomGameSettings)) {
+      return successResponse(
+        res,
+        { ok: false, message: '該房間超過您能遊玩的底台上限' },
+        '底台上限檢查未通過'
+      );
+    }
     const joinerBanned = joinerMember?.bannedTablePlayers || [];
     for (const ep of ids) {
       if (joinerBanned.includes(ep)) {
