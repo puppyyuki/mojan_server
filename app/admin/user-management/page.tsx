@@ -31,6 +31,7 @@ interface Player {
   userId: string
   nickname: string
   cardCount: number
+  maxJoinClubCount: number
   bio?: string | null
   avatarUrl?: string | null
   lineUserId?: string | null

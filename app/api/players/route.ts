@@ -94,6 +94,7 @@ export async function GET(request: NextRequest) {
         userId: player.userId,
         nickname: player.nickname,
         cardCount: player.cardCount,
+        maxJoinClubCount: player.maxJoinClubCount,
         bio: player.bio,
         avatarUrl: player.avatarUrl,
         lineUserId: player.lineUserId,

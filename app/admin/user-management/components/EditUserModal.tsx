@@ -10,6 +10,7 @@ interface Player {
   userId: string
   nickname: string
   cardCount: number
+  maxJoinClubCount?: number
   bio?: string | null
   phoneE164?: string | null
 }
@@ -29,6 +30,7 @@ export default function EditUserModal({
 }: EditUserModalProps) {
   const [nickname, setNickname] = useState<string>('')
   const [cardCount, setCardCount] = useState<string>('0')
+  const [maxJoinClubCount, setMaxJoinClubCount] = useState<string>('3')
   const [bio, setBio] = useState<string>('')
   const [loading, setLoading] = useState<boolean>(false)
 
@@ -36,6 +38,9 @@ export default function EditUserModal({
     if (isOpen && player) {
       setNickname(player.nickname)
       setCardCount(player.cardCount.toString())
+      setMaxJoinClubCount(
+        Math.max(Number(player.maxJoinClubCount ?? 3) || 3, 1).toString()
+      )
       setBio(player.bio || '')
     }
   }, [isOpen, player])
@@ -55,9 +60,20 @@ export default function EditUserModal({
 
     setLoading(true)
     try {
+      const parsedMaxJoinClubCount = parseInt(maxJoinClubCount, 10)
+      if (
+        !Number.isFinite(parsedMaxJoinClubCount) ||
+        parsedMaxJoinClubCount < 1
+      ) {
+        alert('可加入俱樂部上限必須為大於等於 1 的整數')
+        setLoading(false)
+        return
+      }
+
       const response = await apiPatch(`/api/players/${player.id}`, {
         nickname: nickname.trim(),
         cardCount: parseInt(cardCount),
+        maxJoinClubCount: parsedMaxJoinClubCount,
         bio: bio.trim() || null,
       }, {
         headers: withAdminOpCodeHeader(opCode),
@@ -148,6 +164,24 @@ export default function EditUserModal({
               min="0"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400"
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              可加入俱樂部上限 <span className="text-red-500">*</span>
+            </label>
+            <input
+              type="number"
+              value={maxJoinClubCount}
+              onChange={(e) => setMaxJoinClubCount(e.target.value)}
+              placeholder="3"
+              min="1"
+              step="1"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400"
+            />
+            <p className="mt-1 text-xs text-gray-500">
+              玩家可加入俱樂部數量上限，預設為 3
+            </p>
           </div>
 
           <div>

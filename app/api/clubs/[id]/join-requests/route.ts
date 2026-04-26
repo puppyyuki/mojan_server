@@ -120,9 +120,14 @@ export async function POST(
     const joinedClubCount = await prisma.clubMember.count({
       where: { playerId },
     })
-    if (joinedClubCount >= 3) {
+    const joinLimitRaw = Number(player.maxJoinClubCount)
+    const joinLimit =
+      Number.isFinite(joinLimitRaw) && joinLimitRaw >= 1
+        ? Math.floor(joinLimitRaw)
+        : 3
+    if (joinedClubCount >= joinLimit) {
       return NextResponse.json(
-        { success: false, error: '已達可加入俱樂部上限（3）' },
+        { success: false, error: `已達可加入俱樂部上限（${joinLimit}）` },
         { status: 400, headers: corsHeaders() }
       )
     }

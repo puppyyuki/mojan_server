@@ -66,6 +66,7 @@ async function createClubActivity(prisma, clubId, type, options = {}) {
     targetPlayerId = null,
     actorNickname = null,
     targetNickname = null,
+    metadata = null,
   } = options;
 
   let resolvedActorNickname = actorNickname;
@@ -96,6 +97,7 @@ async function createClubActivity(prisma, clubId, type, options = {}) {
       targetPlayerId,
       actorNickname: resolvedActorNickname,
       targetNickname: resolvedTargetNickname,
+      metadata: metadata ?? null,
     };
 
     await prisma.clubActivity.create({ data: activityData });
@@ -136,6 +138,15 @@ async function getPlayerClubMembershipCount(prisma, playerId) {
   return prisma.clubMember.count({
     where: { playerId },
   });
+}
+
+async function getPlayerJoinClubLimit(prisma, playerId) {
+  const player = await prisma.player.findUnique({
+    where: { id: playerId },
+    select: { maxJoinClubCount: true },
+  });
+  const raw = Number(player?.maxJoinClubCount);
+  return Number.isFinite(raw) && raw >= 1 ? Math.floor(raw) : 3;
 }
 
 /** 各俱樂部「進行中／等待中」房間數（用於列表顯示，避免載入全部房資料） */
@@ -859,8 +870,9 @@ router.post('/:clubId/join-requests', async (req, res) => {
     }
 
     const joinedClubCount = await getPlayerClubMembershipCount(prisma, playerId);
-    if (joinedClubCount >= 3) {
-      return errorResponse(res, '已達可加入俱樂部上限（3）', null, 400);
+    const joinLimit = await getPlayerJoinClubLimit(prisma, playerId);
+    if (joinedClubCount >= joinLimit) {
+      return errorResponse(res, `已達可加入俱樂部上限（${joinLimit}）`, null, 400);
     }
 
     const requiresApproval = club.joinRequiresOwnerApproval !== false;
@@ -1141,8 +1153,9 @@ router.post('/:clubId/join-requests/:requestId', async (req, res) => {
       });
       if (!existingMember) {
         const joinedClubCount = await getPlayerClubMembershipCount(prisma, request.playerId);
-        if (joinedClubCount >= 3) {
-          return errorResponse(res, '玩家已達可加入俱樂部上限（3）', null, 400);
+        const joinLimit = await getPlayerJoinClubLimit(prisma, request.playerId);
+        if (joinedClubCount >= joinLimit) {
+          return errorResponse(res, `玩家已達可加入俱樂部上限（${joinLimit}）`, null, 400);
         }
         await prisma.clubMember.create({
           data: { clubId: club.id, playerId: request.playerId },
@@ -1792,8 +1805,9 @@ router.post('/:clubId/members', async (req, res) => {
     }
 
     const joinedClubCount = await getPlayerClubMembershipCount(prisma, playerId);
-    if (joinedClubCount >= 3) {
-      return errorResponse(res, '已達可加入俱樂部上限（3）', null, 400);
+    const joinLimit = await getPlayerJoinClubLimit(prisma, playerId);
+    if (joinedClubCount >= joinLimit) {
+      return errorResponse(res, `已達可加入俱樂部上限（${joinLimit}）`, null, 400);
     }
 
     // 添加成員
@@ -2131,6 +2145,20 @@ router.post('/:clubId/members/score-limit', async (req, res) => {
       where: { clubId_playerId: { clubId: club.id, playerId } },
       data: { scoreLimit: nextScoreLimit },
     });
+
+    await createClubActivity(
+      prisma,
+      club.id,
+      shouldAccumulate ? 'SCORE_LIMIT_INCREASED' : 'SCORE_LIMIT_SET',
+      {
+        actorPlayerId: actorPlayerId ?? null,
+        targetPlayerId: playerId,
+        metadata: {
+          scoreLimit: nextScoreLimit,
+          mode: shouldAccumulate ? 'accumulate' : 'set',
+        },
+      }
+    );
 
     return successResponse(res, updated, '設定分數上限成功');
   } catch (error) {

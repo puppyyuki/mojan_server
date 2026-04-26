@@ -64,7 +64,7 @@ export async function PATCH(
   try {
     const { id } = await params
     const body = await request.json()
-    const { nickname, cardCount, bio } = body
+    const { nickname, cardCount, bio, maxJoinClubCount } = body
 
     if (cardCount !== undefined) {
       const opCodeGuard = assertAdminOpCode(request, body)
@@ -101,6 +101,16 @@ export async function PATCH(
     }
     if (bio !== undefined) {
       updateData.bio = bio === null || bio === '' ? null : bio.trim()
+    }
+    if (maxJoinClubCount !== undefined) {
+      const parsedMaxJoin = parseInt(String(maxJoinClubCount), 10)
+      if (!Number.isFinite(parsedMaxJoin) || parsedMaxJoin < 1) {
+        return NextResponse.json(
+          { success: false, error: '可加入俱樂部上限必須為大於等於 1 的整數' },
+          { status: 400, headers: corsHeaders() }
+        )
+      }
+      updateData.maxJoinClubCount = parsedMaxJoin
     }
 
     // 如果更新暱稱，檢查是否重複

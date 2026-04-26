@@ -40,6 +40,7 @@ model Player {
   referredPlayers  Player[]  @relation("Referral")
   hasBoundReferrer Boolean   @default(false) // 是否已綁定推薦人 (並領取邀請碼獎勵房卡)
   referralCount    Int       @default(0)     // 被推薦人已綁手機、推薦人已領2張後累計 (升級代理)
+  maxJoinClubCount Int       @default(3)     // 玩家可加入俱樂部上限
   /// E.164，例如 +886912345678；已驗證手機綁定
   phoneE164                  String?   @unique
   phoneVerifiedAt            DateTime?
@@ -235,6 +236,8 @@ enum ClubActivityType {
   MEMBER_BANNED
   MEMBER_LEFT
   MEMBER_UNBANNED
+  SCORE_LIMIT_SET
+  SCORE_LIMIT_INCREASED
 }
 
 enum MultiplayerVersion {
@@ -251,6 +254,7 @@ model ClubActivity {
   targetPlayerId String?
   actorNickname  String?
   targetNickname String?
+  metadata       Json?
   createdAt      DateTime         @default(now())
 
   @@index([clubId, createdAt])

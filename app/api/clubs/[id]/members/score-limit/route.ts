@@ -121,6 +121,33 @@ export async function POST(
       where: { clubId_playerId: { clubId: id, playerId } },
       data: { scoreLimit: nextScoreLimit },
     })
+
+    const [actor, target] = await Promise.all([
+      prisma.player.findUnique({
+        where: { id: actorPlayerId },
+        select: { nickname: true },
+      }),
+      prisma.player.findUnique({
+        where: { id: playerId },
+        select: { nickname: true },
+      }),
+    ])
+
+    await prisma.clubActivity.create({
+      data: {
+        clubId: id,
+        type: shouldAccumulate ? 'SCORE_LIMIT_INCREASED' : 'SCORE_LIMIT_SET',
+        actorPlayerId: actorPlayerId,
+        targetPlayerId: playerId,
+        actorNickname: actor?.nickname ?? null,
+        targetNickname: target?.nickname ?? null,
+        metadata: {
+          scoreLimit: nextScoreLimit,
+          mode: shouldAccumulate ? 'accumulate' : 'set',
+        },
+      },
+    })
+
     return NextResponse.json(
       { success: true, data: member },
       { headers: corsHeaders() }
