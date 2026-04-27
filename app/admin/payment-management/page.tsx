@@ -32,7 +32,10 @@ interface RoomCardOrder {
   updatedAt: Date
 }
 
+const PAYMENT_UI_KEY = 'mojan_admin_payment_ui_v1'
+
 export default function PaymentManagementPage() {
+  const [persistReady, setPersistReady] = useState(false)
   const [loading, setLoading] = useState(false)
   const [orders, setOrders] = useState<RoomCardOrder[]>([])
   const [dataLoaded, setDataLoaded] = useState(false)
@@ -40,6 +43,34 @@ export default function PaymentManagementPage() {
   const [statusFilter, setStatusFilter] = useState<string>('ALL')
   const [selectedOrder, setSelectedOrder] = useState<RoomCardOrder | null>(null)
   const [detailModalOpen, setDetailModalOpen] = useState(false)
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(PAYMENT_UI_KEY)
+      if (raw) {
+        const p = JSON.parse(raw) as { searchKeyword?: string; statusFilter?: string }
+        if (typeof p.searchKeyword === 'string') setSearchKeyword(p.searchKeyword)
+        const sf = p.statusFilter
+        if (
+          sf === 'ALL' ||
+          sf === 'PENDING' ||
+          sf === 'PAID' ||
+          sf === 'FAILED' ||
+          sf === 'CANCELLED'
+        ) {
+          setStatusFilter(sf)
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    setPersistReady(true)
+  }, [])
+
+  useEffect(() => {
+    if (!persistReady) return
+    sessionStorage.setItem(PAYMENT_UI_KEY, JSON.stringify({ searchKeyword, statusFilter }))
+  }, [persistReady, searchKeyword, statusFilter])
 
   // 獲取訂單列表
   const fetchOrders = useCallback(async () => {
@@ -63,8 +94,9 @@ export default function PaymentManagementPage() {
 
   // 初始化載入
   useEffect(() => {
+    if (!persistReady) return
     fetchOrders()
-  }, [fetchOrders])
+  }, [persistReady, fetchOrders])
 
   // 搜尋處理
   const handleSearchChange = (keyword: string) => {
@@ -80,7 +112,10 @@ export default function PaymentManagementPage() {
       order.player.userId.includes(searchKeyword) ||
       (order.ecpayTradeNo && order.ecpayTradeNo.toLowerCase().includes(searchKeyword.toLowerCase()))
 
-    const matchesStatus = statusFilter === 'ALL' || order.status === statusFilter
+    const matchesStatus =
+      statusFilter === 'ALL'
+        ? order.status !== 'FAILED'
+        : order.status === statusFilter
 
     return matchesSearch && matchesStatus
   })

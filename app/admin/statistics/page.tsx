@@ -129,7 +129,7 @@ function TrendTable({
   rows: TrendPoint[]
   rightControl?: React.ReactNode
   chartMode: 'line' | 'area'
-  lineType: 'monotone' | 'linear' | 'step'
+  lineType: 'monotone' | 'linear' | 'step' | 'natural'
   showTable: boolean
   showAverage: boolean
 }) {
@@ -250,7 +250,10 @@ function TrendTable({
   )
 }
 
+const STATS_UI_KEY = 'mojan_admin_statistics_ui_v1'
+
 export default function StatisticsPage() {
+  const [persistReady, setPersistReady] = useState(false)
   const [loading, setLoading] = useState(false)
   const [data, setData] = useState<StatisticsData | null>(null)
   const [roomOpenPeriod, setRoomOpenPeriod] = useState<ChartPeriod>('last24h')
@@ -260,13 +263,102 @@ export default function StatisticsPage() {
   const [playerRankCount, setPlayerRankCount] = useState(20)
   const [salesView, setSalesView] = useState<SalesPeriod>('last7days')
   const [chartMode, setChartMode] = useState<'line' | 'area'>('line')
-  const [lineType, setLineType] = useState<'monotone' | 'linear' | 'step'>('monotone')
+  const [lineType, setLineType] = useState<'monotone' | 'linear' | 'step' | 'natural'>('monotone')
   const [showTable, setShowTable] = useState(true)
   const [showAverage, setShowAverage] = useState(true)
   const [clubSortBy, setClubSortBy] = useState<'gameCount' | 'totalRounds' | 'totalRoomCardsConsumed'>('gameCount')
   const [playerSortBy, setPlayerSortBy] = useState<'totalScore' | 'bigWinnerCount' | 'gameCount' | 'cardCount'>('totalScore')
   const [playerScope, setPlayerScope] = useState<'all' | 'club' | 'lobby'>('all')
   const [playerPeriod, setPlayerPeriod] = useState<'week' | 'month' | '3months'>('month')
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(STATS_UI_KEY)
+      if (raw) {
+        const p = JSON.parse(raw) as Record<string, unknown>
+        const rp = p.roomOpenPeriod as ChartPeriod | undefined
+        const validPeriod = chartPeriodOptions.some((o) => o.value === rp)
+        if (validPeriod && rp) setRoomOpenPeriod(rp)
+        const np = p.newPlayerPeriod as ChartPeriod | undefined
+        if (np && chartPeriodOptions.some((o) => o.value === np)) setNewPlayerPeriod(np)
+        const ap = p.activePlayerPeriod as ChartPeriod | undefined
+        if (ap && chartPeriodOptions.some((o) => o.value === ap)) setActivePlayerPeriod(ap)
+        if (typeof p.clubRankCount === 'number') setClubRankCount(p.clubRankCount === 10 ? 10 : 20)
+        if (typeof p.playerRankCount === 'number') setPlayerRankCount(p.playerRankCount === 10 ? 10 : 20)
+        const sv = p.salesView as SalesPeriod | undefined
+        if (sv && salesPeriodOptions.some((o) => o.value === sv)) setSalesView(sv)
+        if (p.chartMode === 'line' || p.chartMode === 'area') setChartMode(p.chartMode)
+        if (p.lineType === 'monotone' || p.lineType === 'linear' || p.lineType === 'step' || p.lineType === 'natural') {
+          setLineType(p.lineType)
+        }
+        if (typeof p.showTable === 'boolean') setShowTable(p.showTable)
+        if (typeof p.showAverage === 'boolean') setShowAverage(p.showAverage)
+        if (
+          p.clubSortBy === 'gameCount' ||
+          p.clubSortBy === 'totalRounds' ||
+          p.clubSortBy === 'totalRoomCardsConsumed'
+        ) {
+          setClubSortBy(p.clubSortBy)
+        }
+        if (
+          p.playerSortBy === 'totalScore' ||
+          p.playerSortBy === 'bigWinnerCount' ||
+          p.playerSortBy === 'gameCount' ||
+          p.playerSortBy === 'cardCount'
+        ) {
+          setPlayerSortBy(p.playerSortBy)
+        }
+        if (p.playerScope === 'all' || p.playerScope === 'club' || p.playerScope === 'lobby') {
+          setPlayerScope(p.playerScope)
+        }
+        if (p.playerPeriod === 'week' || p.playerPeriod === 'month' || p.playerPeriod === '3months') {
+          setPlayerPeriod(p.playerPeriod)
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    setPersistReady(true)
+  }, [])
+
+  useEffect(() => {
+    if (!persistReady) return
+    sessionStorage.setItem(
+      STATS_UI_KEY,
+      JSON.stringify({
+        roomOpenPeriod,
+        newPlayerPeriod,
+        activePlayerPeriod,
+        clubRankCount,
+        playerRankCount,
+        salesView,
+        chartMode,
+        lineType,
+        showTable,
+        showAverage,
+        clubSortBy,
+        playerSortBy,
+        playerScope,
+        playerPeriod,
+      })
+    )
+  }, [
+    persistReady,
+    roomOpenPeriod,
+    newPlayerPeriod,
+    activePlayerPeriod,
+    clubRankCount,
+    playerRankCount,
+    salesView,
+    chartMode,
+    lineType,
+    showTable,
+    showAverage,
+    clubSortBy,
+    playerSortBy,
+    playerScope,
+    playerPeriod,
+  ])
 
   const fetchOverview = useCallback(async () => {
     setLoading(true)
@@ -291,8 +383,9 @@ export default function StatisticsPage() {
   }, [playerScope, playerPeriod])
 
   useEffect(() => {
+    if (!persistReady) return
     fetchOverview()
-  }, [fetchOverview])
+  }, [persistReady, fetchOverview])
 
   const sortedClubRanking = [...(data?.clubRanking || [])]
     .sort((a, b) => (b[clubSortBy] as number) - (a[clubSortBy] as number))
@@ -351,87 +444,6 @@ export default function StatisticsPage() {
           <div className="text-2xl font-semibold mt-2">{getSalesValue(data, salesView)}</div>
           <p className="text-xs text-gray-500 mt-1">可切換時間篩選查看銷售房卡統計</p>
         </div>
-      </div>
-
-      <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
-        <div className="text-xs text-gray-500 uppercase mb-3">圖表客製化設定</div>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          <label className="text-xs text-gray-700 space-y-1">
-            <span className="block">圖形模式</span>
-            <select
-              value={chartMode}
-              onChange={(e) => setChartMode(e.target.value as 'line' | 'area')}
-              className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 bg-white"
-            >
-              <option value="line">折線圖</option>
-              <option value="area">面積圖</option>
-            </select>
-          </label>
-          <label className="text-xs text-gray-700 space-y-1">
-            <span className="block">線條風格</span>
-            <select
-              value={lineType}
-              onChange={(e) => setLineType(e.target.value as 'monotone' | 'linear' | 'step')}
-              className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 bg-white"
-            >
-              <option value="monotone">平滑</option>
-              <option value="linear">直線</option>
-              <option value="step">階梯</option>
-            </select>
-          </label>
-          <label className="text-xs text-gray-700 space-y-1">
-            <span className="block">平均線</span>
-            <select
-              value={showAverage ? 'on' : 'off'}
-              onChange={(e) => setShowAverage(e.target.value === 'on')}
-              className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 bg-white"
-            >
-              <option value="on">顯示</option>
-              <option value="off">隱藏</option>
-            </select>
-          </label>
-          <label className="text-xs text-gray-700 space-y-1">
-            <span className="block">下方數據表</span>
-            <select
-              value={showTable ? 'on' : 'off'}
-              onChange={(e) => setShowTable(e.target.value === 'on')}
-              className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 bg-white"
-            >
-              <option value="on">顯示</option>
-              <option value="off">隱藏</option>
-            </select>
-          </label>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-        <TrendTable
-          title="開桌數"
-          rows={getTrendRows(data?.roomOpenStats, roomOpenPeriod)}
-          chartMode={chartMode}
-          lineType={lineType}
-          showTable={showTable}
-          showAverage={showAverage}
-          rightControl={chartPeriodSelect(roomOpenPeriod, setRoomOpenPeriod)}
-        />
-        <TrendTable
-          title="玩家新增"
-          rows={getTrendRows(data?.newPlayers, newPlayerPeriod)}
-          chartMode={chartMode}
-          lineType={lineType}
-          showTable={showTable}
-          showAverage={showAverage}
-          rightControl={chartPeriodSelect(newPlayerPeriod, setNewPlayerPeriod)}
-        />
-        <TrendTable
-          title="玩家活躍"
-          rows={getTrendRows(data?.playerActivity, activePlayerPeriod)}
-          chartMode={chartMode}
-          lineType={lineType}
-          showTable={showTable}
-          showAverage={showAverage}
-          rightControl={chartPeriodSelect(activePlayerPeriod, setActivePlayerPeriod)}
-        />
       </div>
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
@@ -513,7 +525,7 @@ export default function StatisticsPage() {
               <option value="totalScore">依總分</option>
               <option value="bigWinnerCount">依大贏家次數</option>
               <option value="gameCount">依場次</option>
-              <option value="cardCount">依房卡餘額</option>
+              <option value="cardCount">依耗卡量</option>
             </select>
             <select
               value={playerRankCount}
@@ -549,7 +561,7 @@ export default function StatisticsPage() {
                 <th className="px-4 py-2 text-center text-xs text-gray-500 uppercase">總分</th>
                 <th className="px-4 py-2 text-center text-xs text-gray-500 uppercase">大贏家次數</th>
                 <th className="px-4 py-2 text-center text-xs text-gray-500 uppercase">場次</th>
-                <th className="px-4 py-2 text-center text-xs text-gray-500 uppercase">房卡餘額</th>
+                <th className="px-4 py-2 text-center text-xs text-gray-500 uppercase">耗卡量</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
@@ -567,7 +579,93 @@ export default function StatisticsPage() {
           </table>
         </div>
       </div>
+
+      <div className="space-y-3">
+        <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">趨勢圖表（波型可選）</p>
+        <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+          <div className="text-xs text-gray-500 uppercase mb-3">圖表客製化設定</div>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <label className="text-xs text-gray-700 space-y-1">
+              <span className="block">圖形模式</span>
+              <select
+                value={chartMode}
+                onChange={(e) => setChartMode(e.target.value as 'line' | 'area')}
+                className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 bg-white"
+              >
+                <option value="line">折線圖</option>
+                <option value="area">面積圖</option>
+              </select>
+            </label>
+            <label className="text-xs text-gray-700 space-y-1">
+              <span className="block">線條風格</span>
+              <select
+                value={lineType}
+                onChange={(e) =>
+                  setLineType(e.target.value as 'monotone' | 'linear' | 'step' | 'natural')
+                }
+                className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 bg-white"
+              >
+                <option value="monotone">平滑</option>
+                <option value="linear">直線</option>
+                <option value="step">階梯</option>
+                <option value="natural">波型曲線</option>
+              </select>
+            </label>
+            <label className="text-xs text-gray-700 space-y-1">
+              <span className="block">平均線</span>
+              <select
+                value={showAverage ? 'on' : 'off'}
+                onChange={(e) => setShowAverage(e.target.value === 'on')}
+                className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 bg-white"
+              >
+                <option value="on">顯示</option>
+                <option value="off">隱藏</option>
+              </select>
+            </label>
+            <label className="text-xs text-gray-700 space-y-1">
+              <span className="block">下方數據表</span>
+              <select
+                value={showTable ? 'on' : 'off'}
+                onChange={(e) => setShowTable(e.target.value === 'on')}
+                className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 bg-white"
+              >
+                <option value="on">顯示</option>
+                <option value="off">隱藏</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <TrendTable
+            title="開桌數"
+            rows={getTrendRows(data?.roomOpenStats, roomOpenPeriod)}
+            chartMode={chartMode}
+            lineType={lineType}
+            showTable={showTable}
+            showAverage={showAverage}
+            rightControl={chartPeriodSelect(roomOpenPeriod, setRoomOpenPeriod)}
+          />
+          <TrendTable
+            title="玩家新增"
+            rows={getTrendRows(data?.newPlayers, newPlayerPeriod)}
+            chartMode={chartMode}
+            lineType={lineType}
+            showTable={showTable}
+            showAverage={showAverage}
+            rightControl={chartPeriodSelect(newPlayerPeriod, setNewPlayerPeriod)}
+          />
+          <TrendTable
+            title="玩家活躍"
+            rows={getTrendRows(data?.playerActivity, activePlayerPeriod)}
+            chartMode={chartMode}
+            lineType={lineType}
+            showTable={showTable}
+            showAverage={showAverage}
+            rightControl={chartPeriodSelect(activePlayerPeriod, setActivePlayerPeriod)}
+          />
+        </div>
+      </div>
     </div>
   )
 }
-

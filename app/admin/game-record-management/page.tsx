@@ -163,7 +163,27 @@ async function copyText(text: string) {
   }
 }
 
+const GR_UI_KEY = 'mojan_admin_game_record_ui_v1'
+
+const defaultClubDraft = {
+  keyword: '',
+  clubSixId: '',
+  version: 'ALL' as const,
+  deduction: 'ALL' as const,
+  recordCategory: 'ALL' as const,
+  start: '',
+  end: '',
+}
+
+const defaultGenDraft = {
+  keyword: '',
+  status: 'ALL' as const,
+  start: '',
+  end: '',
+}
+
 export default function GameRecordManagementPage() {
+  const [uiReady, setUiReady] = useState(false)
   const [tab, setTab] = useState<RecordTab>('club')
   const [loading, setLoading] = useState(false)
   const [loaded, setLoaded] = useState(false)
@@ -178,28 +198,54 @@ export default function GameRecordManagementPage() {
   const [page, setPage] = useState(1)
   const pageSize = 20
 
-  const [clubDraft, setClubDraft] = useState({
-    keyword: '',
-    clubSixId: '',
-    version: 'ALL',
-    deduction: 'ALL',
-    recordCategory: 'ALL',
-    start: '',
-    end: '',
-  })
-  const [clubApplied, setClubApplied] = useState(clubDraft)
+  const [clubDraft, setClubDraft] = useState({ ...defaultClubDraft })
+  const [clubApplied, setClubApplied] = useState({ ...defaultClubDraft })
 
-  const [genDraft, setGenDraft] = useState({
-    keyword: '',
-    status: 'ALL',
-    start: '',
-    end: '',
-  })
-  const [genApplied, setGenApplied] = useState(genDraft)
+  const [genDraft, setGenDraft] = useState({ ...defaultGenDraft })
+  const [genApplied, setGenApplied] = useState({ ...defaultGenDraft })
 
   const [detailClub, setDetailClub] = useState<Record<string, unknown> | null>(null)
   const [detailGeneral, setDetailGeneral] = useState<Record<string, unknown> | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem(GR_UI_KEY)
+      if (raw) {
+        const p = JSON.parse(raw) as Record<string, unknown>
+        if (p.tab === 'club' || p.tab === 'general') setTab(p.tab)
+        if (typeof p.page === 'number' && p.page >= 1) setPage(p.page)
+        const ca = p.clubApplied as typeof defaultClubDraft | undefined
+        if (ca && typeof ca === 'object') {
+          const merged = { ...defaultClubDraft, ...ca }
+          setClubApplied(merged)
+          setClubDraft(merged)
+        }
+        const ga = p.genApplied as typeof defaultGenDraft | undefined
+        if (ga && typeof ga === 'object') {
+          const merged = { ...defaultGenDraft, ...ga }
+          setGenApplied(merged)
+          setGenDraft(merged)
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+    setUiReady(true)
+  }, [])
+
+  useEffect(() => {
+    if (!uiReady) return
+    sessionStorage.setItem(
+      GR_UI_KEY,
+      JSON.stringify({
+        tab,
+        page,
+        clubApplied,
+        genApplied,
+      })
+    )
+  }, [uiReady, tab, page, clubApplied, genApplied])
 
   const buildClubQuery = useCallback(() => {
     const q = new URLSearchParams()
@@ -263,8 +309,9 @@ export default function GameRecordManagementPage() {
   }, [tab, buildClubQuery, buildGeneralQuery])
 
   useEffect(() => {
+    if (!uiReady) return
     fetchList()
-  }, [fetchList])
+  }, [uiReady, fetchList])
 
   /** 「進行中」分類：依大廳房間 PLAYING 連動，約每 12 秒同步列表（不觸發全頁 loading） */
   useEffect(() => {

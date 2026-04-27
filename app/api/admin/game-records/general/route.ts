@@ -104,13 +104,50 @@ async function fetchWrongParticipantSessionIds(): Promise<string[]> {
   return rows.map((r) => r.id)
 }
 
+/** 與 ERROR 分類同款條件，供 ALL 時以 NOT 排除錯誤戰績 */
+function buildGeneralErrorDisjunction(
+  playingInternalIds: Set<string>,
+  playingRoomCodes: Set<string>,
+  wrongParticipantIds: string[]
+): Prisma.V2MatchSessionWhereInput[] {
+  const hasLiveLobbyRoom = playingInternalIds.size > 0 || playingRoomCodes.size > 0
+  const inProgressAbnormal: Prisma.V2MatchSessionWhereInput = hasLiveLobbyRoom
+    ? {
+        AND: [
+          { status: 'IN_PROGRESS' },
+          {
+            NOT: {
+              OR: [
+                ...(playingInternalIds.size
+                  ? [{ roomInternalId: { in: [...playingInternalIds] } }]
+                  : []),
+                ...(playingRoomCodes.size
+                  ? [{ roomCode: { in: [...playingRoomCodes] } }]
+                  : []),
+              ],
+            },
+          },
+        ],
+      }
+    : { status: 'IN_PROGRESS' }
+
+  return [
+    { participants: { none: {} } },
+    {
+      AND: [{ status: 'FINISHED' }, { rounds: { none: {} } }],
+    },
+    ...(wrongParticipantIds.length ? [{ id: { in: wrongParticipantIds } }] : []),
+    inProgressAbnormal,
+  ]
+}
+
 /**
  * GET /api/admin/game-records/general
  * 非俱樂部房（clubId 為 null）的 V2 對局
  *
  * Query: page, pageSize, keyword, status, startDate, endDate
  * status（戰績分類）:
- * - ALL
+ * - ALL（不含錯誤戰績；錯誤戰績請選 status=ERROR）
  * - COMPLETED_FULL — 全局完結（session FINISHED 且至少 1 局戰績）
  * - DISBANDED_MID — 中途解散（session DISBANDED，不限制局數）
  * - LIVE — 進行中（IN_PROGRESS 且對應大廳房間仍為 PLAYING，即仍存活且對局中）
@@ -143,7 +180,17 @@ export async function GET(request: NextRequest) {
 
     const andParts: Prisma.V2MatchSessionWhereInput[] = [{ clubId: null }]
 
-    if (category === 'COMPLETED_FULL') {
+    if (category === 'ALL') {
+      andParts.push({
+        NOT: {
+          OR: buildGeneralErrorDisjunction(
+            playingInternalIds,
+            playingRoomCodes,
+            wrongParticipantIds
+          ),
+        },
+      })
+    } else if (category === 'COMPLETED_FULL') {
       andParts.push({ status: 'FINISHED', rounds: { some: {} } })
     } else if (category === 'DISBANDED_MID') {
       andParts.push({ status: 'DISBANDED' })
@@ -164,41 +211,13 @@ export async function GET(request: NextRequest) {
         })
       }
     } else if (category === 'ERROR') {
-      const hasLiveLobbyRoom = playingInternalIds.size > 0 || playingRoomCodes.size > 0
-      const inProgressAbnormal: Prisma.V2MatchSessionWhereInput = hasLiveLobbyRoom
-        ? {
-            AND: [
-              { status: 'IN_PROGRESS' },
-              {
-                NOT: {
-                  OR: [
-                    ...(playingInternalIds.size
-                      ? [{ roomInternalId: { in: [...playingInternalIds] } }]
-                      : []),
-                    ...(playingRoomCodes.size
-                      ? [{ roomCode: { in: [...playingRoomCodes] } }]
-                      : []),
-                  ],
-                },
-              },
-            ],
-          }
-        : { status: 'IN_PROGRESS' }
-
-      const errorOr: Prisma.V2MatchSessionWhereInput[] = [
-        { participants: { none: {} } },
-        {
-          AND: [
-            { status: 'FINISHED' },
-            { rounds: { none: {} } },
-          ],
-        },
-        ...(wrongParticipantIds.length
-          ? [{ id: { in: wrongParticipantIds } }]
-          : []),
-        inProgressAbnormal,
-      ]
-      andParts.push({ OR: errorOr })
+      andParts.push({
+        OR: buildGeneralErrorDisjunction(
+          playingInternalIds,
+          playingRoomCodes,
+          wrongParticipantIds
+        ),
+      })
     }
 
     if (keyword) {

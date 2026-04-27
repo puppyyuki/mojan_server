@@ -172,7 +172,7 @@ function deductionFilterMatch(
  * GET /api/admin/game-records/club
  *
  * recordCategory（戰績分類）:
- * - ALL — ClubGameResult（結算） + 俱樂部 V2 session（中途解散／進行中）
+ * - ALL — ClubGameResult（結算）+ 俱樂部 V2 session（中途解散／進行中），不含錯誤戰績；錯誤戰績請選 ERROR
  * - COMPLETED_FULL — 結算表：局數≥1 且 players 為 4 人
  * - ERROR — 結算表：資料異常（局數或人數不符等）
  * - DISBANDED_MID — 俱樂部 V2 session：DISBANDED（不限制局數）
@@ -574,7 +574,9 @@ async function handleClubAllRecords(opts: {
     }
   })
 
-  const merged = [...settlementItems, ...sessionItems]
+  const merged = [...settlementItems, ...sessionItems].filter(
+    (row) => row.recordCategory !== 'ERROR'
+  )
   const toTs = (v: Date | string | null | undefined) => {
     if (!v) return 0
     const t = new Date(v).getTime()

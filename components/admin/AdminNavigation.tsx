@@ -31,7 +31,7 @@ interface AdminNavigationProps {
 }
 
 export default function AdminNavigation({ onMenuClick, activeMenu, role = 'ADMIN' }: AdminNavigationProps) {
-  const menuItems: MenuItem[] = [
+  const primaryMenuItems: MenuItem[] = [
     {
       id: 'dashboard',
       label: '首頁',
@@ -93,12 +93,6 @@ export default function AdminNavigation({ onMenuClick, activeMenu, role = 'ADMIN
       path: '/admin/promotion'
     },
     {
-      id: 'statistics',
-      label: '統計圖表',
-      icon: PieChart,
-      path: '/admin/statistics'
-    },
-    {
       id: 'announcement-management',
       label: '活動更新',
       icon: Bell,
@@ -106,10 +100,21 @@ export default function AdminNavigation({ onMenuClick, activeMenu, role = 'ADMIN
     }
   ]
 
-  const visibleMenuItems = menuItems.filter((item) => {
-    if (!item.path) {
-      return true
+  const lowerMenuItems: MenuItem[] = [
+    {
+      id: 'statistics',
+      label: '統計圖表',
+      icon: PieChart,
+      path: '/admin/statistics'
     }
+  ]
+
+  const visiblePrimary = primaryMenuItems.filter((item) => {
+    if (!item.path) return true
+    return canAccessAdminPath(role, item.path)
+  })
+  const visibleLower = lowerMenuItems.filter((item) => {
+    if (!item.path) return true
     return canAccessAdminPath(role, item.path)
   })
 
@@ -120,6 +125,19 @@ export default function AdminNavigation({ onMenuClick, activeMenu, role = 'ADMIN
   }
 
   const isActive = (path?: string) => path === activeMenu
+
+  const renderMenuButton = (item: MenuItem) => (
+    <button
+      key={item.id}
+      onClick={() => handleMenuClick(item)}
+      className={`w-full flex items-center gap-3 px-6 py-4 hover:bg-[#34495e] transition-colors ${
+        isActive(item.path) ? 'text-blue-400 border-r-4 border-blue-500' : ''
+      }`}
+    >
+      <item.icon className="w-5 h-5" />
+      <span className="text-sm font-medium">{item.label}</span>
+    </button>
+  )
 
   return (
     <div className="w-56 bg-[#2c3e50] text-white h-screen overflow-y-auto flex flex-col">
@@ -139,25 +157,26 @@ export default function AdminNavigation({ onMenuClick, activeMenu, role = 'ADMIN
       </div>
 
       {/* 導覽選單 */}
-      <nav className="flex-1 py-2">
-        {visibleMenuItems.map((item) => (
-          <div key={item.id}>
-            {/* 主選單項目 */}
-            <button
-              onClick={() => handleMenuClick(item)}
-              className={`w-full flex items-center gap-3 px-6 py-4 hover:bg-[#34495e] transition-colors ${
-                isActive(item.path) ? 'text-blue-400 border-r-4 border-blue-500' : ''
-              }`}
-            >
-              <item.icon className="w-5 h-5" />
-              <span className="text-sm font-medium">{item.label}</span>
-            </button>
+      <nav className="flex-1 flex flex-col min-h-0 py-2">
+        <div className="flex-1">
+          {visiblePrimary.map((item) => (
+            <div key={item.id}>{renderMenuButton(item)}</div>
+          ))}
+        </div>
+        {visibleLower.length > 0 && (
+          <div className="border-t border-[#1e2d3d] pt-1 mt-1 shrink-0 bg-[#273746]/50">
+            <p className="px-6 pt-2 pb-1 text-[10px] font-medium uppercase tracking-wider text-gray-500">
+              資料分析
+            </p>
+            {visibleLower.map((item) => (
+              <div key={item.id}>{renderMenuButton(item)}</div>
+            ))}
           </div>
-        ))}
+        )}
       </nav>
 
       {/* 底部資訊 */}
-      <div className="p-4 bg-[#1e2d3d] border-t border-[#2c3e50]">
+      <div className="p-4 bg-[#1e2d3d] border-t border-[#2c3e50] shrink-0">
         <div className="text-xs text-gray-400 text-center">
           <p>© 2025 伍參麻將</p>
           <p className="mt-1">v1.0.0</p>
@@ -166,4 +185,3 @@ export default function AdminNavigation({ onMenuClick, activeMenu, role = 'ADMIN
     </div>
   )
 }
-
