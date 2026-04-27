@@ -1396,7 +1396,7 @@ router.get('/:clubId/rankings', async (req, res) => {
  *        startDate, endDate (YYYY-MM-DD，依結束時間為主，無 endedAt 則用 startedAt)
  *        playerId（可選，比對參與者 playerId / userId 子字串；一般成員僅能看到含自己的場次）
  *
- * 可見範圍：擁有者、副會長、已核准公關代理/大代理可看全部；其餘成員僅看自己參與的場次。
+ * 可見範圍：擁有者、副會長可看全部；其餘成員僅看自己參與的場次（代理身分不額外放寬）。
  */
 router.get('/:clubId/match-history', async (req, res) => {
   try {
