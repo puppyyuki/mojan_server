@@ -16,6 +16,37 @@ import { apiGet } from '@/lib/api-client'
 
 type RecordTab = 'club' | 'general'
 
+type ClubRecordCategoryFilter =
+  | 'ALL'
+  | 'COMPLETED_FULL'
+  | 'DISBANDED_MID'
+  | 'LIVE'
+  | 'ERROR'
+
+type GeneralRecordCategoryFilter =
+  | 'ALL'
+  | 'COMPLETED_FULL'
+  | 'DISBANDED_MID'
+  | 'LIVE'
+  | 'ERROR'
+
+type ClubFiltersState = {
+  keyword: string
+  clubSixId: string
+  version: string
+  deduction: string
+  recordCategory: ClubRecordCategoryFilter
+  start: string
+  end: string
+}
+
+type GenFiltersState = {
+  keyword: string
+  status: GeneralRecordCategoryFilter
+  start: string
+  end: string
+}
+
 interface ClubClub {
   id: string
   clubId: string
@@ -165,19 +196,19 @@ async function copyText(text: string) {
 
 const GR_UI_KEY = 'mojan_admin_game_record_ui_v1'
 
-const defaultClubDraft = {
+const defaultClubDraft: ClubFiltersState = {
   keyword: '',
   clubSixId: '',
-  version: 'ALL' as const,
-  deduction: 'ALL' as const,
-  recordCategory: 'ALL' as const,
+  version: 'ALL',
+  deduction: 'ALL',
+  recordCategory: 'ALL',
   start: '',
   end: '',
 }
 
-const defaultGenDraft = {
+const defaultGenDraft: GenFiltersState = {
   keyword: '',
-  status: 'ALL' as const,
+  status: 'ALL',
   start: '',
   end: '',
 }
@@ -215,13 +246,13 @@ export default function GameRecordManagementPage() {
         const p = JSON.parse(raw) as Record<string, unknown>
         if (p.tab === 'club' || p.tab === 'general') setTab(p.tab)
         if (typeof p.page === 'number' && p.page >= 1) setPage(p.page)
-        const ca = p.clubApplied as typeof defaultClubDraft | undefined
+        const ca = p.clubApplied as Partial<ClubFiltersState> | undefined
         if (ca && typeof ca === 'object') {
           const merged = { ...defaultClubDraft, ...ca }
           setClubApplied(merged)
           setClubDraft(merged)
         }
-        const ga = p.genApplied as typeof defaultGenDraft | undefined
+        const ga = p.genApplied as Partial<GenFiltersState> | undefined
         if (ga && typeof ga === 'object') {
           const merged = { ...defaultGenDraft, ...ga }
           setGenApplied(merged)
@@ -529,7 +560,12 @@ export default function GameRecordManagementPage() {
             </select>
             <select
               value={clubDraft.recordCategory}
-              onChange={(e) => setClubDraft((d) => ({ ...d, recordCategory: e.target.value }))}
+              onChange={(e) =>
+                setClubDraft((d) => ({
+                  ...d,
+                  recordCategory: e.target.value as ClubRecordCategoryFilter,
+                }))
+              }
               className={`min-w-[10rem] ${filterSelect}`}
             >
               <option value="ALL">戰績分類：全部</option>
@@ -571,7 +607,12 @@ export default function GameRecordManagementPage() {
             </div>
             <select
               value={genDraft.status}
-              onChange={(e) => setGenDraft((d) => ({ ...d, status: e.target.value }))}
+              onChange={(e) =>
+                setGenDraft((d) => ({
+                  ...d,
+                  status: e.target.value as GeneralRecordCategoryFilter,
+                }))
+              }
               className={`min-w-[10rem] ${filterSelect}`}
             >
               <option value="ALL">戰績分類：全部</option>
