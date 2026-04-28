@@ -426,6 +426,103 @@ export default function StatisticsPage() {
         </button>
       </div>
 
+      <div className="space-y-3">
+        <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">趨勢圖表（波型可選）</p>
+        <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+          <div className="text-xs text-gray-500 uppercase mb-3">圖表客製化設定</div>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+            <label className="text-xs text-gray-700 space-y-1">
+              <span className="block">圖形模式</span>
+              <select
+                value={chartMode}
+                onChange={(e) => setChartMode(e.target.value as 'line' | 'area')}
+                className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 bg-white"
+              >
+                <option value="line">折線圖</option>
+                <option value="area">面積圖</option>
+              </select>
+            </label>
+            <label className="text-xs text-gray-700 space-y-1">
+              <span className="block">線條風格</span>
+              <select
+                value={lineType}
+                onChange={(e) =>
+                  setLineType(e.target.value as 'monotone' | 'linear' | 'step' | 'natural')
+                }
+                className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 bg-white"
+              >
+                <option value="monotone">平滑</option>
+                <option value="linear">直線</option>
+                <option value="step">階梯</option>
+                <option value="natural">波型曲線</option>
+              </select>
+            </label>
+            <label className="text-xs text-gray-700 space-y-1">
+              <span className="block">平均線</span>
+              <select
+                value={showAverage ? 'on' : 'off'}
+                onChange={(e) => setShowAverage(e.target.value === 'on')}
+                className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 bg-white"
+              >
+                <option value="on">顯示</option>
+                <option value="off">隱藏</option>
+              </select>
+            </label>
+            <label className="text-xs text-gray-700 space-y-1">
+              <span className="block">下方數據表</span>
+              <select
+                value={showTable ? 'on' : 'off'}
+                onChange={(e) => setShowTable(e.target.value === 'on')}
+                className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 bg-white"
+              >
+                <option value="on">顯示</option>
+                <option value="off">隱藏</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <TrendTable
+            title="開桌數"
+            rows={getTrendRows(data?.roomOpenStats, roomOpenPeriod)}
+            chartMode={chartMode}
+            lineType={lineType}
+            showTable={showTable}
+            showAverage={showAverage}
+            rightControl={chartPeriodSelect(roomOpenPeriod, setRoomOpenPeriod)}
+          />
+          <TrendTable
+            title="玩家新增"
+            rows={getTrendRows(data?.newPlayers, newPlayerPeriod)}
+            chartMode={chartMode}
+            lineType={lineType}
+            showTable={showTable}
+            showAverage={showAverage}
+            rightControl={chartPeriodSelect(newPlayerPeriod, setNewPlayerPeriod)}
+          />
+          <TrendTable
+            title="玩家活躍"
+            rows={getTrendRows(data?.playerActivity, activePlayerPeriod)}
+            chartMode={chartMode}
+            lineType={lineType}
+            showTable={showTable}
+            showAverage={showAverage}
+            rightControl={chartPeriodSelect(activePlayerPeriod, setActivePlayerPeriod)}
+          />
+          <TrendTable
+            title="公司銷售房卡（已付款張數）"
+            rows={salesTrendRows}
+            chartMode={chartMode}
+            lineType={lineType}
+            showTable={showTable}
+            showAverage={showAverage}
+            tooltipValueLabel="銷售張數"
+            rightControl={chartPeriodSelect(salesCardsPeriod, setSalesCardsPeriod)}
+          />
+        </div>
+      </div>
+
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div className="px-4 py-3 border-b border-gray-200 text-sm font-semibold text-gray-800 flex items-center justify-between gap-3">
           <span>俱樂部排行榜</span>
@@ -559,103 +656,6 @@ export default function StatisticsPage() {
               ))}
             </tbody>
           </table>
-        </div>
-      </div>
-
-      <div className="space-y-3">
-        <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">趨勢圖表（波型可選）</p>
-        <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
-          <div className="text-xs text-gray-500 uppercase mb-3">圖表客製化設定</div>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-            <label className="text-xs text-gray-700 space-y-1">
-              <span className="block">圖形模式</span>
-              <select
-                value={chartMode}
-                onChange={(e) => setChartMode(e.target.value as 'line' | 'area')}
-                className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 bg-white"
-              >
-                <option value="line">折線圖</option>
-                <option value="area">面積圖</option>
-              </select>
-            </label>
-            <label className="text-xs text-gray-700 space-y-1">
-              <span className="block">線條風格</span>
-              <select
-                value={lineType}
-                onChange={(e) =>
-                  setLineType(e.target.value as 'monotone' | 'linear' | 'step' | 'natural')
-                }
-                className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 bg-white"
-              >
-                <option value="monotone">平滑</option>
-                <option value="linear">直線</option>
-                <option value="step">階梯</option>
-                <option value="natural">波型曲線</option>
-              </select>
-            </label>
-            <label className="text-xs text-gray-700 space-y-1">
-              <span className="block">平均線</span>
-              <select
-                value={showAverage ? 'on' : 'off'}
-                onChange={(e) => setShowAverage(e.target.value === 'on')}
-                className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 bg-white"
-              >
-                <option value="on">顯示</option>
-                <option value="off">隱藏</option>
-              </select>
-            </label>
-            <label className="text-xs text-gray-700 space-y-1">
-              <span className="block">下方數據表</span>
-              <select
-                value={showTable ? 'on' : 'off'}
-                onChange={(e) => setShowTable(e.target.value === 'on')}
-                className="w-full border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 bg-white"
-              >
-                <option value="on">顯示</option>
-                <option value="off">隱藏</option>
-              </select>
-            </label>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <TrendTable
-            title="開桌數"
-            rows={getTrendRows(data?.roomOpenStats, roomOpenPeriod)}
-            chartMode={chartMode}
-            lineType={lineType}
-            showTable={showTable}
-            showAverage={showAverage}
-            rightControl={chartPeriodSelect(roomOpenPeriod, setRoomOpenPeriod)}
-          />
-          <TrendTable
-            title="玩家新增"
-            rows={getTrendRows(data?.newPlayers, newPlayerPeriod)}
-            chartMode={chartMode}
-            lineType={lineType}
-            showTable={showTable}
-            showAverage={showAverage}
-            rightControl={chartPeriodSelect(newPlayerPeriod, setNewPlayerPeriod)}
-          />
-          <TrendTable
-            title="玩家活躍"
-            rows={getTrendRows(data?.playerActivity, activePlayerPeriod)}
-            chartMode={chartMode}
-            lineType={lineType}
-            showTable={showTable}
-            showAverage={showAverage}
-            rightControl={chartPeriodSelect(activePlayerPeriod, setActivePlayerPeriod)}
-          />
-          <TrendTable
-            title="公司銷售房卡（已付款張數）"
-            rows={salesTrendRows}
-            chartMode={chartMode}
-            lineType={lineType}
-            showTable={showTable}
-            showAverage={showAverage}
-            tooltipValueLabel="銷售張數"
-            rightControl={chartPeriodSelect(salesCardsPeriod, setSalesCardsPeriod)}
-          />
         </div>
       </div>
     </div>
