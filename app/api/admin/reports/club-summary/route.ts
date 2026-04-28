@@ -16,9 +16,18 @@ export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders() })
 }
 
+const WATER_RATE = 0.05 // 俱樂部贏分水錢比例（依該場最終／解散後結算為正之分數）
+
+function scoringUnitFromStoredGameSettings(raw: unknown): number {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return 20
+  const n = Number((raw as Record<string, unknown>).scoring_unit)
+  if (!Number.isFinite(n)) return 20
+  return Math.max(0, Math.floor(n))
+}
+
 /**
  * GET /api/admin/reports/club-summary
- * 俱樂部玩家報表：指定時間區間＋俱樂部 ID，彙整玩家戰績/大贏家/房卡消耗/場次（場次＝該區間內已結束小局數：胡牌、自摸或流局；房卡與俱樂部排行榜一致，來自結算 players[].roomCardConsumed）
+ * 俱樂部玩家報表：指定時間區間＋俱樂部 ID，彙整玩家戰績/大贏家/房卡消耗/場次；咚錢＝各已結算場次內（自摸×該房台數）；水錢＝各場結算或中途解散後分數為正者 ×5%（見程式常數）
  * Query: startDate, endDate (YYYY-MM-DD), clubId（俱樂部 6 碼）
  */
 export async function GET(request: NextRequest) {
@@ -75,6 +84,8 @@ export async function GET(request: NextRequest) {
               totalSelfDrawCount: 0,
               totalRoomCardConsumed: 0,
               totalCompletedGames: 0,
+              totalDongMoney: 0,
+              totalWaterMoney: 0,
             },
             filter: { startDate: startRaw, endDate: endRaw, clubId: clubSixId },
             club: { clubInternalId: null, clubSixId, clubName: '俱樂部不存在' },
@@ -96,8 +107,23 @@ export async function GET(request: NextRequest) {
       select: {
         id: true,
         players: true,
+        roomInternalId: true,
       },
     })
+
+    const roomInternalIds = [
+      ...new Set(
+        gameResults.map((gr) => gr.roomInternalId).filter((rid): rid is string => typeof rid === 'string' && !!rid)
+      ),
+    ]
+    const roomRows =
+      roomInternalIds.length > 0
+        ? await prisma.room.findMany({
+            where: { id: { in: roomInternalIds } },
+            select: { id: true, gameSettings: true },
+          })
+        : []
+    const gameSettingsByRoomId = new Map(roomRows.map((r) => [r.id, r.gameSettings]))
 
     const completedRounds = await prisma.v2MatchRound.findMany({
       where: {
@@ -133,12 +159,16 @@ export async function GET(request: NextRequest) {
       selfDrawCount: number
       roomCardConsumed: number
       completedGames: number
+      dongMoney: number
+      waterMoney: number
     }
 
     const playerAggMap = new Map<string, PlayerAgg>()
 
     for (const result of gameResults) {
       const players = Array.isArray(result.players) ? result.players : []
+      const gs = result.roomInternalId ? gameSettingsByRoomId.get(result.roomInternalId) : undefined
+      const taiUnit = scoringUnitFromStoredGameSettings(gs)
 
       for (const item of players) {
         if (!item || typeof item !== 'object') continue
@@ -157,6 +187,8 @@ export async function GET(request: NextRequest) {
         const selfDrawCount = Number(statistics?.selfDraws ?? p.selfDrawCount ?? 0) || 0
         const roomCardConsumed = Number(p.roomCardConsumed ?? 0) || 0
         const isBigWinner = p.isBigWinner === true
+        const dongThisGame = selfDrawCount * taiUnit
+        const waterThisGame = score > 0 ? score * WATER_RATE : 0
 
         const existing = playerAggMap.get(playerId)
         if (!existing) {
@@ -169,6 +201,8 @@ export async function GET(request: NextRequest) {
             selfDrawCount,
             roomCardConsumed,
             completedGames: 0,
+            dongMoney: dongThisGame,
+            waterMoney: waterThisGame,
           })
           continue
         }
@@ -177,6 +211,8 @@ export async function GET(request: NextRequest) {
         existing.bigWinnerCount += isBigWinner ? 1 : 0
         existing.selfDrawCount += selfDrawCount
         existing.roomCardConsumed += roomCardConsumed
+        existing.dongMoney += dongThisGame
+        existing.waterMoney += waterThisGame
         if (existing.userId === '—' && userId !== '—') {
           existing.userId = userId
         }
@@ -210,6 +246,51 @@ export async function GET(request: NextRequest) {
           selfDrawCount: 0,
           roomCardConsumed: 0,
           completedGames: 0,
+          dongMoney: 0,
+          waterMoney: 0,
+        })
+      }
+    }
+
+    const disbandedSessions = await prisma.v2MatchSession.findMany({
+      where: {
+        clubId: club.id,
+        status: 'DISBANDED',
+        endedAt: { gte: startAt, lte: endAt },
+      },
+      select: {
+        participants: {
+          select: { playerId: true, matchTotalScore: true, userId: true, nickname: true },
+        },
+      },
+    })
+    for (const sess of disbandedSessions) {
+      for (const part of sess.participants ?? []) {
+        const playerId = part.playerId
+        if (!playerId) continue
+        const score = Number(part.matchTotalScore ?? 0) || 0
+        const waterThisGame = score > 0 ? score * WATER_RATE : 0
+        if (waterThisGame === 0) continue
+        const existing = playerAggMap.get(playerId)
+        if (existing) {
+          existing.waterMoney += waterThisGame
+          continue
+        }
+        const userId =
+          typeof part.userId === 'string' && part.userId.trim() ? part.userId.trim() : '—'
+        const nickname =
+          typeof part.nickname === 'string' && part.nickname.trim() ? part.nickname.trim() : '未知玩家'
+        playerAggMap.set(playerId, {
+          playerId,
+          userId,
+          nickname,
+          battleScore: 0,
+          bigWinnerCount: 0,
+          selfDrawCount: 0,
+          roomCardConsumed: 0,
+          completedGames: 0,
+          dongMoney: 0,
+          waterMoney: waterThisGame,
         })
       }
     }
@@ -232,6 +313,8 @@ export async function GET(request: NextRequest) {
         selfDrawCount: r.selfDrawCount,
         roomCardConsumed: r.roomCardConsumed,
         completedGames: r.completedGames,
+        dongMoney: Math.round(r.dongMoney),
+        waterMoney: Math.round(r.waterMoney * 100) / 100,
       }))
       .sort((a, b) => {
         if (b.battleScore !== a.battleScore) return b.battleScore - a.battleScore
@@ -246,6 +329,8 @@ export async function GET(request: NextRequest) {
         acc.totalSelfDrawCount += row.selfDrawCount
         acc.totalRoomCardConsumed += row.roomCardConsumed
         acc.totalCompletedGames += row.completedGames
+        acc.totalDongMoney += row.dongMoney
+        acc.totalWaterMoney += row.waterMoney
         return acc
       },
       {
@@ -254,6 +339,8 @@ export async function GET(request: NextRequest) {
         totalSelfDrawCount: 0,
         totalRoomCardConsumed: 0,
         totalCompletedGames: 0,
+        totalDongMoney: 0,
+        totalWaterMoney: 0,
       }
     )
 

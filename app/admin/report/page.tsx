@@ -18,6 +18,8 @@ interface PlayerReportRow {
   selfDrawCount: number
   roomCardConsumed: number
   completedGames: number
+  dongMoney: number
+  waterMoney: number
 }
 
 interface SummaryData {
@@ -28,6 +30,8 @@ interface SummaryData {
     totalSelfDrawCount: number
     totalRoomCardConsumed: number
     totalCompletedGames: number
+    totalDongMoney: number
+    totalWaterMoney: number
   }
   filter: { startDate: string; endDate: string; clubId: string }
   club: { clubInternalId: string | null; clubSixId: string; clubName: string }
@@ -92,7 +96,19 @@ export default function ReportPage() {
       alert('沒有可匯出的資料')
       return
     }
-    const headers = ['時間區間', '俱樂部 ID', '俱樂部名稱', '玩家暱稱 + ID', '戰績', '大贏家', '自摸次數', '房卡消耗', '場次']
+    const headers = [
+      '時間區間',
+      '俱樂部 ID',
+      '俱樂部名稱',
+      '玩家暱稱 + ID',
+      '戰績',
+      '大贏家',
+      '自摸次數',
+      '房卡消耗',
+      '場次',
+      '咚錢',
+      '水錢',
+    ]
     const lines = [
       headers.join(','),
       ...data.rows.map((r) =>
@@ -106,6 +122,8 @@ export default function ReportPage() {
           r.selfDrawCount,
           r.roomCardConsumed,
           r.completedGames,
+          r.dongMoney,
+          r.waterMoney,
         ].join(',')
       ),
     ]
@@ -131,7 +149,7 @@ export default function ReportPage() {
           <div>
             <h2 className="text-lg font-semibold text-gray-900">俱樂部報表</h2>
             <p className="text-sm text-gray-600 mt-1">
-               依<strong className="text-gray-800">時間區間 + 俱樂部 ID</strong>，統計該俱樂部每位玩家在區間內的戰績、自摸次數、房卡消耗與場次（房卡與 App 俱樂部排行榜一致）。逐局紀錄請至
+               依<strong className="text-gray-800">時間區間 + 俱樂部 ID</strong>，統計該俱樂部每位玩家在區間內的戰績、自摸次數、房卡消耗、場次、咚錢（各已結算場自摸×該房台數）與水錢（各場若有贏分則 5%）（房卡與 App 俱樂部排行榜一致）。逐局紀錄請至
               <Link
                 href="/admin/game-record-management"
                 className="text-blue-600 hover:underline inline-flex items-center gap-0.5 mx-1"
@@ -215,7 +233,7 @@ export default function ReportPage() {
       </div>
 
       {data && queried && (
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4 mb-4">
           <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
             <div className="text-xs text-gray-500 uppercase">玩家數</div>
             <div className="text-2xl font-semibold text-gray-900 mt-1">{data.totals.playerCount}</div>
@@ -232,12 +250,20 @@ export default function ReportPage() {
             <div className="text-xs text-gray-500 uppercase">完整場次加總</div>
             <div className="text-2xl font-semibold text-emerald-800 mt-1">{data.totals.totalCompletedGames}</div>
           </div>
+          <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+            <div className="text-xs text-gray-500 uppercase">咚錢加總</div>
+            <div className="text-2xl font-semibold text-gray-900 mt-1">{data.totals.totalDongMoney}</div>
+          </div>
+          <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+            <div className="text-xs text-gray-500 uppercase">水錢加總</div>
+            <div className="text-2xl font-semibold text-amber-900 mt-1">{data.totals.totalWaterMoney}</div>
+          </div>
         </div>
       )}
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1320px] table-fixed divide-y divide-gray-200 text-sm">
+          <table className="w-full min-w-[1550px] table-fixed divide-y divide-gray-200 text-sm">
             <thead className="bg-gray-50">
               <tr>
                 <th className="w-1/8 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap border-r border-gray-200">時間區間</th>
@@ -248,26 +274,28 @@ export default function ReportPage() {
                 <th className="w-1/8 px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap border-r border-gray-200">大贏家</th>
                 <th className="w-1/8 px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap border-r border-gray-200">自摸次數</th>
                 <th className="w-1/8 px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap border-r border-gray-200">房卡消耗</th>
-                <th className="w-1/8 px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">場次</th>
+                <th className="w-1/8 px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap border-r border-gray-200">場次</th>
+                <th className="w-1/8 px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap border-r border-gray-200">咚錢</th>
+                <th className="w-1/8 px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap">水錢</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200">
               {!queried ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-12 text-center text-gray-500">
+                  <td colSpan={11} className="px-4 py-12 text-center text-gray-500">
                     請先設定時間區間與俱樂部 ID，再按「查詢」
                   </td>
                 </tr>
               ) : loading ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-12 text-center text-gray-500">
+                  <td colSpan={11} className="px-4 py-12 text-center text-gray-500">
                     <RefreshCw className="w-6 h-6 animate-spin inline mr-2" />
                     載入中…
                   </td>
                 </tr>
               ) : !data?.rows.length ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-12 text-center text-gray-500">
+                  <td colSpan={11} className="px-4 py-12 text-center text-gray-500">
                     此條件下無符合資料
                   </td>
                 </tr>
@@ -283,6 +311,8 @@ export default function ReportPage() {
                     <td className="px-4 py-2 text-center text-gray-700 border-r border-gray-200">{r.selfDrawCount}</td>
                     <td className="px-4 py-2 text-center text-emerald-800 font-medium border-r border-gray-200">{r.roomCardConsumed}</td>
                     <td className="px-4 py-2 text-center text-gray-700">{r.completedGames}</td>
+                    <td className="px-4 py-2 text-center text-gray-900 font-medium border-r border-gray-200">{r.dongMoney}</td>
+                    <td className="px-4 py-2 text-center text-amber-900 font-medium">{r.waterMoney}</td>
                   </tr>
                 ))
               )}
