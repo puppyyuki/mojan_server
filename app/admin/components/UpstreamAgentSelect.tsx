@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { apiGet } from '@/lib/api-client'
 
 export type UpstreamAgentChoice = {
@@ -46,6 +46,7 @@ export default function UpstreamAgentSelect({
 }: UpstreamAgentSelectProps) {
   const anchorRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const listboxId = useId()
 
   const [candidates, setCandidates] = useState<Candidate[]>([])
   const [loading, setLoading] = useState(true)
@@ -158,13 +159,20 @@ export default function UpstreamAgentSelect({
   return (
     <div className="space-y-2">
       {showLabel && (
-        <label className="block text-sm font-medium text-gray-700">上層代理</label>
+        <label
+          htmlFor={`${listboxId}-input`}
+          className="block text-sm font-medium text-gray-700"
+        >
+          上層代理
+        </label>
       )}
 
       <div ref={anchorRef} className="relative">
         <input
           ref={inputRef}
+          id={`${listboxId}-input`}
           type="text"
+          role="combobox"
           disabled={disabled || loading}
           value={text}
           onChange={(e) => onInputChange(e.target.value)}
@@ -179,6 +187,8 @@ export default function UpstreamAgentSelect({
           }`}
           autoComplete="off"
           aria-autocomplete="list"
+          aria-haspopup="listbox"
+          aria-controls={listboxId}
           aria-expanded={open}
         />
 
@@ -201,6 +211,7 @@ export default function UpstreamAgentSelect({
 
         {open && !disabled && !loadError && (
           <ul
+            id={listboxId}
             className="absolute left-0 right-0 top-full z-20 mt-1 max-h-52 overflow-y-auto rounded-md border border-gray-200 bg-white py-1 shadow-lg"
             role="listbox"
           >
@@ -214,6 +225,7 @@ export default function UpstreamAgentSelect({
                   <button
                     type="button"
                     role="option"
+                    aria-selected={valuePlayerDbId === c.id}
                     className={`w-full px-3 py-2 text-left text-sm text-gray-800 hover:bg-gray-100 ${
                       valuePlayerDbId === c.id ? 'bg-amber-50' : ''
                     }`}
