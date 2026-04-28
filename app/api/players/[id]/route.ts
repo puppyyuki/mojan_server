@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getCurrentUserId } from '@/lib/auth'
 import { assertAdminOpCode } from '@/lib/admin-op-code-server'
+import { validateUpstreamAssignment } from '@/lib/upstream-agent-validation'
 
 // CORS headers helper
 function corsHeaders() {
@@ -65,8 +66,25 @@ export async function PATCH(
     const { id } = await params
     const body = await request.json()
     const { nickname, cardCount, bio, maxJoinClubCount } = body
+    const hasUpstreamKey =
+      typeof body === 'object' && body !== null && 'upstreamAgentPlayerId' in body
 
-    if (cardCount !== undefined) {
+    let normalizedUpstream: string | null | undefined = undefined
+    if (hasUpstreamKey) {
+      const raw = (body as Record<string, unknown>).upstreamAgentPlayerId
+      if (raw === null || raw === '') {
+        normalizedUpstream = null
+      } else if (typeof raw === 'string' && raw.trim() !== '') {
+        normalizedUpstream = raw.trim()
+      } else {
+        return NextResponse.json(
+          { success: false, error: '上層代理 id 格式不正確' },
+          { status: 400, headers: corsHeaders() }
+        )
+      }
+    }
+
+    if (cardCount !== undefined || hasUpstreamKey) {
       const opCodeGuard = assertAdminOpCode(request, body)
       if (opCodeGuard.ok === false) {
         return opCodeGuard.response
@@ -111,6 +129,20 @@ export async function PATCH(
         )
       }
       updateData.maxJoinClubCount = parsedMaxJoin
+    }
+
+    if (normalizedUpstream !== undefined) {
+      const vu = await validateUpstreamAssignment(prisma, {
+        subjectPlayerDbId: id,
+        upstreamPlayerDbId: normalizedUpstream,
+      })
+      if (vu.ok === false) {
+        return NextResponse.json(
+          { success: false, error: vu.error },
+          { status: 400, headers: corsHeaders() }
+        )
+      }
+      updateData.upstreamAgentPlayerId = normalizedUpstream
     }
 
     // 如果更新暱稱，檢查是否重複

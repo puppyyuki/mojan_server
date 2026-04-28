@@ -51,6 +51,13 @@ interface Agent {
   createdAt: string
   reviewedAt: string | null
   reviewedBy: string | null
+  upstreamAgent: {
+    playerDbId: string
+    userId: string
+    nickname: string
+    agentLevel: string
+    agentLevelLabel: string
+  } | null
 }
 
 export default function AgentManagementPage() {
@@ -115,11 +122,16 @@ export default function AgentManagementPage() {
     const fullName = (agent.fullName || '').toLowerCase()
     const email = (agent.email || '').toLowerCase()
 
+    const upNick = agent.upstreamAgent?.nickname?.toLowerCase?.() ?? ''
+    const upUser = agent.upstreamAgent?.userId?.toLowerCase?.() ?? ''
+
     return (
       playerName.includes(keyword) ||
       playerId.includes(keyword) ||
       fullName.includes(keyword) ||
-      email.includes(keyword)
+      email.includes(keyword) ||
+      upNick.includes(keyword) ||
+      upUser.includes(keyword)
     )
   })
   const total = displayData.length
@@ -246,7 +258,7 @@ export default function AgentManagementPage() {
       {/* 數據表格 */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1400px] divide-y divide-gray-200">
+          <table className="w-full min-w-max divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 whitespace-nowrap w-[80px]">
@@ -257,6 +269,9 @@ export default function AgentManagementPage() {
                 </th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 whitespace-nowrap w-[200px]">
                   管理者名稱
+                </th>
+                <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 whitespace-nowrap min-w-fit">
+                  上層代理
                 </th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 whitespace-nowrap w-[150px]">
                   當前房卡量
@@ -284,7 +299,7 @@ export default function AgentManagementPage() {
             <tbody className="divide-y divide-gray-200">
               {loading && !dataLoaded ? (
                 <tr>
-                  <td colSpan={10} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={11} className="px-6 py-12 text-center text-gray-500">
                     <div className="flex items-center justify-center">
                       <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
                       <span className="ml-2">載入中...</span>
@@ -293,7 +308,7 @@ export default function AgentManagementPage() {
                 </tr>
               ) : displayData.length === 0 ? (
                 <tr>
-                  <td colSpan={10} className="px-6 py-12 text-center text-gray-500">
+                  <td colSpan={11} className="px-6 py-12 text-center text-gray-500">
                     暫無數據
                   </td>
                 </tr>
@@ -311,6 +326,32 @@ export default function AgentManagementPage() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200 text-gray-900">
                       {item.playerName}
+                    </td>
+                    <td className="px-6 py-4 text-center align-middle border-r border-gray-200 text-gray-900 whitespace-nowrap">
+                      {item.upstreamAgent ? (
+                        <div
+                          className="inline-flex items-center justify-center whitespace-nowrap gap-0"
+                          title={`${item.upstreamAgent.nickname}(${item.upstreamAgent.userId})${item.upstreamAgent.agentLevelLabel}`}
+                        >
+                          <span className="text-sm text-gray-900 whitespace-nowrap">
+                            <span className="font-medium">{item.upstreamAgent.nickname}</span>
+                            <span>({item.upstreamAgent.userId})</span>
+                          </span>
+                          <span
+                            className={`ml-0 shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                              item.upstreamAgent.agentLevel === 'vip'
+                                ? 'bg-purple-100 text-purple-800'
+                                : item.upstreamAgent.agentLevel === 'master'
+                                  ? 'bg-indigo-100 text-indigo-800'
+                                  : 'bg-gray-100 text-gray-800'
+                            }`}
+                          >
+                            {item.upstreamAgent.agentLevelLabel}
+                          </span>
+                        </div>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200 text-gray-900">
                       {item.roomCardBalance}

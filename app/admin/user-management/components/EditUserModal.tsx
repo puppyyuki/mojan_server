@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { X, Save } from 'lucide-react'
 import { apiPatch } from '@/lib/api-client'
 import { requestAdminOpCode, withAdminOpCodeHeader } from '@/lib/admin-op-code-client'
+import UpstreamAgentSelect from '@/app/admin/components/UpstreamAgentSelect'
 
 interface Player {
   id: string
@@ -13,6 +14,13 @@ interface Player {
   maxJoinClubCount?: number
   bio?: string | null
   phoneE164?: string | null
+  upstreamAgent?: {
+    playerDbId: string
+    userId: string
+    nickname: string
+    agentLevel: string
+    agentLevelLabel: string
+  } | null
 }
 
 interface EditUserModalProps {
@@ -32,6 +40,7 @@ export default function EditUserModal({
   const [cardCount, setCardCount] = useState<string>('0')
   const [maxJoinClubCount, setMaxJoinClubCount] = useState<string>('3')
   const [bio, setBio] = useState<string>('')
+  const [upstreamDbId, setUpstreamDbId] = useState<string | null>(null)
   const [loading, setLoading] = useState<boolean>(false)
 
   useEffect(() => {
@@ -42,6 +51,7 @@ export default function EditUserModal({
         Math.max(Number(player.maxJoinClubCount ?? 3) || 3, 1).toString()
       )
       setBio(player.bio || '')
+      setUpstreamDbId(player.upstreamAgent?.playerDbId ?? null)
     }
   }, [isOpen, player])
 
@@ -75,6 +85,7 @@ export default function EditUserModal({
         cardCount: parseInt(cardCount),
         maxJoinClubCount: parsedMaxJoinClubCount,
         bio: bio.trim() || null,
+        upstreamAgentPlayerId: upstreamDbId,
       }, {
         headers: withAdminOpCodeHeader(opCode),
       })
@@ -106,7 +117,7 @@ export default function EditUserModal({
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-lg w-full max-w-md mx-auto shadow-xl relative"
+        className="bg-white rounded-lg w-full max-w-md mx-auto shadow-xl relative max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 標題 */}
@@ -151,6 +162,15 @@ export default function EditUserModal({
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400"
             />
           </div>
+
+          <UpstreamAgentSelect
+            excludePlayerDbId={player.id}
+            valuePlayerDbId={upstreamDbId}
+            onPick={(row) =>
+              setUpstreamDbId(row ? row.playerDbId : null)
+            }
+            disabled={loading}
+          />
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">

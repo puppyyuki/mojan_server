@@ -38,6 +38,10 @@ model Player {
   referrerId       String?   // 推薦人 ID (關聯到 id)
   referrer         Player?   @relation("Referral", fields: [referrerId], references: [id])
   referredPlayers  Player[]  @relation("Referral")
+  /// 上層代理（玩家資料庫 id）；僅在有有效代理身分時可作為線上級
+  upstreamAgentPlayerId String?
+  upstreamAgent       Player?  @relation("PlayerUpstreamAgent", fields: [upstreamAgentPlayerId], references: [id], onDelete: SetNull)
+  downstreamAgents    Player[] @relation("PlayerUpstreamAgent")
   hasBoundReferrer Boolean   @default(false) // 是否已綁定推薦人 (並領取邀請碼獎勵房卡)
   referralCount    Int       @default(0)     // 被推薦人已綁手機、推薦人已領2張後累計 (升級代理)
   maxJoinClubCount Int       @default(3)     // 玩家可加入俱樂部上限

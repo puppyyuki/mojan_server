@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { generateUniqueId } from '@/lib/utils'
+import { agentLevelLabelZh } from '@/lib/agent-level-display'
 
 // CORS headers helper
 function corsHeaders() {
@@ -45,6 +46,19 @@ export async function GET(request: NextRequest) {
 
     const players = await prisma.player.findMany({
       include: {
+        upstreamAgent: {
+          select: {
+            id: true,
+            userId: true,
+            nickname: true,
+            agentApplications: {
+              where: { status: 'approved' },
+              orderBy: { reviewedAt: 'desc' },
+              take: 1,
+              select: { agentLevel: true },
+            },
+          },
+        },
         clubMembers: {
           include: {
             club: true,
@@ -89,6 +103,20 @@ export async function GET(request: NextRequest) {
         name: member.club.name,
       }))
 
+      const up = player.upstreamAgent
+      const upstreamAgent = up
+        ? (() => {
+            const lvl = up.agentApplications[0]?.agentLevel ?? 'normal'
+            return {
+              playerDbId: up.id,
+              userId: up.userId,
+              nickname: up.nickname,
+              agentLevel: lvl,
+              agentLevelLabel: agentLevelLabelZh(lvl),
+            }
+          })()
+        : null
+
       return {
         id: player.id,
         userId: player.userId,
@@ -101,6 +129,7 @@ export async function GET(request: NextRequest) {
         lastLoginAt: player.lastLoginAt,
         createdAt: player.createdAt,
         updatedAt: player.updatedAt,
+        upstreamAgent,
         totalRechargeAmount,
         averageMonthlyRecharge: Math.round(averageMonthlyConsumption * 100) / 100,
         currentClubs,

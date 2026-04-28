@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import { X, Save } from 'lucide-react'
 import { apiPatch } from '@/lib/api-client'
 import { requestAdminOpCode, withAdminOpCodeHeader } from '@/lib/admin-op-code-client'
+import UpstreamAgentSelect from '@/app/admin/components/UpstreamAgentSelect'
 
 interface Agent {
   id: string
@@ -14,6 +15,13 @@ interface Agent {
   agentLevel?: 'normal' | 'master' | 'vip'
   maxClubCreateCount?: number
   status?: 'pending' | 'approved' | 'rejected'
+  upstreamAgent: {
+    playerDbId: string
+    userId: string
+    nickname: string
+    agentLevel: string
+    agentLevelLabel: string
+  } | null
 }
 
 interface EditAgentModalProps {
@@ -32,6 +40,7 @@ export default function EditAgentModal({
   const [cardCount, setCardCount] = useState<string>('0')
   const [agentLevel, setAgentLevel] = useState<'normal' | 'master' | 'vip'>('normal')
   const [maxClubCreateCount, setMaxClubCreateCount] = useState<string>('1')
+  const [upstreamDbId, setUpstreamDbId] = useState<string | null>(null)
   const [loading, setLoading] = useState<boolean>(false)
 
   useEffect(() => {
@@ -41,32 +50,33 @@ export default function EditAgentModal({
       setMaxClubCreateCount(
         Math.max(Number(agent.maxClubCreateCount ?? 1) || 1, 1).toString()
       )
+      setUpstreamDbId(agent.upstreamAgent?.playerDbId ?? null)
     }
   }, [isOpen, agent])
 
   const handleSave = async () => {
     if (loading || !agent) return
 
-    const opCode = await requestAdminOpCode('確定要調整代理房卡資料嗎？')
+    const opCode = await requestAdminOpCode('確定要調整代理資料或房卡嗎？')
     if (!opCode) {
       return
     }
 
     setLoading(true)
     try {
-      const parsedMaxClubCreateCount = parseInt(maxClubCreateCount, 10)
+      const parsedMaxJoinClubCount = parseInt(maxClubCreateCount, 10)
       if (
         agent.status === 'approved' &&
-        (!Number.isFinite(parsedMaxClubCreateCount) || parsedMaxClubCreateCount < 1)
+        (!Number.isFinite(parsedMaxJoinClubCount) || parsedMaxJoinClubCount < 1)
       ) {
         alert('可創建俱樂部上限必須為大於等於 1 的整數')
         setLoading(false)
         return
       }
 
-      // 更新房卡數量
       const cardResponse = await apiPatch(`/api/players/${agent.playerDbId}`, {
         cardCount: parseInt(cardCount),
+        upstreamAgentPlayerId: upstreamDbId,
       }, {
         headers: withAdminOpCodeHeader(opCode),
       })
@@ -80,17 +90,15 @@ export default function EditAgentModal({
         return
       }
 
-      // 更新代理層級（如果狀態是已批准）
       if (agent.status === 'approved') {
         const levelResponse = await apiPatch(`/api/admin/agents/${agent.id}/level`, {
           agentLevel: agentLevel,
-          maxClubCreateCount: parsedMaxClubCreateCount,
+          maxClubCreateCount: parsedMaxJoinClubCount,
         })
 
         if (!levelResponse.ok) {
           const result = await levelResponse.json().catch(() => ({ error: '未知錯誤' }))
           console.error('更新代理層級失敗:', result)
-          // 不阻止整個操作，只記錄錯誤
         }
       }
 
@@ -113,7 +121,7 @@ export default function EditAgentModal({
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-lg w-full max-w-md mx-auto shadow-xl relative"
+        className="bg-white rounded-lg w-full max-w-md mx-auto shadow-xl relative max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 標題 */}
@@ -137,6 +145,15 @@ export default function EditAgentModal({
               代理名稱：<span className="font-semibold text-gray-900">{agent.playerName}</span>
             </p>
           </div>
+
+          <UpstreamAgentSelect
+            excludePlayerDbId={agent.playerDbId}
+            valuePlayerDbId={upstreamDbId}
+            onPick={(row) =>
+              setUpstreamDbId(row ? row.playerDbId : null)
+            }
+            disabled={loading}
+          />
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -227,4 +244,3 @@ export default function EditAgentModal({
     </div>
   )
 }
-

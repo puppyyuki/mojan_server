@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getCurrentUserId } from '@/lib/auth'
+import { validateUpstreamAssignment } from '@/lib/upstream-agent-validation'
 
 // CORS headers helper
 function corsHeaders() {
@@ -16,7 +17,7 @@ export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders() })
 }
 
-// 批准代理申請
+// 批准代理申請（可附帶選填上層代理，寫入 Player.upstreamAgentPlayerId）
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -24,10 +25,30 @@ export async function POST(
   try {
     const { id } = await params
 
-    // 從 session 或 token 獲取當前管理員 ID
+    let body: { upstreamAgentPlayerId?: string | null } = {}
+    try {
+      const raw = await request.json()
+      body = raw && typeof raw === 'object' ? raw : {}
+    } catch {
+      body = {}
+    }
+
+    let upstreamAgentPlayerId: string | null = null
+    const rawU = body.upstreamAgentPlayerId as unknown
+    if (rawU === null || rawU === undefined) {
+      upstreamAgentPlayerId = null
+    } else if (typeof rawU === 'string') {
+      const t = rawU.trim()
+      upstreamAgentPlayerId = t === '' ? null : t
+    } else {
+      return NextResponse.json(
+        { success: false, error: '上層代理 id 格式不正確' },
+        { status: 400, headers: corsHeaders() }
+      )
+    }
+
     const adminUserId = await getCurrentUserId(request)
 
-    // 查找申請
     const application = await prisma.agentApplication.findUnique({
       where: { id },
       include: { player: true },
@@ -53,17 +74,33 @@ export async function POST(
       )
     }
 
-    // 更新申請狀態，設置默認層級為一般代理
-    await prisma.agentApplication.update({
-      where: { id },
-      data: {
-        status: 'approved',
-        agentLevel: 'normal', // 初始審核通過都是一般代理
-        maxClubCreateCount: 1,
-        reviewedAt: new Date(),
-        reviewedBy: adminUserId || null, // 如果無法獲取管理員 ID，設置為 null
-      },
+    const v = await validateUpstreamAssignment(prisma, {
+      subjectPlayerDbId: application.playerId,
+      upstreamPlayerDbId: upstreamAgentPlayerId,
     })
+    if (v.ok === false) {
+      return NextResponse.json(
+        { success: false, error: v.error },
+        { status: 400, headers: corsHeaders() }
+      )
+    }
+
+    await prisma.$transaction([
+      prisma.agentApplication.update({
+        where: { id },
+        data: {
+          status: 'approved',
+          agentLevel: 'normal',
+          maxClubCreateCount: 1,
+          reviewedAt: new Date(),
+          reviewedBy: adminUserId || null,
+        },
+      }),
+      prisma.player.update({
+        where: { id: application.playerId },
+        data: { upstreamAgentPlayerId },
+      }),
+    ])
 
     return NextResponse.json(
       {
@@ -72,16 +109,16 @@ export async function POST(
       },
       { headers: corsHeaders() }
     )
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('批准代理申請失敗:', error)
+    const msg = error instanceof Error ? error.message : '未知錯誤'
     return NextResponse.json(
       {
         success: false,
         error: '批准失敗',
-        message: error.message || '未知錯誤',
+        message: msg,
       },
       { status: 500, headers: corsHeaders() }
     )
   }
 }
-

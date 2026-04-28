@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { agentLevelLabelZh } from '@/lib/agent-level-display'
 import { formatTaipeiDate, formatTaipeiTime } from '@/lib/taipei-time'
 
 // CORS headers helper
@@ -23,6 +24,19 @@ export async function GET(request: NextRequest) {
       include: {
         player: {
           include: {
+            upstreamAgent: {
+              select: {
+                id: true,
+                userId: true,
+                nickname: true,
+                agentApplications: {
+                  where: { status: 'approved' },
+                  orderBy: { reviewedAt: 'desc' },
+                  take: 1,
+                  select: { agentLevel: true },
+                },
+              },
+            },
             cardRechargeRecords: {
               include: {
                 adminUser: true,
@@ -89,11 +103,26 @@ export async function GET(request: NextRequest) {
         createdAt: record.createdAt.toISOString(),
       }))
 
+      const up = app.player.upstreamAgent
+      const upstreamAgent = up
+        ? (() => {
+            const level = up.agentApplications[0]?.agentLevel ?? 'normal'
+            return {
+              playerDbId: up.id,
+              userId: up.userId,
+              nickname: up.nickname,
+              agentLevel: level,
+              agentLevelLabel: agentLevelLabelZh(level),
+            }
+          })()
+        : null
+
       return {
         id: app.id,
         playerId: app.player.userId,
         playerDbId: app.player.id, // 用於補卡操作的玩家資料庫 ID
         playerName: app.player.nickname,
+        upstreamAgent,
         fullName: app.fullName,
         email: app.email,
         phone: app.phone,
