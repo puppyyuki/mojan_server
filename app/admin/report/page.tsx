@@ -310,7 +310,7 @@ export default function ReportPage() {
                     <td className="px-4 py-2 text-center text-gray-700 border-r border-gray-200">{r.bigWinnerCount}</td>
                     <td className="px-4 py-2 text-center text-gray-700 border-r border-gray-200">{r.selfDrawCount}</td>
                     <td className="px-4 py-2 text-center text-emerald-800 font-medium border-r border-gray-200">{r.roomCardConsumed}</td>
-                    <td className="px-4 py-2 text-center text-gray-700">{r.completedGames}</td>
+                    <td className="px-4 py-2 text-center text-gray-700 border-r border-gray-200">{r.completedGames}</td>
                     <td className="px-4 py-2 text-center text-gray-900 font-medium border-r border-gray-200">{r.dongMoney}</td>
                     <td className="px-4 py-2 text-center text-amber-900 font-medium">{r.waterMoney}</td>
                   </tr>
