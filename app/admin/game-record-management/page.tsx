@@ -229,11 +229,11 @@ export default function GameRecordManagementPage() {
   const [page, setPage] = useState(1)
   const pageSize = 20
 
-  const [clubDraft, setClubDraft] = useState({ ...defaultClubDraft })
-  const [clubApplied, setClubApplied] = useState({ ...defaultClubDraft })
+  const [clubDraft, setClubDraft] = useState<ClubFiltersState>({ ...defaultClubDraft })
+  const [clubApplied, setClubApplied] = useState<ClubFiltersState>({ ...defaultClubDraft })
 
-  const [genDraft, setGenDraft] = useState({ ...defaultGenDraft })
-  const [genApplied, setGenApplied] = useState({ ...defaultGenDraft })
+  const [genDraft, setGenDraft] = useState<GenFiltersState>({ ...defaultGenDraft })
+  const [genApplied, setGenApplied] = useState<GenFiltersState>({ ...defaultGenDraft })
 
   const [detailClub, setDetailClub] = useState<Record<string, unknown> | null>(null)
   const [detailGeneral, setDetailGeneral] = useState<Record<string, unknown> | null>(null)
@@ -415,6 +415,15 @@ export default function GameRecordManagementPage() {
 
   const total = tab === 'club' ? clubTotal : generalTotal
   const totalPages = Math.max(1, Math.ceil(total / pageSize))
+
+  /** 「全部」不含錯誤戰績（與後端約定一致；前端再擋一層） */
+  const visibleClubItems =
+    clubApplied.recordCategory === 'ALL'
+      ? clubItems.filter((r) => r.recordCategory !== 'ERROR')
+      : clubItems
+  const visibleGeneralItems =
+    genApplied.status === 'ALL' ? generalItems.filter((r) => r.recordCategory !== 'ERROR') : generalItems
+
 
   const openClubDetail = async (id: string) => {
     setDetailClub(null)
@@ -724,14 +733,14 @@ export default function GameRecordManagementPage() {
                         載入中…
                       </td>
                     </tr>
-                  ) : clubItems.length === 0 ? (
+                  ) : visibleClubItems.length === 0 ? (
                     <tr>
                       <td colSpan={11} className="px-6 py-8 text-center text-gray-500">
                         沒有符合條件的紀錄
                       </td>
                     </tr>
                   ) : (
-                    clubItems.map((row, idx) => (
+                    visibleClubItems.map((row, idx) => (
                       <tr key={row.id} className="hover:bg-gray-50">
                         <td className="px-4 py-3 text-center text-sm text-gray-600 border-r border-gray-200">
                           {(page - 1) * pageSize + idx + 1}
@@ -836,14 +845,14 @@ export default function GameRecordManagementPage() {
                         載入中…
                       </td>
                     </tr>
-                  ) : generalItems.length === 0 ? (
+                  ) : visibleGeneralItems.length === 0 ? (
                     <tr>
                       <td colSpan={10} className="px-6 py-8 text-center text-gray-500">
                         沒有符合條件的紀錄
                       </td>
                     </tr>
                   ) : (
-                    generalItems.map((row, idx) => (
+                    visibleGeneralItems.map((row, idx) => (
                       <tr key={row.id} className="hover:bg-gray-50">
                         <td className="px-4 py-3 text-center text-sm text-gray-600 border-r border-gray-200">
                           {(page - 1) * pageSize + idx + 1}

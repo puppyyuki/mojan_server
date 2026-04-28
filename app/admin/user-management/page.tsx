@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { RefreshCw, Edit, Trash2, Plus, Search, History, Users, ChevronLeft, ChevronRight } from 'lucide-react'
 import { apiGet, apiDelete } from '@/lib/api-client'
+import { useAdminListUiPersistence } from '@/lib/use-admin-list-ui-persistence'
 import { requestAdminOpCode, withAdminOpCodeHeader } from '@/lib/admin-op-code-client'
 import CreateUserModal from './components/CreateUserModal'
 import EditUserModal from './components/EditUserModal'
@@ -50,18 +51,16 @@ interface Player {
 }
 
 export default function UserManagementPage() {
+  const { ready: listUiReady, searchKeyword, setSearchKeyword, page, setPage } =
+    useAdminListUiPersistence('user-management')
   const [loading, setLoading] = useState(false)
   const [selectedItems, setSelectedItems] = useState<string[]>([])
   const [selectAll, setSelectAll] = useState(false)
-  const [page, setPage] = useState(1)
   const pageSize = 100
 
   // 玩家資料
   const [players, setPlayers] = useState<Player[]>([])
   const [dataLoaded, setDataLoaded] = useState(false)
-
-  // 搜尋狀態
-  const [searchKeyword, setSearchKeyword] = useState<string>('')
 
   // Modal 狀態
   const [createModalOpen, setCreateModalOpen] = useState(false)
@@ -119,10 +118,11 @@ export default function UserManagementPage() {
     }
   }, [])
 
-  // 初始化載入
+  // 初始化載入（還原搜尋／頁碼後再打 API）
   useEffect(() => {
+    if (!listUiReady) return
     fetchPlayers()
-  }, [fetchPlayers])
+  }, [listUiReady, fetchPlayers])
 
   useEffect(() => {
     fetchAccountDeletionRequests()
@@ -272,7 +272,7 @@ export default function UserManagementPage() {
     if (page > totalPages) {
       setPage(totalPages)
     }
-  }, [page, totalPages])
+  }, [page, totalPages, setPage])
 
   useEffect(() => {
     const currentPageIds = pagedData.map((item) => item.id)

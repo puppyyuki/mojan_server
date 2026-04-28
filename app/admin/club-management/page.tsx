@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { RefreshCw, Edit, Trash2, Plus, Search, Users, History, ChevronLeft, ChevronRight } from 'lucide-react'
 import { apiGet, apiDelete } from '@/lib/api-client'
+import { useAdminListUiPersistence } from '@/lib/use-admin-list-ui-persistence'
 import { requestAdminOpCode, withAdminOpCodeHeader } from '@/lib/admin-op-code-client'
 import CreateClubModal from './components/CreateClubModal'
 import EditClubModal from './components/EditClubModal'
@@ -45,19 +46,17 @@ interface Player {
 }
 
 export default function ClubManagementPage() {
+  const { ready: listUiReady, searchKeyword, setSearchKeyword, page, setPage } =
+    useAdminListUiPersistence('club-management')
   const [loading, setLoading] = useState(false)
   const [selectedItems, setSelectedItems] = useState<string[]>([])
   const [selectAll, setSelectAll] = useState(false)
-  const [page, setPage] = useState(1)
   const pageSize = 100
 
   // 俱樂部資料
   const [clubs, setClubs] = useState<Club[]>([])
   const [players, setPlayers] = useState<Player[]>([])
   const [dataLoaded, setDataLoaded] = useState(false)
-
-  // 搜尋狀態
-  const [searchKeyword, setSearchKeyword] = useState<string>('')
 
   // Modal 狀態
   const [createModalOpen, setCreateModalOpen] = useState(false)
@@ -103,9 +102,10 @@ export default function ClubManagementPage() {
 
   // 初始化載入
   useEffect(() => {
+    if (!listUiReady) return
     fetchClubs()
     fetchPlayers()
-  }, [fetchClubs, fetchPlayers])
+  }, [listUiReady, fetchClubs, fetchPlayers])
 
   // 全選處理
   const handleSelectAll = (checked: boolean) => {
@@ -230,7 +230,7 @@ export default function ClubManagementPage() {
     if (page > totalPages) {
       setPage(totalPages)
     }
-  }, [page, totalPages])
+  }, [page, totalPages, setPage])
 
   useEffect(() => {
     const currentPageIds = pagedData.map((item) => item.id)

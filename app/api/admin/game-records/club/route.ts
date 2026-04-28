@@ -361,7 +361,7 @@ async function handleClubAllRecords(opts: {
     : []
   const clubIds = matchedClubs.map((c) => c.id)
 
-  const settlementWhere: Prisma.ClubGameResultWhereInput = {}
+  let settlementWhere: Prisma.ClubGameResultWhereInput = {}
   if (clubSixId) {
     settlementWhere.club =
       clubIds.length === 0 ? { id: '__admin_club_six_no_match__' } : { id: { in: clubIds } }
@@ -393,6 +393,13 @@ async function handleClubAllRecords(opts: {
     settlementWhere.deduction = { in: ['HOST_DEDUCTION', 'CLUB_DEDUCTION'] }
   } else if (deduction === 'HOST_DEDUCTION' || deduction === 'CLUB_DEDUCTION') {
     settlementWhere.deduction = deduction
+  }
+
+  const errorSettlementIds = await clubResultIdsForCategory('ERROR')
+  if (errorSettlementIds.length > 0) {
+    settlementWhere = {
+      AND: [settlementWhere, { NOT: { id: { in: errorSettlementIds } } }],
+    }
   }
 
   const sessionAndParts: Prisma.V2MatchSessionWhereInput[] = [{ clubId: { not: null } }]

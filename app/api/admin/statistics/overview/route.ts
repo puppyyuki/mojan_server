@@ -281,6 +281,13 @@ export async function GET(request: NextRequest) {
     const currentHourStart = startOfTaipeiHour(now)
     const last24h = addTaipeiHours(currentHourStart, -23)
     const weekWindowStart = addTaipeiDays(weekStart, -7 * 7)
+
+    const salesPaidRaw = await prisma.roomCardOrder.findMany({
+      where: { status: 'PAID', createdAt: { gte: last12MonthStart } },
+      select: { createdAt: true, cardAmount: true },
+      orderBy: { createdAt: 'asc' },
+    })
+
     const deductedRoomOpenTimes = await loadDeductedRoomOpenTimes(last12MonthStart)
     const roomByHour = new Map<string, number>()
     for (let i = 0; i < 24; i++) {
@@ -329,6 +336,58 @@ export async function GET(request: NextRequest) {
       const key = formatTaipeiMonth(openedAt)
       if (monthlyRoomMap.has(key)) {
         monthlyRoomMap.set(key, (monthlyRoomMap.get(key) || 0) + 1)
+      }
+    }
+
+    const salesByHour = new Map<string, number>()
+    for (let i = 0; i < 24; i++) {
+      const hour = addTaipeiHours(last24h, i)
+      salesByHour.set(formatTaipeiHourWithDay(hour, now), 0)
+    }
+    for (const row of salesPaidRaw) {
+      if (row.createdAt < last24h) continue
+      const key = formatTaipeiHourWithDay(startOfTaipeiHour(row.createdAt), now)
+      if (salesByHour.has(key)) {
+        salesByHour.set(key, (salesByHour.get(key) || 0) + (row.cardAmount ?? 0))
+      }
+    }
+
+    const salesDailyMap = new Map<string, number>()
+    for (let i = 6; i >= 0; i--) {
+      salesDailyMap.set(formatTaipeiDay(addTaipeiDays(dayStart, -i)), 0)
+    }
+    for (const row of salesPaidRaw) {
+      if (row.createdAt < last7DayStart) continue
+      const key = formatTaipeiDay(row.createdAt)
+      if (salesDailyMap.has(key)) {
+        salesDailyMap.set(key, (salesDailyMap.get(key) || 0) + (row.cardAmount ?? 0))
+      }
+    }
+
+    const salesWeeklyMap = new Map<string, number>()
+    for (let i = 7; i >= 0; i--) {
+      const ws = addTaipeiDays(weekStart, -i * 7)
+      salesWeeklyMap.set(formatTaipeiWeekLabel(ws), 0)
+    }
+    for (const row of salesPaidRaw) {
+      if (row.createdAt < weekWindowStart) continue
+      const ws = startOfTaipeiWeek(row.createdAt)
+      const key = formatTaipeiWeekLabel(ws)
+      if (salesWeeklyMap.has(key)) {
+        salesWeeklyMap.set(key, (salesWeeklyMap.get(key) || 0) + (row.cardAmount ?? 0))
+      }
+    }
+
+    const salesMonthlyMap = new Map<string, number>()
+    for (let i = 11; i >= 0; i--) {
+      const m = addTaipeiMonths(monthStart, -i)
+      salesMonthlyMap.set(formatTaipeiMonth(m), 0)
+    }
+    for (const row of salesPaidRaw) {
+      if (row.createdAt < last12MonthStart) continue
+      const key = formatTaipeiMonth(row.createdAt)
+      if (salesMonthlyMap.has(key)) {
+        salesMonthlyMap.set(key, (salesMonthlyMap.get(key) || 0) + (row.cardAmount ?? 0))
       }
     }
 
@@ -572,10 +631,25 @@ export async function GET(request: NextRequest) {
       }
     }
     const playerIds = Array.from(playerAggMap.keys())
+    const consumptionSums =
+      playerIds.length > 0
+        ? await prisma.cardConsumptionRecord.groupBy({
+            by: ['playerId'],
+            where: {
+              playerId: { in: playerIds },
+              createdAt: { gte: playerRankingWindow },
+            },
+            _sum: { amount: true },
+          })
+        : []
+    const cardsConsumedByPlayer = new Map(
+      consumptionSums.map((s) => [s.playerId, s._sum.amount ?? 0])
+    )
+
     const playerRows = playerIds.length
       ? await prisma.player.findMany({
           where: { id: { in: playerIds } },
-          select: { id: true, userId: true, nickname: true, cardCount: true },
+          select: { id: true, userId: true, nickname: true },
         })
       : []
     const playerMap = new Map(playerRows.map((p) => [p.id, p]))
@@ -586,7 +660,8 @@ export async function GET(request: NextRequest) {
           playerId,
           userId: p?.userId || '未知玩家',
           nickname: p?.nickname || '未知玩家',
-          cardCount: p?.cardCount || 0,
+          /** 區間內實際扣卡張數（玩家排行榜「耗卡量」） */
+          cardCount: cardsConsumedByPlayer.get(playerId) ?? 0,
           totalScore: stat.score,
           bigWinnerCount: stat.bigWinnerCount,
           gameCount: stat.gameCount,
@@ -611,6 +686,12 @@ export async function GET(request: NextRequest) {
             last7Days: last7DaySales._sum.cardAmount || 0,
             last4Weeks: last4WeekSales._sum.cardAmount || 0,
             last12Months: last12MonthSales._sum.cardAmount || 0,
+          },
+          salesCardsTrend: {
+            hourly: Array.from(salesByHour.entries()).map(([label, value]) => ({ label, value })),
+            daily: Array.from(salesDailyMap.entries()).map(([label, value]) => ({ label, value })),
+            weekly: Array.from(salesWeeklyMap.entries()).map(([label, value]) => ({ label, value })),
+            monthly: Array.from(salesMonthlyMap.entries()).map(([label, value]) => ({ label, value })),
           },
           roomOpenStats: {
             hourly: Array.from(roomByHour.entries()).map(([label, value]) => ({ label, value })),

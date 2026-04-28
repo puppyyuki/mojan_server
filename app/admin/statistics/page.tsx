@@ -44,6 +44,7 @@ interface PlayerRankRow {
 
 interface StatisticsData {
   salesCards: { daily: number; weekly: number; monthly: number; last7Days?: number; last4Weeks?: number; last12Months?: number }
+  salesCardsTrend: { hourly?: TrendPoint[]; daily?: TrendPoint[]; weekly?: TrendPoint[]; monthly?: TrendPoint[] }
   roomOpenStats: { hourly: TrendPoint[]; daily?: TrendPoint[]; weekly: TrendPoint[]; monthly?: TrendPoint[] }
   newPlayers: { hourly?: TrendPoint[]; daily?: TrendPoint[]; weekly: TrendPoint[]; monthly: TrendPoint[] }
   playerActivity: { hourly?: TrendPoint[]; daily?: TrendPoint[]; weekly: TrendPoint[]; monthly: TrendPoint[] }
@@ -71,7 +72,6 @@ type ChartPeriod =
   | 'last3months'
   | 'last6months'
   | 'last12months'
-type SalesPeriod = 'last7days' | 'last4weeks' | 'last12months'
 
 const chartPeriodOptions: Array<{ value: ChartPeriod; label: string }> = [
   { value: 'last6h', label: '最近6小時' },
@@ -83,12 +83,6 @@ const chartPeriodOptions: Array<{ value: ChartPeriod; label: string }> = [
   { value: 'last8weeks', label: '最近8週' },
   { value: 'last3months', label: '最近3個月' },
   { value: 'last6months', label: '最近6個月' },
-  { value: 'last12months', label: '最近12個月' },
-]
-
-const salesPeriodOptions: Array<{ value: SalesPeriod; label: string }> = [
-  { value: 'last7days', label: '最近7天' },
-  { value: 'last4weeks', label: '最近4週' },
   { value: 'last12months', label: '最近12個月' },
 ]
 
@@ -109,13 +103,6 @@ function getTrendRows(
   return source.monthly || []
 }
 
-function getSalesValue(data: StatisticsData | null, period: SalesPeriod): number {
-  if (!data) return 0
-  if (period === 'last7days') return data.salesCards.last7Days ?? data.salesCards.weekly ?? 0
-  if (period === 'last4weeks') return data.salesCards.last4Weeks ?? data.salesCards.monthly ?? 0
-  return data.salesCards.last12Months ?? data.salesCards.monthly ?? 0
-}
-
 function TrendTable({
   title,
   rows,
@@ -124,6 +111,7 @@ function TrendTable({
   lineType,
   showTable,
   showAverage,
+  tooltipValueLabel = '數值',
 }: {
   title: string
   rows: TrendPoint[]
@@ -132,6 +120,8 @@ function TrendTable({
   lineType: 'monotone' | 'linear' | 'step' | 'natural'
   showTable: boolean
   showAverage: boolean
+  /** Tooltip / 表格「數值」欄語意（例：公司銷售圖表為「銷售張數」） */
+  tooltipValueLabel?: string
 }) {
   const max = rows.length ? Math.max(...rows.map((x) => x.value)) : 0
   const min = rows.length ? Math.min(...rows.map((x) => x.value)) : 0
@@ -165,7 +155,7 @@ function TrendTable({
                       border: '1px solid #e5e7eb',
                       boxShadow: '0 4px 14px rgba(0,0,0,0.08)',
                     }}
-                    formatter={(value: number) => [`${value}`, '數值']}
+                    formatter={(value: number) => [`${value}`, tooltipValueLabel]}
                     labelFormatter={(label) => `區間：${label}`}
                   />
                   {showAverage && (
@@ -199,7 +189,7 @@ function TrendTable({
                       border: '1px solid #e5e7eb',
                       boxShadow: '0 4px 14px rgba(0,0,0,0.08)',
                     }}
-                    formatter={(value: number) => [`${value}`, '數值']}
+                    formatter={(value: number) => [`${value}`, tooltipValueLabel]}
                     labelFormatter={(label) => `區間：${label}`}
                   />
                   {showAverage && (
@@ -232,7 +222,7 @@ function TrendTable({
           <thead className="bg-gray-50">
             <tr>
               <th className="px-4 py-2 text-left text-xs text-gray-500 uppercase">區間</th>
-              <th className="px-4 py-2 text-right text-xs text-gray-500 uppercase">數值</th>
+              <th className="px-4 py-2 text-right text-xs text-gray-500 uppercase">{tooltipValueLabel}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
@@ -261,7 +251,7 @@ export default function StatisticsPage() {
   const [activePlayerPeriod, setActivePlayerPeriod] = useState<ChartPeriod>('last7days')
   const [clubRankCount, setClubRankCount] = useState(20)
   const [playerRankCount, setPlayerRankCount] = useState(20)
-  const [salesView, setSalesView] = useState<SalesPeriod>('last7days')
+  const [salesCardsPeriod, setSalesCardsPeriod] = useState<ChartPeriod>('last7days')
   const [chartMode, setChartMode] = useState<'line' | 'area'>('line')
   const [lineType, setLineType] = useState<'monotone' | 'linear' | 'step' | 'natural'>('monotone')
   const [showTable, setShowTable] = useState(true)
@@ -285,8 +275,15 @@ export default function StatisticsPage() {
         if (ap && chartPeriodOptions.some((o) => o.value === ap)) setActivePlayerPeriod(ap)
         if (typeof p.clubRankCount === 'number') setClubRankCount(p.clubRankCount === 10 ? 10 : 20)
         if (typeof p.playerRankCount === 'number') setPlayerRankCount(p.playerRankCount === 10 ? 10 : 20)
-        const sv = p.salesView as SalesPeriod | undefined
-        if (sv && salesPeriodOptions.some((o) => o.value === sv)) setSalesView(sv)
+        const scp = p.salesCardsPeriod as ChartPeriod | undefined
+        if (scp && chartPeriodOptions.some((o) => o.value === scp)) {
+          setSalesCardsPeriod(scp)
+        } else {
+          const sv = p.salesView as string | undefined
+          if (sv === 'last4weeks') setSalesCardsPeriod('last4weeks')
+          else if (sv === 'last12months') setSalesCardsPeriod('last12months')
+          else if (sv === 'last7days') setSalesCardsPeriod('last7days')
+        }
         if (p.chartMode === 'line' || p.chartMode === 'area') setChartMode(p.chartMode)
         if (p.lineType === 'monotone' || p.lineType === 'linear' || p.lineType === 'step' || p.lineType === 'natural') {
           setLineType(p.lineType)
@@ -331,7 +328,7 @@ export default function StatisticsPage() {
         activePlayerPeriod,
         clubRankCount,
         playerRankCount,
-        salesView,
+        salesCardsPeriod,
         chartMode,
         lineType,
         showTable,
@@ -349,7 +346,7 @@ export default function StatisticsPage() {
     activePlayerPeriod,
     clubRankCount,
     playerRankCount,
-    salesView,
+    salesCardsPeriod,
     chartMode,
     lineType,
     showTable,
@@ -397,6 +394,8 @@ export default function StatisticsPage() {
     .slice(0, playerRankCount)
     .map((row, idx) => ({ ...row, rank: idx + 1 }))
 
+  const salesTrendRows = getTrendRows(data?.salesCardsTrend, salesCardsPeriod)
+
   const chartPeriodSelect = (value: ChartPeriod, onChange: (value: ChartPeriod) => void) => (
     <select
       value={value}
@@ -425,25 +424,6 @@ export default function StatisticsPage() {
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
           重新整理
         </button>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm md:col-span-3">
-          <div className="flex items-center justify-between gap-3">
-            <div className="text-xs text-gray-500 uppercase">公司銷售房卡</div>
-            <select
-              value={salesView}
-              onChange={(e) => setSalesView(e.target.value as SalesPeriod)}
-              className="border border-gray-300 rounded px-2 py-1 text-xs text-gray-700 bg-white"
-            >
-              {salesPeriodOptions.map((option) => (
-                <option key={option.value} value={option.value}>{option.label}</option>
-              ))}
-            </select>
-          </div>
-          <div className="text-2xl font-semibold mt-2">{getSalesValue(data, salesView)}</div>
-          <p className="text-xs text-gray-500 mt-1">可切換時間篩選查看銷售房卡統計</p>
-        </div>
       </div>
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
@@ -551,6 +531,8 @@ export default function StatisticsPage() {
                 ? '本月'
                 : '近三個月'
           }
+          。
+          <span className="text-gray-600">「耗卡量」為該區間內玩家扣卡紀錄合計張數（非帳上餘額）。</span>
         </div>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[860px] text-sm">
@@ -636,7 +618,7 @@ export default function StatisticsPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <TrendTable
             title="開桌數"
             rows={getTrendRows(data?.roomOpenStats, roomOpenPeriod)}
@@ -663,6 +645,16 @@ export default function StatisticsPage() {
             showTable={showTable}
             showAverage={showAverage}
             rightControl={chartPeriodSelect(activePlayerPeriod, setActivePlayerPeriod)}
+          />
+          <TrendTable
+            title="公司銷售房卡（已付款張數）"
+            rows={salesTrendRows}
+            chartMode={chartMode}
+            lineType={lineType}
+            showTable={showTable}
+            showAverage={showAverage}
+            tooltipValueLabel="銷售張數"
+            rightControl={chartPeriodSelect(salesCardsPeriod, setSalesCardsPeriod)}
           />
         </div>
       </div>

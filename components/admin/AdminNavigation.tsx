@@ -93,6 +93,12 @@ export default function AdminNavigation({ onMenuClick, activeMenu, role = 'ADMIN
       path: '/admin/promotion'
     },
     {
+      id: 'statistics',
+      label: '統計圖表',
+      icon: PieChart,
+      path: '/admin/statistics'
+    },
+    {
       id: 'announcement-management',
       label: '活動更新',
       icon: Bell,
@@ -100,20 +106,7 @@ export default function AdminNavigation({ onMenuClick, activeMenu, role = 'ADMIN
     }
   ]
 
-  const lowerMenuItems: MenuItem[] = [
-    {
-      id: 'statistics',
-      label: '統計圖表',
-      icon: PieChart,
-      path: '/admin/statistics'
-    }
-  ]
-
   const visiblePrimary = primaryMenuItems.filter((item) => {
-    if (!item.path) return true
-    return canAccessAdminPath(role, item.path)
-  })
-  const visibleLower = lowerMenuItems.filter((item) => {
     if (!item.path) return true
     return canAccessAdminPath(role, item.path)
   })
@@ -157,22 +150,10 @@ export default function AdminNavigation({ onMenuClick, activeMenu, role = 'ADMIN
       </div>
 
       {/* 導覽選單 */}
-      <nav className="flex-1 flex flex-col min-h-0 py-2">
-        <div className="flex-1">
-          {visiblePrimary.map((item) => (
-            <div key={item.id}>{renderMenuButton(item)}</div>
-          ))}
-        </div>
-        {visibleLower.length > 0 && (
-          <div className="border-t border-[#1e2d3d] pt-1 mt-1 shrink-0 bg-[#273746]/50">
-            <p className="px-6 pt-2 pb-1 text-[10px] font-medium uppercase tracking-wider text-gray-500">
-              資料分析
-            </p>
-            {visibleLower.map((item) => (
-              <div key={item.id}>{renderMenuButton(item)}</div>
-            ))}
-          </div>
-        )}
+      <nav className="flex-1 py-2">
+        {visiblePrimary.map((item) => (
+          <div key={item.id}>{renderMenuButton(item)}</div>
+        ))}
       </nav>
 
       {/* 底部資訊 */}

@@ -15,6 +15,7 @@ import {
   ChevronRight,
 } from 'lucide-react'
 import { apiGet, apiDelete } from '@/lib/api-client'
+import { useAdminListUiPersistence } from '@/lib/use-admin-list-ui-persistence'
 import { requestAdminOpCode, withAdminOpCodeHeader } from '@/lib/admin-op-code-client'
 import AgentReviewModal from './components/AgentReviewModal'
 import AgentRechargeHistoryModal from './components/AgentRechargeHistoryModal'
@@ -53,11 +54,11 @@ interface Agent {
 }
 
 export default function AgentManagementPage() {
+  const { ready: listUiReady, searchKeyword, setSearchKeyword, page, setPage } =
+    useAdminListUiPersistence('agent-management')
   const [loading, setLoading] = useState(false)
   const [agents, setAgents] = useState<Agent[]>([])
   const [dataLoaded, setDataLoaded] = useState(false)
-  const [searchKeyword, setSearchKeyword] = useState<string>('')
-  const [page, setPage] = useState(1)
   const pageSize = 100
 
   // Modal 狀態
@@ -92,8 +93,9 @@ export default function AgentManagementPage() {
 
   // 初始化載入
   useEffect(() => {
+    if (!listUiReady) return
     fetchAgents()
-  }, [fetchAgents])
+  }, [listUiReady, fetchAgents])
 
   // 搜尋處理
   const handleSearchChange = (keyword: string) => {
@@ -128,7 +130,7 @@ export default function AgentManagementPage() {
     if (page > totalPages) {
       setPage(totalPages)
     }
-  }, [page, totalPages])
+  }, [page, totalPages, setPage])
 
   // 查看補卡紀錄
   const handleViewHistory = (agent: Agent) => {

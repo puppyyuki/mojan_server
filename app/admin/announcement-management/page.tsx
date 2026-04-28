@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { RefreshCw, Edit, Trash2, Plus, Search } from 'lucide-react'
 import { apiGet, apiDelete } from '@/lib/api-client'
+import { useAdminListUiPersistence } from '@/lib/use-admin-list-ui-persistence'
 import CreateAnnouncementModal from './components/CreateAnnouncementModal'
 import EditAnnouncementModal from './components/EditAnnouncementModal'
 
@@ -19,16 +20,15 @@ interface Announcement {
 }
 
 export default function AnnouncementManagementPage() {
+  const { ready: listUiReady, searchKeyword, setSearchKeyword } =
+    useAdminListUiPersistence('announcement-management')
   const [loading, setLoading] = useState(false)
   const [selectedItems, setSelectedItems] = useState<string[]>([])
   const [selectAll, setSelectAll] = useState(false)
-  
+
   // 活動更新資料
   const [announcements, setAnnouncements] = useState<Announcement[]>([])
   const [dataLoaded, setDataLoaded] = useState(false)
-  
-  // 搜尋狀態
-  const [searchKeyword, setSearchKeyword] = useState<string>('')
   
   // Modal 狀態
   const [createModalOpen, setCreateModalOpen] = useState(false)
@@ -57,8 +57,9 @@ export default function AnnouncementManagementPage() {
 
   // 初始化載入
   useEffect(() => {
+    if (!listUiReady) return
     fetchAnnouncements()
-  }, [fetchAnnouncements])
+  }, [listUiReady, fetchAnnouncements])
 
   // 全選處理
   const handleSelectAll = (checked: boolean) => {

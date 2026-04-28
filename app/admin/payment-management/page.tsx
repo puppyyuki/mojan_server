@@ -103,7 +103,7 @@ export default function PaymentManagementPage() {
     setSearchKeyword(keyword)
   }
 
-  // 顯示資料（根據搜尋關鍵字和狀態篩選）
+  // 顯示資料（根據搜尋關鍵字和狀態篩選）；「全部狀態」不含失敗（與後端狀態大小寫無關）
   const displayData = orders.filter((order) => {
     const matchesSearch =
       searchKeyword === '' ||
@@ -112,17 +112,16 @@ export default function PaymentManagementPage() {
       order.player.userId.includes(searchKeyword) ||
       (order.ecpayTradeNo && order.ecpayTradeNo.toLowerCase().includes(searchKeyword.toLowerCase()))
 
+    const st = String(order.status || '').toUpperCase()
     const matchesStatus =
-      statusFilter === 'ALL'
-        ? order.status !== 'FAILED'
-        : order.status === statusFilter
+      statusFilter === 'ALL' ? st !== 'FAILED' : st === statusFilter.toUpperCase()
 
     return matchesSearch && matchesStatus
   })
 
   // 狀態標籤樣式
   const getStatusBadge = (status: string) => {
-    switch (status) {
+    switch (String(status || '').toUpperCase()) {
       case 'PAID':
         return (
           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
