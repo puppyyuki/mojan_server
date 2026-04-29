@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { findLinkedV2SessionForClubGameResult } from '@/lib/admin-v2-match-history'
 
 function corsHeaders() {
   return {
@@ -36,10 +37,21 @@ export async function GET(
       )
     }
 
+    const linked = await findLinkedV2SessionForClubGameResult(prisma, {
+      clubId: row.clubId,
+      roomId: row.roomId,
+      roomInternalId: row.roomInternalId,
+      endedAt: row.endedAt,
+    })
+
     return NextResponse.json(
       {
         success: true,
-        data: row,
+        data: {
+          ...row,
+          linkedV2SessionId: linked?.id ?? null,
+          v2ReplayRounds: linked?.rounds ?? [],
+        },
       },
       { headers: corsHeaders() }
     )

@@ -1033,6 +1033,53 @@ export default function GameRecordManagementPage() {
                       <div className="text-gray-600 text-xs font-medium">結束時間</div>
                       <div className="text-gray-900">{formatDate(detailClub.endedAt as string)}</div>
                     </div>
+                    <div>
+                      <div className="text-gray-600 text-xs font-medium">對應 V2 Session（自動對齊）</div>
+                      <div className="font-mono text-xs break-all text-gray-900">
+                        {(detailClub.linkedV2SessionId as string | null | undefined) ?? '—'}
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-gray-600 text-xs font-medium mb-1">
+                      各局重播分享碼（shareCode，與 App 戰績來源一致）
+                    </div>
+                    <ul className="text-xs text-gray-800 space-y-1 font-mono bg-gray-50 p-3 rounded border border-gray-200 max-h-48 overflow-y-auto">
+                      {Array.isArray(detailClub.v2ReplayRounds) &&
+                      (detailClub.v2ReplayRounds as { id?: string; roundIndex?: number; shareCode?: string | null }[])
+                        .length > 0 ? (
+                        (
+                          detailClub.v2ReplayRounds as {
+                            id?: string
+                            roundIndex?: number
+                            shareCode?: string | null
+                          }[]
+                        ).map((r) => (
+                          <li
+                            key={r.id || `ri-${r.roundIndex}`}
+                            className="flex justify-between gap-2 border-b border-gray-200 pb-1 text-gray-800"
+                          >
+                            <span>第 {r.roundIndex ?? '—'} 局</span>
+                            <span className="flex items-center gap-2">
+                              {r.shareCode || '—'}
+                              {r.shareCode ? (
+                                <button
+                                  type="button"
+                                  onClick={() => copyText(String(r.shareCode))}
+                                  className="text-blue-600"
+                                >
+                                  <Copy className="w-3 h-3" />
+                                </button>
+                              ) : null}
+                            </span>
+                          </li>
+                        ))
+                      ) : (
+                        <li className="text-gray-500">
+                          無對齊到的 V2 局資料（若 App 端仍有回放碼，可能為房號重置／對齊時間窗以外的 session）
+                        </li>
+                      )}
+                    </ul>
                   </div>
                   <div>
                     <div className="text-gray-600 text-xs font-medium mb-1">scoresBySeat（原始 JSON）</div>
@@ -1094,10 +1141,10 @@ export default function GameRecordManagementPage() {
                     <div className="text-gray-600 text-xs font-medium mb-1">各局重播分享碼（shareCode）</div>
                     <ul className="text-xs text-gray-800 space-y-1 font-mono bg-gray-50 p-3 rounded border border-gray-200 max-h-48 overflow-y-auto">
                       {Array.isArray(detailGeneral.rounds) &&
-                        (detailGeneral.rounds as { roundIndex?: number; shareCode?: string | null }[]).map(
+                        (detailGeneral.rounds as { id?: string; roundIndex?: number; shareCode?: string | null }[]).map(
                           (r) => (
                             <li
-                              key={r.roundIndex}
+                              key={typeof r.id === 'string' && r.id ? r.id : `idx-${r.roundIndex ?? 'x'}`}
                               className="flex justify-between gap-2 border-b border-gray-200 pb-1 text-gray-800"
                             >
                               <span>第 {r.roundIndex} 局</span>

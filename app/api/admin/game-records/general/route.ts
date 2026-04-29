@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { parseTaipeiDateEnd, parseTaipeiDateStart } from '@/lib/taipei-time'
+import { playedRoundCountFromV2Rounds } from '@/lib/admin-v2-match-history'
 
 function corsHeaders() {
   return {
@@ -318,7 +319,7 @@ export async function GET(request: NextRequest) {
         .map((r) => r.shareCode)
         .filter((c): c is string => !!c && c.length > 0)
 
-      const roundCount = s.rounds?.length ?? 0
+      const roundCount = playedRoundCountFromV2Rounds(s.rounds || [])
       const participantCount = s.participants?.length ?? 0
       const { code: recordCategory, label: recordCategoryLabel } = classifyRecord(
         {

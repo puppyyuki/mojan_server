@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { parseTaipeiDateEnd, parseTaipeiDateStart } from '@/lib/taipei-time'
+import {
+  batchPlayedRoundCountsForClubSettlements,
+  isDisbandedDuplicateOfClubSettlement,
+  playedRoundCountFromV2Rounds,
+} from '@/lib/admin-v2-match-history'
 
 function corsHeaders() {
   return {
@@ -294,8 +299,22 @@ export async function GET(request: NextRequest) {
       where: { clubId: { not: null }, status: 'PLAYING' },
     })
 
-    const items = rows.map((r) =>
-      mapClubGameResultRow(
+    const playedMap =
+      recordCategory === 'COMPLETED_FULL' || recordCategory === 'ERROR'
+        ? await batchPlayedRoundCountsForClubSettlements(
+            prisma,
+            rows.map((r) => ({
+              id: r.id,
+              clubId: r.clubId,
+              roomId: r.roomId,
+              roomInternalId: r.roomInternalId,
+              endedAt: r.endedAt,
+            }))
+          )
+        : new Map<string, number>()
+
+    const items = rows.map((r) => {
+      const base = mapClubGameResultRow(
         {
           ...r,
           bigWinnerPlayerIds: r.bigWinnerPlayerIds || [],
@@ -306,7 +325,12 @@ export async function GET(request: NextRequest) {
             ? { recordCategory: 'ERROR', recordCategoryLabel: '錯誤戰績' }
             : undefined
       )
-    )
+      const played = playedMap.get(r.id)
+      if (played != null && played > 0) {
+        return { ...base, totalRounds: Math.max(base.totalRounds, played) }
+      }
+      return base
+    })
 
     return NextResponse.json(
       {
@@ -489,9 +513,15 @@ async function handleClubAllRecords(opts: {
     deductionFilterMatch(deduction, normalizeSessionDeduction(s.gameSettings))
   )
 
+  const filteredSessionsDeduped = filteredSessions.filter(
+    (s) => !isDisbandedDuplicateOfClubSettlement(s, settlementRows)
+  )
+
   const sessionClubIds = [
     ...new Set(
-      filteredSessions.map((s) => s.clubId).filter((id): id is string => typeof id === 'string')
+      filteredSessionsDeduped
+        .map((s) => s.clubId)
+        .filter((id): id is string => typeof id === 'string')
     ),
   ]
   const sessionClubs =
@@ -503,14 +533,30 @@ async function handleClubAllRecords(opts: {
       : []
   const clubById = new Map(sessionClubs.map((c) => [c.id, c]))
 
-  const settlementItems = settlementRows.map((r) =>
-    mapClubGameResultRow({
+  const playedForSettlement = await batchPlayedRoundCountsForClubSettlements(
+    prisma,
+    settlementRows.map((r) => ({
+      id: r.id,
+      clubId: r.clubId,
+      roomId: r.roomId,
+      roomInternalId: r.roomInternalId,
+      endedAt: r.endedAt,
+    }))
+  )
+
+  const settlementItems = settlementRows.map((r) => {
+    const base = mapClubGameResultRow({
       ...r,
       bigWinnerPlayerIds: r.bigWinnerPlayerIds || [],
     })
-  )
+    const played = playedForSettlement.get(r.id)
+    if (played != null && played > 0) {
+      return { ...base, totalRounds: Math.max(base.totalRounds, played) }
+    }
+    return base
+  })
 
-  const sessionItems = filteredSessions.map((s) => {
+  const sessionItems = filteredSessionsDeduped.map((s) => {
     const players = (s.participants || []).map((p) => ({
       playerId: p.playerId,
       userId: p.userId ?? p.player?.userId ?? null,
@@ -565,7 +611,7 @@ async function handleClubAllRecords(opts: {
       roomId: s.roomCode,
       roomInternalId: s.roomInternalId,
       multiplayerVersion: s.multiplayerVersion,
-      totalRounds: s.rounds?.length ?? 0,
+      totalRounds: playedRoundCountFromV2Rounds(s.rounds || []),
       deduction: sessionDeduction,
       roomCardConsumedTotal,
       bigWinnerPlayerIds,
@@ -737,8 +783,40 @@ async function handleClubV2Sessions(opts: {
     deductionFilterMatch(deduction, normalizeSessionDeduction(s.gameSettings))
   )
 
-  const total = filteredSessions.length
-  const pagedSessions = filteredSessions.slice((page - 1) * pageSize, page * pageSize)
+  let sessionsForPaging = filteredSessions
+  if (mode === 'DISBANDED_MID') {
+    const disbandProbe = filteredSessions.filter(
+      (s) => s.status === 'DISBANDED' && s.roomInternalId && s.endedAt
+    )
+    if (disbandProbe.length) {
+      const clubIdsFromSessions = [
+        ...new Set(disbandProbe.map((s) => s.clubId).filter(Boolean) as string[]),
+      ]
+      const internalIds = [...new Set(disbandProbe.map((s) => s.roomInternalId!))]
+      const minT = Math.min(...disbandProbe.map((s) => s.endedAt!.getTime()))
+      const maxT = Math.max(...disbandProbe.map((s) => s.endedAt!.getTime()))
+      const settlementsNear = await prisma.clubGameResult.findMany({
+        where: {
+          clubId:
+            clubIdsFromSessions.length === 1
+              ? clubIdsFromSessions[0]
+              : { in: clubIdsFromSessions },
+          roomInternalId: { in: internalIds },
+          endedAt: {
+            gte: new Date(minT - 35 * 60 * 1000),
+            lte: new Date(maxT + 35 * 60 * 1000),
+          },
+        },
+        select: { roomInternalId: true, endedAt: true },
+      })
+      sessionsForPaging = filteredSessions.filter(
+        (s) => !isDisbandedDuplicateOfClubSettlement(s, settlementsNear)
+      )
+    }
+  }
+
+  const total = sessionsForPaging.length
+  const pagedSessions = sessionsForPaging.slice((page - 1) * pageSize, page * pageSize)
 
   const sessionClubIds = [
     ...new Set(pagedSessions.map((s) => s.clubId).filter((id): id is string => !!id)),
@@ -799,7 +877,7 @@ async function handleClubV2Sessions(opts: {
       roomId: s.roomCode,
       roomInternalId: s.roomInternalId,
       multiplayerVersion: s.multiplayerVersion,
-      totalRounds: s.rounds?.length ?? 0,
+      totalRounds: playedRoundCountFromV2Rounds(s.rounds || []),
       deduction: sessionDeduction,
       roomCardConsumedTotal,
       bigWinnerPlayerIds,
