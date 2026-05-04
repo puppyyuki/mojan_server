@@ -1596,7 +1596,13 @@ router.post('/:clubId/rooms', async (req, res) => {
           playerId: roomCreatorId,
         },
       },
-      select: { role: true, isBanned: true, coLeaderPermissions: true },
+      select: {
+        role: true,
+        isBanned: true,
+        coLeaderPermissions: true,
+        basePointLimit: true,
+        taiCountLimit: true,
+      },
     });
 
     if (!member) {
@@ -1625,6 +1631,10 @@ router.post('/:clubId/rooms', async (req, res) => {
       club.gameSettings || null,
       gameSettings || null
     );
+
+    if (isRoomOverMemberBaseTaiLimit(member, finalGameSettings)) {
+      return errorResponse(res, '該房間超過您能遊玩的底台上限', null, 400);
+    }
 
     if (finalGameSettings?.deduction === 'HOST_DEDUCTION' || finalGameSettings?.deduction === 'CLUB_DEDUCTION') {
       const rounds = finalGameSettings?.rounds || 1;
