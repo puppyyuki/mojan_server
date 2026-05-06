@@ -768,9 +768,16 @@ router.get('/:clubId/rooms', async (req, res) => {
         const activeCount = Array.isArray(room.participants)
           ? room.participants.length
           : 0;
+        const currentPlayersRaw = Number(room.currentPlayers ?? 0);
+        const currentPlayers = Number.isFinite(currentPlayersRaw)
+          ? currentPlayersRaw
+          : 0;
         const roomCreatedMs = new Date(room.createdAt).getTime();
         const ageMs = Number.isFinite(roomCreatedMs) ? nowMs - roomCreatedMs : staleGraceMs + 1;
-        return room.status === 'WAITING' && activeCount <= 0 && ageMs >= staleGraceMs;
+        const noActiveParticipants = activeCount <= 0;
+        // room.currentPlayers 與 participants 偶發不同步時，也視為殘留房候選。
+        const noSyncedPlayers = currentPlayers <= 0;
+        return room.status === 'WAITING' && (noActiveParticipants || noSyncedPlayers) && ageMs >= staleGraceMs;
       })
       .map((room) => room.id);
 
@@ -1648,6 +1655,57 @@ router.post('/:clubId/rooms', async (req, res) => {
           400
         );
       }
+    }
+
+    // 防重複開房：GPS 取位或網路延遲時，短時間連點可能送出多個相同請求。
+    // 在時間窗內若同俱樂部 / 同玩家 / 同設定已有 WAITING 房，直接回傳該房間。
+    const duplicateWindowMs = 20 * 1000;
+    const duplicateWindowStart = new Date(Date.now() - duplicateWindowMs);
+    const wantedSettingsSignature = JSON.stringify(finalGameSettings ?? {});
+    const recentWaitingRooms = await prisma.room.findMany({
+      where: {
+        clubId: club.id,
+        creatorId: roomCreatorId,
+        status: 'WAITING',
+        multiplayerVersion: normalizedMultiplayerVersion,
+        createdAt: { gte: duplicateWindowStart },
+      },
+      select: {
+        id: true,
+        roomId: true,
+        clubId: true,
+        creatorId: true,
+        currentPlayers: true,
+        maxPlayers: true,
+        status: true,
+        multiplayerVersion: true,
+        gameSettings: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    });
+    const duplicatedRoom = recentWaitingRooms.find(
+      (row) => JSON.stringify(row.gameSettings ?? {}) === wantedSettingsSignature
+    );
+    if (duplicatedRoom) {
+      const clubDisplayCode = club.clubId ?? null;
+      const clubAvatarUrl = club.avatarUrl ?? club.logoUrl ?? null;
+      console.warn(
+        `[Clubs API] duplicate create-room request reused roomId=${duplicatedRoom.roomId} club=${club.id} creator=${roomCreatorId}`
+      );
+      return successResponse(
+        res,
+        {
+          ...duplicatedRoom,
+          clubDisplayCode,
+          clubAvatarUrl,
+          club_display_code: clubDisplayCode,
+          club_avatar_url: clubAvatarUrl,
+        },
+        '短時間重複開房，已返回現有房間'
+      );
     }
 
     // 創建房間
