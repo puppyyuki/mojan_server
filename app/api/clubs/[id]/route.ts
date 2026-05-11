@@ -33,6 +33,8 @@ export async function GET(
         name: true,
         description: true,
         logoUrl: true,
+        venueDrawPercent: true,
+        selfDrawRakePercent: true,
         cardCount: true, // 包含俱樂部房卡數量
         avatarUrl: true, // 包含俱樂部頭像 URL
         creator: {
@@ -97,12 +99,16 @@ export async function PATCH(
       logoUrl,
       clubId: bodyClubId,
       joinRequiresOwnerApproval,
+      venueDrawPercent,
+      selfDrawRakePercent,
     } = body
 
     const needsSensitiveGuard =
       cardCount !== undefined ||
       bodyClubId !== undefined ||
-      joinRequiresOwnerApproval !== undefined
+      joinRequiresOwnerApproval !== undefined ||
+      venueDrawPercent !== undefined ||
+      selfDrawRakePercent !== undefined
 
     if (needsSensitiveGuard) {
       const opCodeGuard = assertAdminOpCode(request, body)
@@ -136,6 +142,26 @@ export async function PATCH(
     }
     if (joinRequiresOwnerApproval !== undefined) {
       updateData.joinRequiresOwnerApproval = Boolean(joinRequiresOwnerApproval)
+    }
+    if (venueDrawPercent !== undefined) {
+      const n = Number(venueDrawPercent)
+      if (!Number.isFinite(n) || n < 0 || n > 100) {
+        return NextResponse.json(
+          { success: false, error: '場抽須為 0～100 之間的數字（百分比）' },
+          { status: 400, headers: corsHeaders() }
+        )
+      }
+      updateData.venueDrawPercent = n
+    }
+    if (selfDrawRakePercent !== undefined) {
+      const n = Number(selfDrawRakePercent)
+      if (!Number.isFinite(n) || n < 0 || n > 100) {
+        return NextResponse.json(
+          { success: false, error: '自摸抽須為 0～100 之間的數字（百分比）' },
+          { status: 400, headers: corsHeaders() }
+        )
+      }
+      updateData.selfDrawRakePercent = n
     }
     if (bodyClubId !== undefined) {
       const trimmed = String(bodyClubId).trim()

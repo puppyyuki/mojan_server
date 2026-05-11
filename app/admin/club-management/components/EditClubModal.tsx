@@ -20,6 +20,8 @@ interface Club {
   }
   cardCount: number
   avatarUrl?: string
+  venueDrawPercent?: number
+  selfDrawRakePercent?: number
   members: Array<{
     player: {
       id: string
@@ -46,6 +48,8 @@ export default function EditClubModal({
   const [joinRequiresApproval, setJoinRequiresApproval] = useState<boolean>(true)
   const [name, setName] = useState<string>('')
   const [cardCount, setCardCount] = useState<string>('0')
+  const [venueDrawPercent, setVenueDrawPercent] = useState<string>('5')
+  const [selfDrawRakePercent, setSelfDrawRakePercent] = useState<string>('8')
   const [avatarUrl, setAvatarUrl] = useState<string>('')
   const [loading, setLoading] = useState<boolean>(false)
 
@@ -55,6 +59,16 @@ export default function EditClubModal({
       setJoinRequiresApproval(club.joinRequiresOwnerApproval !== false)
       setName(club.name)
       setCardCount(club.cardCount.toString())
+      const vdp =
+        typeof club.venueDrawPercent === 'number' && Number.isFinite(club.venueDrawPercent)
+          ? club.venueDrawPercent
+          : 5
+      setVenueDrawPercent(String(vdp))
+      const sdr =
+        typeof club.selfDrawRakePercent === 'number' && Number.isFinite(club.selfDrawRakePercent)
+          ? club.selfDrawRakePercent
+          : 8
+      setSelfDrawRakePercent(String(sdr))
       setAvatarUrl(club.avatarUrl || club.creator?.avatarUrl || '')
     }
   }, [isOpen, club])
@@ -81,6 +95,18 @@ export default function EditClubModal({
     const cardParsed = Number.parseInt(cardCount, 10)
     const cardSafe = Number.isFinite(cardParsed) ? cardParsed : 0
 
+    const venueParsed = Number.parseFloat(venueDrawPercent)
+    if (!Number.isFinite(venueParsed) || venueParsed < 0 || venueParsed > 100) {
+      alert('場抽須為 0～100 之間的數字（百分比）')
+      return
+    }
+
+    const rakeParsed = Number.parseFloat(selfDrawRakePercent)
+    if (!Number.isFinite(rakeParsed) || rakeParsed < 0 || rakeParsed > 100) {
+      alert('自摸抽須為 0～100 之間的數字（百分比）')
+      return
+    }
+
     const opCode = await requestAdminOpCode(
       '確定要儲存俱樂部資料嗎？（含公開 ID、房卡、加入審核設定時須驗證）'
     )
@@ -96,6 +122,8 @@ export default function EditClubModal({
         avatarUrl: avatarUrl.trim() || null,
         clubId: trimmedClubId,
         joinRequiresOwnerApproval: joinRequiresApproval,
+        venueDrawPercent: venueParsed,
+        selfDrawRakePercent: rakeParsed,
       }, {
         headers: withAdminOpCodeHeader(opCode),
       })
@@ -210,6 +238,44 @@ export default function EditClubModal({
               onChange={(e) => setCardCount(e.target.value)}
               placeholder="0"
               min="0"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              場抽（%）
+            </label>
+            <p className="text-xs text-gray-500 mb-2">
+              後台報表「場抽」計算使用此百分比；預設 5（即 5%）。
+            </p>
+            <input
+              type="number"
+              value={venueDrawPercent}
+              onChange={(e) => setVenueDrawPercent(e.target.value)}
+              placeholder="5"
+              min={0}
+              max={100}
+              step="any"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              自摸抽（%）
+            </label>
+            <p className="text-xs text-gray-500 mb-2">
+              後台報表「自摸抽」：自摸局該家當局贏分 × 此比例；預設 8（即 8%）。
+            </p>
+            <input
+              type="number"
+              value={selfDrawRakePercent}
+              onChange={(e) => setSelfDrawRakePercent(e.target.value)}
+              placeholder="8"
+              min={0}
+              max={100}
+              step="any"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400"
             />
           </div>

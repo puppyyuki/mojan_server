@@ -25,6 +25,8 @@ interface Club {
   }
   cardCount: number
   avatarUrl?: string
+  venueDrawPercent?: number
+  selfDrawRakePercent?: number
   members: Array<{
     id: string
     player: {

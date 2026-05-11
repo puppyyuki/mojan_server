@@ -115,6 +115,10 @@ model Club {
   logoUrl      String? // 俱樂部 Logo
   description  String? // 俱樂部描述
   gameSettings Json? // 俱樂部遊戲設定
+  /// 後台報表「場抽」比例（百分比，例如 5 表示 5%）
+  venueDrawPercent Float @default(5)
+  /// 後台報表「自摸抽」抽成比例（百分比，例如 8 表示 8%；依自摸局該家當局正分計算）
+  selfDrawRakePercent Float @default(8)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -555,4 +559,14 @@ model V2MatchParticipant {
   @@unique([sessionId, playerId])
   @@index([playerId])
   @@map("v2_match_participants")
+}
+
+/// App 商店版本政策（單例列 id = default；空字串 policyVersion 表示不啟用版本檢查）
+model AppReleaseSetting {
+  id            String   @id
+  policyVersion String   @default("")
+  forceUpdate   Boolean  @default(false)
+  updatedAt     DateTime @updatedAt
+
+  @@map("app_release_settings")
 }

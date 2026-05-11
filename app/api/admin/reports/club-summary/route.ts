@@ -16,7 +16,30 @@ export async function OPTIONS() {
   return NextResponse.json({}, { headers: corsHeaders() })
 }
 
-const WATER_RATE = 0.05 // 俱樂部贏分水錢比例（依該場最終／解散後結算為正之分數）
+const DEFAULT_VENUE_DRAW_PERCENT = 5 // 與 Prisma Club.venueDrawPercent 預設一致
+const DEFAULT_SELF_DRAW_RAKE_PERCENT = 8 // 與 Prisma Club.selfDrawRakePercent 預設一致
+
+function venueDrawDecimalFromPercent(p: number | null | undefined): number {
+  if (p == null || !Number.isFinite(Number(p))) return DEFAULT_VENUE_DRAW_PERCENT / 100
+  const clamped = Math.min(100, Math.max(0, Number(p)))
+  return clamped / 100
+}
+
+function selfDrawRakeDecimalFromPercent(p: number | null | undefined): number {
+  if (p == null || !Number.isFinite(Number(p))) return DEFAULT_SELF_DRAW_RAKE_PERCENT / 100
+  const clamped = Math.min(100, Math.max(0, Number(p)))
+  return clamped / 100
+}
+
+/** 該局該座位分數變化（與 rooms normalizeScoresBySeat 一致） */
+function seatScoreDelta(scoreChangeBySeat: unknown, seat: number): number {
+  if (!scoreChangeBySeat || typeof scoreChangeBySeat !== 'object' || Array.isArray(scoreChangeBySeat)) {
+    return 0
+  }
+  const o = scoreChangeBySeat as Record<string, unknown>
+  const v = o[seat] ?? o[String(seat)]
+  return Number(v ?? 0) || 0
+}
 
 function scoringUnitFromStoredGameSettings(raw: unknown): number {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return 20
@@ -25,9 +48,31 @@ function scoringUnitFromStoredGameSettings(raw: unknown): number {
   return Math.max(0, Math.floor(n))
 }
 
+function selfDrawWinnerSeatFromRoundEndPayload(raw: unknown): number | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
+  const payload = raw as Record<string, unknown>
+  if (payload.isExhaustiveDraw === true) return null
+
+  const winnerSeat = Number(payload.winnerSeat)
+  if (!Number.isInteger(winnerSeat) || winnerSeat < 0 || winnerSeat > 3) return null
+
+  const fromSeat = Number(payload.fromSeat)
+  if (Number.isInteger(fromSeat) && fromSeat === winnerSeat) return winnerSeat
+
+  const huType = typeof payload.huType === 'string' ? payload.huType.toLowerCase() : ''
+  const claimType = typeof payload.claimType === 'string' ? payload.claimType.toLowerCase() : ''
+  if (huType.includes('selfdraw') || claimType.includes('selfdraw')) return winnerSeat
+  if (payload.isSelfDraw === true || payload.selfDraw === true) return winnerSeat
+
+  return null
+}
+
 /**
  * GET /api/admin/reports/club-summary
- * 俱樂部玩家報表：指定時間區間＋俱樂部 ID，彙整玩家戰績/大贏家/房卡消耗/場次；咚錢＝各已結算場次內（自摸×該房台數）；水錢＝各場結算或中途解散後分數為正者 ×5%（見程式常數）
+ * 俱樂部玩家報表：指定時間區間＋俱樂部 ID，彙整玩家戰績/大贏家/房卡消耗/場次；
+ * 自摸東（dongMoney）＝每場（含 FINISHED / DISBANDED）逐局判定自摸次數 × 該場台數，再依查詢區間加總；
+ * 場抽（waterMoney）＝各場結算或中途解散後分數為正者 × 該俱樂部「場抽」百分比（俱樂部管理可設定，預設 5%）
+ * 自摸抽（selfDrawRakeMoney）＝每局判定自摸且該家當局分數變化為正者 × 該俱樂部「自摸抽」百分比（預設 8%）
  * Query: startDate, endDate (YYYY-MM-DD), clubId（俱樂部 6 碼）
  */
 export async function GET(request: NextRequest) {
@@ -70,7 +115,7 @@ export async function GET(request: NextRequest) {
 
     const club = await prisma.club.findFirst({
       where: { clubId: clubSixId },
-      select: { id: true, clubId: true, name: true },
+      select: { id: true, clubId: true, name: true, venueDrawPercent: true, selfDrawRakePercent: true },
     })
     if (!club) {
       return NextResponse.json(
@@ -86,6 +131,7 @@ export async function GET(request: NextRequest) {
               totalCompletedGames: 0,
               totalDongMoney: 0,
               totalWaterMoney: 0,
+              totalSelfDrawRakeMoney: 0,
             },
             filter: { startDate: startRaw, endDate: endRaw, clubId: clubSixId },
             club: { clubInternalId: null, clubSixId, clubName: '俱樂部不存在' },
@@ -94,6 +140,9 @@ export async function GET(request: NextRequest) {
         { headers: corsHeaders() }
       )
     }
+
+    const waterRate = venueDrawDecimalFromPercent(club.venueDrawPercent)
+    const selfDrawRakeRate = selfDrawRakeDecimalFromPercent(club.selfDrawRakePercent)
 
     const gameResults = await prisma.clubGameResult.findMany({
       where: {
@@ -111,9 +160,38 @@ export async function GET(request: NextRequest) {
       },
     })
 
+    const settledSessions = await prisma.v2MatchSession.findMany({
+      where: {
+        clubId: club.id,
+        status: { in: ['FINISHED', 'DISBANDED'] },
+        endedAt: { gte: startAt, lte: endAt },
+      },
+      select: {
+        id: true,
+        roomInternalId: true,
+        gameSettings: true,
+        participants: {
+          select: {
+            playerId: true,
+            seat: true,
+            userId: true,
+            nickname: true,
+          },
+        },
+        rounds: {
+          select: {
+            roundEndPayload: true,
+            scoreChangeBySeat: true,
+          },
+        },
+      },
+    })
+
     const roomInternalIds = [
       ...new Set(
-        gameResults.map((gr) => gr.roomInternalId).filter((rid): rid is string => typeof rid === 'string' && !!rid)
+        [...gameResults.map((gr) => gr.roomInternalId), ...settledSessions.map((sess) => sess.roomInternalId)].filter(
+          (rid): rid is string => typeof rid === 'string' && !!rid
+        )
       ),
     ]
     const roomRows =
@@ -161,14 +239,13 @@ export async function GET(request: NextRequest) {
       completedGames: number
       dongMoney: number
       waterMoney: number
+      selfDrawRakeMoney: number
     }
 
     const playerAggMap = new Map<string, PlayerAgg>()
 
     for (const result of gameResults) {
       const players = Array.isArray(result.players) ? result.players : []
-      const gs = result.roomInternalId ? gameSettingsByRoomId.get(result.roomInternalId) : undefined
-      const taiUnit = scoringUnitFromStoredGameSettings(gs)
 
       for (const item of players) {
         if (!item || typeof item !== 'object') continue
@@ -180,15 +257,9 @@ export async function GET(request: NextRequest) {
         const nickname =
           typeof p.nickname === 'string' && p.nickname.trim() ? p.nickname.trim() : '未知玩家'
         const score = Number(p.score ?? 0) || 0
-        const statistics =
-          p.statistics && typeof p.statistics === 'object'
-            ? (p.statistics as Record<string, unknown>)
-            : null
-        const selfDrawCount = Number(statistics?.selfDraws ?? p.selfDrawCount ?? 0) || 0
         const roomCardConsumed = Number(p.roomCardConsumed ?? 0) || 0
         const isBigWinner = p.isBigWinner === true
-        const dongThisGame = selfDrawCount * taiUnit
-        const waterThisGame = score > 0 ? score * WATER_RATE : 0
+        const waterThisGame = score > 0 ? score * waterRate : 0
 
         const existing = playerAggMap.get(playerId)
         if (!existing) {
@@ -198,26 +269,79 @@ export async function GET(request: NextRequest) {
             nickname,
             battleScore: score,
             bigWinnerCount: isBigWinner ? 1 : 0,
-            selfDrawCount,
+            selfDrawCount: 0,
             roomCardConsumed,
             completedGames: 0,
-            dongMoney: dongThisGame,
+            dongMoney: 0,
             waterMoney: waterThisGame,
+            selfDrawRakeMoney: 0,
           })
           continue
         }
 
         existing.battleScore += score
         existing.bigWinnerCount += isBigWinner ? 1 : 0
-        existing.selfDrawCount += selfDrawCount
         existing.roomCardConsumed += roomCardConsumed
-        existing.dongMoney += dongThisGame
         existing.waterMoney += waterThisGame
         if (existing.userId === '—' && userId !== '—') {
           existing.userId = userId
         }
         if (existing.nickname === '未知玩家' && nickname !== '未知玩家') {
           existing.nickname = nickname
+        }
+      }
+    }
+
+    for (const sess of settledSessions) {
+      const roomGs = sess.roomInternalId ? gameSettingsByRoomId.get(sess.roomInternalId) : undefined
+      const taiUnit = scoringUnitFromStoredGameSettings(roomGs ?? sess.gameSettings)
+      const seatToParticipant = new Map(
+        (sess.participants ?? []).map((p) => [
+          p.seat,
+          {
+            playerId: p.playerId,
+            userId: typeof p.userId === 'string' && p.userId.trim() ? p.userId.trim() : '—',
+            nickname: typeof p.nickname === 'string' && p.nickname.trim() ? p.nickname.trim() : '未知玩家',
+          },
+        ])
+      )
+
+      for (const round of sess.rounds ?? []) {
+        const winnerSeat = selfDrawWinnerSeatFromRoundEndPayload(round.roundEndPayload)
+        if (winnerSeat == null) continue
+        const winner = seatToParticipant.get(winnerSeat)
+        if (!winner?.playerId) continue
+
+        const winDelta = seatScoreDelta(round.scoreChangeBySeat, winnerSeat)
+        const winForRake = winDelta > 0 ? winDelta : 0
+        const rakeThisRound = winForRake * selfDrawRakeRate
+
+        const existing = playerAggMap.get(winner.playerId)
+        if (!existing) {
+          playerAggMap.set(winner.playerId, {
+            playerId: winner.playerId,
+            userId: winner.userId,
+            nickname: winner.nickname,
+            battleScore: 0,
+            bigWinnerCount: 0,
+            selfDrawCount: 1,
+            roomCardConsumed: 0,
+            completedGames: 0,
+            dongMoney: taiUnit,
+            waterMoney: 0,
+            selfDrawRakeMoney: rakeThisRound,
+          })
+          continue
+        }
+
+        existing.selfDrawCount += 1
+        existing.dongMoney += taiUnit
+        existing.selfDrawRakeMoney += rakeThisRound
+        if (existing.userId === '—' && winner.userId !== '—') {
+          existing.userId = winner.userId
+        }
+        if (existing.nickname === '未知玩家' && winner.nickname !== '未知玩家') {
+          existing.nickname = winner.nickname
         }
       }
     }
@@ -248,6 +372,7 @@ export async function GET(request: NextRequest) {
           completedGames: 0,
           dongMoney: 0,
           waterMoney: 0,
+          selfDrawRakeMoney: 0,
         })
       }
     }
@@ -269,7 +394,7 @@ export async function GET(request: NextRequest) {
         const playerId = part.playerId
         if (!playerId) continue
         const score = Number(part.matchTotalScore ?? 0) || 0
-        const waterThisGame = score > 0 ? score * WATER_RATE : 0
+        const waterThisGame = score > 0 ? score * waterRate : 0
         if (waterThisGame === 0) continue
         const existing = playerAggMap.get(playerId)
         if (existing) {
@@ -291,6 +416,7 @@ export async function GET(request: NextRequest) {
           completedGames: 0,
           dongMoney: 0,
           waterMoney: waterThisGame,
+          selfDrawRakeMoney: 0,
         })
       }
     }
@@ -314,6 +440,7 @@ export async function GET(request: NextRequest) {
         roomCardConsumed: r.roomCardConsumed,
         completedGames: r.completedGames,
         dongMoney: Math.round(r.dongMoney),
+        selfDrawRakeMoney: Math.round(r.selfDrawRakeMoney * 100) / 100,
         waterMoney: Math.round(r.waterMoney * 100) / 100,
       }))
       .sort((a, b) => {
@@ -330,6 +457,7 @@ export async function GET(request: NextRequest) {
         acc.totalRoomCardConsumed += row.roomCardConsumed
         acc.totalCompletedGames += row.completedGames
         acc.totalDongMoney += row.dongMoney
+        acc.totalSelfDrawRakeMoney += row.selfDrawRakeMoney
         acc.totalWaterMoney += row.waterMoney
         return acc
       },
@@ -340,6 +468,7 @@ export async function GET(request: NextRequest) {
         totalRoomCardConsumed: 0,
         totalCompletedGames: 0,
         totalDongMoney: 0,
+        totalSelfDrawRakeMoney: 0,
         totalWaterMoney: 0,
       }
     )
@@ -355,6 +484,14 @@ export async function GET(request: NextRequest) {
             clubInternalId: club.id,
             clubSixId: club.clubId,
             clubName: club.name,
+            venueDrawPercent:
+              typeof club.venueDrawPercent === 'number' && Number.isFinite(club.venueDrawPercent)
+                ? club.venueDrawPercent
+                : DEFAULT_VENUE_DRAW_PERCENT,
+            selfDrawRakePercent:
+              typeof club.selfDrawRakePercent === 'number' && Number.isFinite(club.selfDrawRakePercent)
+                ? club.selfDrawRakePercent
+                : DEFAULT_SELF_DRAW_RAKE_PERCENT,
           },
         },
       },
