@@ -5,6 +5,9 @@ import { X, Save } from 'lucide-react'
 import { apiPatch } from '@/lib/api-client'
 import { requestAdminOpCode, withAdminOpCodeHeader } from '@/lib/admin-op-code-client'
 import UpstreamAgentSelect from '@/app/admin/components/UpstreamAgentSelect'
+import PlayerAvatarField, {
+  resolveAvatarUrlForSave,
+} from './PlayerAvatarField'
 
 interface Player {
   id: string
@@ -13,6 +16,7 @@ interface Player {
   cardCount: number
   maxJoinClubCount?: number
   bio?: string | null
+  avatarUrl?: string | null
   phoneE164?: string | null
   upstreamAgent?: {
     playerDbId: string
@@ -41,6 +45,8 @@ export default function EditUserModal({
   const [maxJoinClubCount, setMaxJoinClubCount] = useState<string>('3')
   const [bio, setBio] = useState<string>('')
   const [upstreamDbId, setUpstreamDbId] = useState<string | null>(null)
+  const [avatarUrl, setAvatarUrl] = useState<string>('')
+  const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null)
   const [loading, setLoading] = useState<boolean>(false)
 
   useEffect(() => {
@@ -52,6 +58,8 @@ export default function EditUserModal({
       )
       setBio(player.bio || '')
       setUpstreamDbId(player.upstreamAgent?.playerDbId ?? null)
+      setAvatarUrl(player.avatarUrl || '')
+      setPendingAvatarFile(null)
     }
   }, [isOpen, player])
 
@@ -70,6 +78,16 @@ export default function EditUserModal({
 
     setLoading(true)
     try {
+      const finalAvatarUrl = await resolveAvatarUrlForSave(
+        avatarUrl,
+        pendingAvatarFile
+      )
+      if (pendingAvatarFile && finalAvatarUrl === null) {
+        alert('頭像上傳失敗，請重新嘗試')
+        setLoading(false)
+        return
+      }
+
       const parsedMaxJoinClubCount = parseInt(maxJoinClubCount, 10)
       if (
         !Number.isFinite(parsedMaxJoinClubCount) ||
@@ -85,6 +103,7 @@ export default function EditUserModal({
         cardCount: parseInt(cardCount),
         maxJoinClubCount: parsedMaxJoinClubCount,
         bio: bio.trim() || null,
+        avatarUrl: finalAvatarUrl,
         upstreamAgentPlayerId: upstreamDbId,
       }, {
         headers: withAdminOpCodeHeader(opCode),
@@ -149,6 +168,13 @@ export default function EditUserModal({
               </span>
             </p>
           </div>
+
+          <PlayerAvatarField
+            avatarUrl={avatarUrl}
+            onAvatarUrlChange={setAvatarUrl}
+            onPendingFileChange={setPendingAvatarFile}
+            disabled={loading}
+          />
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">

@@ -12,7 +12,8 @@ import {
   BarChart,
   Megaphone,
   PieChart,
-  Bell
+  Bell,
+  DoorOpen
 } from 'lucide-react'
 import { canAccessAdminPath, type AdminRole } from '@/lib/admin-permissions'
 
@@ -79,6 +80,12 @@ export default function AdminNavigation({ onMenuClick, activeMenu, role = 'ADMIN
       label: '指令',
       icon: Terminal,
       path: '/admin/command'
+    },
+    {
+      id: 'room-open-test',
+      label: '開房測試',
+      icon: DoorOpen,
+      path: '/admin/room-open-test'
     },
     {
       id: 'report',

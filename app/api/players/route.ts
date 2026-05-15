@@ -157,7 +157,8 @@ export async function GET(request: NextRequest) {
 // 創建玩家（通過暱稱或 LINE 登入）
 export async function POST(request: NextRequest) {
   try {
-    const { nickname, lineUserId, displayName, pictureUrl } = await request.json()
+    const { nickname, lineUserId, displayName, pictureUrl, avatarUrl } =
+      await request.json()
 
     // LINE 登入流程
     if (lineUserId) {
@@ -272,12 +273,18 @@ export async function POST(request: NextRequest) {
       return !exists
     })
 
+    const trimmedAvatar =
+      typeof avatarUrl === 'string' && avatarUrl.trim() !== ''
+        ? avatarUrl.trim()
+        : null
+
     // 創建新玩家
     const player = await prisma.player.create({
       data: {
         userId,
         nickname: nickname.trim(),
         cardCount: 6,
+        avatarUrl: trimmedAvatar,
         lastLoginAt: new Date(), // 新玩家也記錄登入時間
       },
     })

@@ -47,14 +47,19 @@ app.use(express.urlencoded({ extended: true }));
 // 設置靜態文件服務（語音、公告圖片）
 const voiceUploadsDir = path.join(__dirname, 'uploads', 'voices');
 const announcementImageUploadsDir = path.join(__dirname, 'uploads', 'announcements');
+const playerAvatarUploadsDir = path.join(__dirname, 'uploads', 'player-avatars');
 if (!fs.existsSync(voiceUploadsDir)) {
   fs.mkdirSync(voiceUploadsDir, { recursive: true });
 }
 if (!fs.existsSync(announcementImageUploadsDir)) {
   fs.mkdirSync(announcementImageUploadsDir, { recursive: true });
 }
+if (!fs.existsSync(playerAvatarUploadsDir)) {
+  fs.mkdirSync(playerAvatarUploadsDir, { recursive: true });
+}
 app.use('/uploads/voices', express.static(voiceUploadsDir));
 app.use('/uploads/announcements', express.static(announcementImageUploadsDir));
+app.use('/uploads/player-avatars', express.static(playerAvatarUploadsDir));
 
 // Flutter 客戶端大型資源（如 APNG）：自 public/client-assets 提供，不計入 Play base 模組下載時由此拉取
 const clientAssetsDir = path.join(__dirname, 'public', 'client-assets');
@@ -112,6 +117,32 @@ const uploadAnnouncementImage = multer({
   storage: announcementImageStorage,
   limits: {
     fileSize: 10 * 1024 * 1024 // 限制 10MB
+  },
+  fileFilter: function (req, file, cb) {
+    const allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (allowedMimes.includes(file.mimetype) || file.originalname.match(/\.(jpg|jpeg|png|webp|gif)$/i)) {
+      cb(null, true);
+    } else {
+      cb(new Error('只支持 JPG/PNG/WEBP/GIF 圖片格式'));
+    }
+  }
+});
+
+// 配置 multer 用於玩家頭像上傳（後台）
+const playerAvatarStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, playerAvatarUploadsDir);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'player-avatar-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const uploadPlayerAvatar = multer({
+  storage: playerAvatarStorage,
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 限制 5MB
   },
   fileFilter: function (req, file, cb) {
     const allowedMimes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
@@ -6754,6 +6785,29 @@ app.post('/api/upload-announcement-image', uploadAnnouncementImage.single('image
   } catch (error) {
     console.error('公告圖片上傳錯誤:', error);
     res.status(500).json({ error: '圖片上傳失敗' });
+  }
+});
+
+// 玩家頭像上傳 API（後台玩家管理）
+app.post('/api/upload-player-avatar', uploadPlayerAvatar.single('image'), (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ success: false, error: '沒有上傳圖片' });
+    }
+
+    const fileUrl = `/uploads/player-avatars/${req.file.filename}`;
+    const fullUrl = publicFileUrl(req, fileUrl);
+
+    res.json({
+      success: true,
+      url: fullUrl,
+      path: fileUrl,
+      filename: req.file.filename,
+      size: req.file.size
+    });
+  } catch (error) {
+    console.error('玩家頭像上傳錯誤:', error);
+    res.status(500).json({ success: false, error: '圖片上傳失敗' });
   }
 });
 

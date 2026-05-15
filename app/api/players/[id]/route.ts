@@ -65,7 +65,7 @@ export async function PATCH(
   try {
     const { id } = await params
     const body = await request.json()
-    const { nickname, cardCount, bio, maxJoinClubCount } = body
+    const { nickname, cardCount, bio, maxJoinClubCount, avatarUrl } = body
     const hasUpstreamKey =
       typeof body === 'object' && body !== null && 'upstreamAgentPlayerId' in body
 
@@ -129,6 +129,10 @@ export async function PATCH(
         )
       }
       updateData.maxJoinClubCount = parsedMaxJoin
+    }
+    if (avatarUrl !== undefined) {
+      updateData.avatarUrl =
+        avatarUrl === null || avatarUrl === '' ? null : String(avatarUrl).trim()
     }
 
     if (normalizedUpstream !== undefined) {

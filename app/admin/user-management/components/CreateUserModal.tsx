@@ -2,6 +2,9 @@
 
 import { useState } from 'react'
 import { X, Save } from 'lucide-react'
+import PlayerAvatarField, {
+  resolveAvatarUrlForSave,
+} from './PlayerAvatarField'
 
 interface CreateUserModalProps {
   isOpen: boolean
@@ -16,7 +19,16 @@ export default function CreateUserModal({
 }: CreateUserModalProps) {
   const [nickname, setNickname] = useState<string>('')
   const [cardCount, setCardCount] = useState<string>('0')
+  const [avatarUrl, setAvatarUrl] = useState<string>('')
+  const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null)
   const [loading, setLoading] = useState<boolean>(false)
+
+  const resetForm = () => {
+    setNickname('')
+    setCardCount('0')
+    setAvatarUrl('')
+    setPendingAvatarFile(null)
+  }
 
   const handleSave = async () => {
     if (loading) return
@@ -28,6 +40,15 @@ export default function CreateUserModal({
 
     setLoading(true)
     try {
+      const finalAvatarUrl = await resolveAvatarUrlForSave(
+        avatarUrl,
+        pendingAvatarFile
+      )
+      if (pendingAvatarFile && !finalAvatarUrl) {
+        alert('頭像上傳失敗，請重新嘗試')
+        return
+      }
+
       const response = await fetch('/api/players', {
         method: 'POST',
         headers: {
@@ -35,12 +56,12 @@ export default function CreateUserModal({
         },
         body: JSON.stringify({
           nickname: nickname.trim(),
+          avatarUrl: finalAvatarUrl,
         })
       })
 
       if (response.ok) {
         const result = await response.json()
-        // 如果有設置房卡數量，更新它
         if (cardCount !== '0') {
           await fetch(`/api/players/${result.data.id}`, {
             method: 'PATCH',
@@ -55,8 +76,7 @@ export default function CreateUserModal({
         alert(result.message || '創建成功')
         onSuccess()
         onClose()
-        setNickname('')
-        setCardCount('0')
+        resetForm()
       } else {
         const result = await response.json()
         alert(result.error || '創建失敗')
@@ -80,7 +100,6 @@ export default function CreateUserModal({
         className="bg-white rounded-lg w-full max-w-md mx-auto shadow-xl relative"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* 標題 */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <h3 className="text-lg font-semibold text-gray-900">新增使用者</h3>
           <button
@@ -91,8 +110,14 @@ export default function CreateUserModal({
           </button>
         </div>
 
-        {/* 內容 */}
         <div className="px-6 py-4 space-y-4">
+          <PlayerAvatarField
+            avatarUrl={avatarUrl}
+            onAvatarUrlChange={setAvatarUrl}
+            onPendingFileChange={setPendingAvatarFile}
+            disabled={loading}
+          />
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               玩家名稱 <span className="text-red-500">*</span>
@@ -121,7 +146,6 @@ export default function CreateUserModal({
           </div>
         </div>
 
-        {/* 按鈕 */}
         <div className="flex border-t border-gray-200">
           <button
             onClick={onClose}
@@ -130,7 +154,7 @@ export default function CreateUserModal({
           >
             取消
           </button>
-          <div className="w-px bg-gray-200"></div>
+          <div className="w-px bg-gray-200" />
           <button
             onClick={handleSave}
             disabled={loading}
@@ -138,7 +162,7 @@ export default function CreateUserModal({
           >
             {loading ? (
               <>
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" />
                 處理中...
               </>
             ) : (
@@ -153,4 +177,3 @@ export default function CreateUserModal({
     </div>
   )
 }
-
