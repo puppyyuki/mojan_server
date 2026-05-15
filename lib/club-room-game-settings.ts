@@ -164,13 +164,14 @@ export function applyClubGameSettingsPolicy(
     if (specialRulePolicy.forced_win === false) out.special_rules.forced_win = true
   }
 
-  for (const key of ['manual_start', 'ip_check', 'gps_lock'] as const) {
-    const policy = clubSettings[key]
-    if (isForced) {
-      if (typeof policy === 'boolean') out[key] = policy
-    } else if (policy === false) {
-      out[key] = false
-    }
+  // 強制模式：底台／玩法等由俱樂部鎖定；手動開始／IP／GPS 以開房時勾選為準（預設已帶入俱樂部設定）。
+  // 自由模式：這三項表示是否「開放」；未開放則強制關閉。（俱樂部存檔常用 location_check 取代 gps_lock）
+  if (!isForced) {
+    if (clubSettings.manual_start === false) out.manual_start = false
+    if (clubSettings.ip_check === false) out.ip_check = false
+    const gpsLocked =
+      clubSettings.gps_lock === false || clubSettings.location_check === false
+    if (gpsLocked) out.gps_lock = false
   }
 
   return normalizeRoomGameSettings(out)

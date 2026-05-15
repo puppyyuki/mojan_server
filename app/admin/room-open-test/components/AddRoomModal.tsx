@@ -217,7 +217,7 @@ export default function AddRoomModal({ isOpen, onClose, onSuccess }: Props) {
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-lg w-full max-w-2xl mx-auto shadow-xl relative max-h-[90vh] flex flex-col"
+        className="bg-white text-gray-900 rounded-lg w-full max-w-2xl mx-auto shadow-xl relative max-h-[90vh] flex flex-col [color-scheme:light]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 shrink-0">
@@ -255,7 +255,7 @@ export default function AddRoomModal({ isOpen, onClose, onSuccess }: Props) {
 
           {step === 2 &&
             (settingsLoading ? (
-              <p className="text-sm text-gray-500 py-8 text-center">載入遊戲設定中…</p>
+              <p className="text-sm text-gray-600 py-8 text-center">載入遊戲設定中…</p>
             ) : (
               <RoomCreateSettingsForm
                 clubGameSettings={clubGameSettings}
