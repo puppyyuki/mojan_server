@@ -704,6 +704,7 @@ router.get('/:clubId', async (req, res) => {
                 userId: true,
                 nickname: true,
                 cardCount: true,
+                avatarUrl: true,
               },
             },
           },
