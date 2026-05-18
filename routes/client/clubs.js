@@ -745,6 +745,7 @@ router.get('/:clubId/rooms', async (req, res) => {
       include: {
         participants: {
           where: { leftAt: null },
+          orderBy: { joinedAt: 'asc' },
           include: {
             player: {
               select: {
@@ -844,6 +845,8 @@ router.get('/:clubId/rooms', async (req, res) => {
     const data = listRooms.map((room) => ({
       id: room.id,
       roomId: room.roomId,
+      creatorId: room.creatorId,
+      hostPlayerId: room.creatorId,
       multiplayerVersion: room.multiplayerVersion,
       status: room.status,
       currentPlayers: room.currentPlayers,
@@ -864,6 +867,7 @@ router.get('/:clubId/rooms', async (req, res) => {
         profile_picture_url: p.player?.avatarUrl ?? null,
         joinedAt: p.joinedAt,
         leftAt: p.leftAt,
+        isHost: (p.player?.id ?? p.playerId) === room.creatorId,
       })),
     }));
 
