@@ -35,6 +35,7 @@ export async function GET(
         logoUrl: true,
         venueDrawPercent: true,
         selfDrawRakePercent: true,
+        weeklySettlementEnabled: true,
         cardCount: true, // 包含俱樂部房卡數量
         avatarUrl: true, // 包含俱樂部頭像 URL
         creator: {
@@ -102,6 +103,7 @@ export async function PATCH(
       joinRequiresOwnerApproval,
       venueDrawPercent,
       selfDrawRakePercent,
+      weeklySettlementEnabled,
     } = body
 
     const needsSensitiveGuard =
@@ -109,7 +111,8 @@ export async function PATCH(
       bodyClubId !== undefined ||
       joinRequiresOwnerApproval !== undefined ||
       venueDrawPercent !== undefined ||
-      selfDrawRakePercent !== undefined
+      selfDrawRakePercent !== undefined ||
+      weeklySettlementEnabled !== undefined
 
     if (needsSensitiveGuard) {
       const opCodeGuard = assertAdminOpCode(request, body)
@@ -163,6 +166,9 @@ export async function PATCH(
         )
       }
       updateData.selfDrawRakePercent = n
+    }
+    if (weeklySettlementEnabled !== undefined) {
+      updateData.weeklySettlementEnabled = Boolean(weeklySettlementEnabled)
     }
     if (bodyClubId !== undefined) {
       const trimmed = String(bodyClubId).trim()

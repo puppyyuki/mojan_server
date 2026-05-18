@@ -6,6 +6,7 @@ const {
   resolveClubV2HistoryVisibility,
 } = require('../../utils/clubV2HistoryAccess');
 const { isV2RoundCompletedForStatistics } = require('../../utils/v2RoundStatistics');
+const { sumSelfDrawRakeMoneyByPlayerId } = require('../../utils/clubSelfDrawRakeMoney');
 
 // 房間列表輪詢頻繁：只在統計值變化時輸出一次，避免終端重複洗版。
 const _lastClubRoomsListLogSignatureByClubId = new Map();
@@ -1358,6 +1359,24 @@ router.get('/:clubId/rankings', async (req, res) => {
               ? r.endedAt
               : row.lastGameTime;
         }
+      }
+    }
+
+    // 「週結」：排行榜積分扣除與後台報表「自摸抽」相同規則（session 區間與上方 clubScore 聚合一致）
+    if (club.weeklySettlementEnabled === true) {
+      try {
+        const rakeByPlayer = await sumSelfDrawRakeMoneyByPlayerId(prisma, club, {
+          startAt: hasDateFilter ? startDate : null,
+          endAt: hasDateFilter ? endDate : null,
+        });
+        for (const row of byPlayerId.values()) {
+          const rakeRaw = rakeByPlayer.get(row.playerId) || 0;
+          const rake = Math.round(rakeRaw * 100) / 100;
+          const rawScore = Number(row.clubScore) || 0;
+          row.clubScore = Math.round((rawScore - rake) * 100) / 100;
+        }
+      } catch (rakeErr) {
+        console.error('[Clubs API] 週結自摸抽扣除失敗:', rakeErr);
       }
     }
 

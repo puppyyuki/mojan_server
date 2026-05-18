@@ -119,6 +119,8 @@ model Club {
   venueDrawPercent Float @default(5)
   /// 後台報表「自摸抽」抽成比例（百分比，例如 8 表示 8%；依自摸局該家當局正分計算）
   selfDrawRakePercent Float @default(8)
+  /// 開啟後，App 俱樂部排行榜「積分」為戰績分扣除與報表相同規則計算之自摸抽（依俱樂部自摸抽％）
+  weeklySettlementEnabled Boolean @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

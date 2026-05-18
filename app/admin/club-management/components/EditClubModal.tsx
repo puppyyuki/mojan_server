@@ -22,6 +22,7 @@ interface Club {
   avatarUrl?: string
   venueDrawPercent?: number
   selfDrawRakePercent?: number
+  weeklySettlementEnabled?: boolean
   members: Array<{
     player: {
       id: string
@@ -50,6 +51,7 @@ export default function EditClubModal({
   const [cardCount, setCardCount] = useState<string>('0')
   const [venueDrawPercent, setVenueDrawPercent] = useState<string>('5')
   const [selfDrawRakePercent, setSelfDrawRakePercent] = useState<string>('8')
+  const [weeklySettlementEnabled, setWeeklySettlementEnabled] = useState<boolean>(false)
   const [avatarUrl, setAvatarUrl] = useState<string>('')
   const [loading, setLoading] = useState<boolean>(false)
 
@@ -69,6 +71,7 @@ export default function EditClubModal({
           ? club.selfDrawRakePercent
           : 8
       setSelfDrawRakePercent(String(sdr))
+      setWeeklySettlementEnabled(club.weeklySettlementEnabled === true)
       setAvatarUrl(club.avatarUrl || club.creator?.avatarUrl || '')
     }
   }, [isOpen, club])
@@ -124,6 +127,7 @@ export default function EditClubModal({
         joinRequiresOwnerApproval: joinRequiresApproval,
         venueDrawPercent: venueParsed,
         selfDrawRakePercent: rakeParsed,
+        weeklySettlementEnabled,
       }, {
         headers: withAdminOpCodeHeader(opCode),
       })
@@ -278,6 +282,30 @@ export default function EditClubModal({
               step="any"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400"
             />
+          </div>
+
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-2">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-gray-900">週結</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                開啟後，App 俱樂部排行榜「積分」會先扣除依上方「自摸抽％」計算的自摸抽（與後台報表「自摸抽」欄規則一致；日期篩選時與區間內戰績同步）。
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={weeklySettlementEnabled}
+              onClick={() => setWeeklySettlementEnabled((v) => !v)}
+              className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                weeklySettlementEnabled ? 'bg-blue-600' : 'bg-gray-200'
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                  weeklySettlementEnabled ? 'translate-x-5' : 'translate-x-0.5'
+                }`}
+              />
+            </button>
           </div>
 
           <div>
