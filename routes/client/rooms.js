@@ -431,6 +431,12 @@ router.get('/:roomId', async (req, res) => {
       return errorResponse(res, '房間不存在', null, 404);
     }
 
+    const roomStatus = (room.status || 'WAITING').toString().trim().toUpperCase();
+    const maxPlayers = Number(room.maxPlayers) > 0 ? Number(room.maxPlayers) : 4;
+    const currentPlayers = Number(room.currentPlayers) || 0;
+    const joinable =
+      roomStatus === 'WAITING' && currentPlayers < maxPlayers;
+
     let access = {
       isClubRoom: !!room.clubId,
       isClubMember: false,
@@ -475,6 +481,12 @@ router.get('/:roomId', async (req, res) => {
       res,
       {
         ...room,
+        joinable,
+        joinBlockReason: joinable
+          ? null
+          : roomStatus !== 'WAITING'
+            ? 'room_ended'
+            : 'room_full',
         access,
         viewer: viewerPlayer
           ? {

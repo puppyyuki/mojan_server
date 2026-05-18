@@ -22,6 +22,7 @@ const socketConfig = require('./config/socket');
 const prisma = new PrismaClient();
 
 const app = express();
+app.locals.prisma = prisma;
 // Render 等反向代理：讓 req.ip、secure 等正確；上傳回傳 URL 另用下方 forwarded 標頭
 app.set('trust proxy', 1);
 
@@ -74,6 +75,18 @@ app.use(
     fallthrough: true,
   })
 );
+
+// Android App Links 驗證檔（需填入正式簽章 SHA256）
+app.use(
+  '/.well-known',
+  express.static(path.join(__dirname, 'public', '.well-known'), {
+    maxAge: process.env.NODE_ENV === 'production' ? '1d' : 0,
+  })
+);
+
+// 房間邀請深層連結著陸頁（LINE 分享連結 /r?r=房號）
+const roomInviteRoutes = require('./routes/roomInvite');
+app.use('/r', roomInviteRoutes);
 
 // 配置 multer 用於語音文件上傳
 const voiceStorage = multer.diskStorage({
