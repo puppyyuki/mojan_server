@@ -1008,16 +1008,17 @@ router.get('/:clubId/activity', async (req, res) => {
       take: limit,
     });
 
-    // 兼容舊資料：歷史上 MEMBER_KICKED 同時被「踢出」與「禁止遊戲」共用。
-    // 新資料已改為 MEMBER_BANNED；這裡僅盡量把舊資料正規化，避免解除禁止後誤顯示為踢出。
     const kickedTargetIds = [...new Set(
       rows
         .filter((r) => r?.type === 'MEMBER_KICKED' && isNonEmptyString(r?.targetPlayerId))
         .map((r) => r.targetPlayerId)
     )];
-    let bannedMap = new Map();
-    let unbannedAtMap = new Map();
+
+    let normalizedRows = rows;
     if (kickedTargetIds.length > 0) {
+      // 兼容舊資料：歷史上 MEMBER_KICKED 同時被「踢出」與「禁止遊戲」共用。
+      let bannedMap = new Map();
+      let unbannedAtMap = new Map();
       const currentMembers = await prisma.clubMember.findMany({
         where: {
           clubId: club.id,
@@ -1038,7 +1039,6 @@ router.get('/:clubId/activity', async (req, res) => {
         },
         select: { targetPlayerId: true, createdAt: true },
       });
-      // 取每位玩家最近一次解禁時間：若某筆 MEMBER_KICKED 早於該時間，視為舊的禁止遊戲紀錄。
       for (const row of unbannedRows) {
         if (!isNonEmptyString(row?.targetPlayerId)) continue;
         const prev = unbannedAtMap.get(row.targetPlayerId);
@@ -1046,21 +1046,22 @@ router.get('/:clubId/activity', async (req, res) => {
           unbannedAtMap.set(row.targetPlayerId, row.createdAt);
         }
       }
+
+      normalizedRows = rows.map((r) => {
+        if (r?.type !== 'MEMBER_KICKED' || !isNonEmptyString(r?.targetPlayerId)) {
+          return r;
+        }
+        const currentlyBanned = bannedMap.get(r.targetPlayerId) === true;
+        const latestUnbannedAt = unbannedAtMap.get(r.targetPlayerId);
+        const wasLegacyBanThenUnbanned =
+          latestUnbannedAt instanceof Date && r.createdAt < latestUnbannedAt;
+        if (currentlyBanned || wasLegacyBanThenUnbanned) {
+          return { ...r, type: 'MEMBER_BANNED' };
+        }
+        return r;
+      });
     }
 
-    const normalizedRows = rows.map((r) => {
-      if (r?.type !== 'MEMBER_KICKED' || !isNonEmptyString(r?.targetPlayerId)) {
-        return r;
-      }
-      const currentlyBanned = bannedMap.get(r.targetPlayerId) === true;
-      const latestUnbannedAt = unbannedAtMap.get(r.targetPlayerId);
-      const wasLegacyBanThenUnbanned =
-        latestUnbannedAt instanceof Date && r.createdAt < latestUnbannedAt;
-      if (currentlyBanned || wasLegacyBanThenUnbanned) {
-        return { ...r, type: 'MEMBER_BANNED' };
-      }
-      return r;
-    });
     const playerIds = [...new Set(
       normalizedRows.flatMap((r) => [r?.actorPlayerId, r?.targetPlayerId]).filter((id) => isNonEmptyString(id))
     )];
@@ -1100,24 +1101,13 @@ router.get('/:clubId/join-requests', async (req, res) => {
     }
 
     const isOwner = club.creatorId === actorPlayerId;
-    if (!isOwner) {
-      const actorMember = await prisma.clubMember.findUnique({
-        where: { clubId_playerId: { clubId: club.id, playerId: actorPlayerId } },
-        select: { role: true, coLeaderPermissions: true },
-      });
-      const perms = getCoLeaderPerms(actorMember);
-      const canReview = actorMember?.role === 'CO_LEADER' && perms?.approveJoinRequests === true;
-      if (!canReview) {
-        return errorResponse(res, '沒有權限', null, 403);
-      }
-    }
 
     const rawStatus = (req.query.status || 'PENDING').toString().toUpperCase();
     const status = ['PENDING', 'APPROVED', 'REJECTED', 'CANCELLED'].includes(rawStatus)
       ? rawStatus
       : 'PENDING';
 
-    const requests = await prisma.clubJoinRequest.findMany({
+    const requestsPromise = prisma.clubJoinRequest.findMany({
       where: { clubId: club.id, status },
       orderBy: { createdAt: 'desc' },
       include: {
@@ -1125,6 +1115,22 @@ router.get('/:clubId/join-requests', async (req, res) => {
       },
     });
 
+    if (isOwner) {
+      const requests = await requestsPromise;
+      return successResponse(res, requests);
+    }
+
+    const actorMember = await prisma.clubMember.findUnique({
+      where: { clubId_playerId: { clubId: club.id, playerId: actorPlayerId } },
+      select: { role: true, coLeaderPermissions: true },
+    });
+    const perms = getCoLeaderPerms(actorMember);
+    const canReview = actorMember?.role === 'CO_LEADER' && perms?.approveJoinRequests === true;
+    if (!canReview) {
+      return errorResponse(res, '沒有權限', null, 403);
+    }
+
+    const requests = await requestsPromise;
     return successResponse(res, requests);
   } catch (error) {
     console.error('[Clubs API] 獲取加入申請列表失敗:', error);
