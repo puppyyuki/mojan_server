@@ -42,6 +42,42 @@ function parseRankingQueryDate(raw, isEnd) {
   return dt;
 }
 
+function parsePageQuery(req, { defaultPageSize = 50, maxPageSize = 100 } = {}) {
+  const pageRaw = Number(req.query.page);
+  const pageSizeRaw = Number(req.query.pageSize);
+  const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? Math.floor(pageRaw) : 1;
+  let pageSize = Number.isFinite(pageSizeRaw) && pageSizeRaw >= 1
+    ? Math.floor(pageSizeRaw)
+    : defaultPageSize;
+  pageSize = Math.min(Math.max(pageSize, 1), maxPageSize);
+  const skip = (page - 1) * pageSize;
+  return { page, pageSize, skip };
+}
+
+function pagedPayload(items, { total, page, pageSize }) {
+  const safeTotal = Number.isFinite(total) ? total : items.length;
+  const hasMore = page * pageSize < safeTotal;
+  return { items, total: safeTotal, page, pageSize, hasMore };
+}
+
+function skipLimitPayload(items, { skip, limit, hasMore }) {
+  return { items, skip, limit, hasMore: hasMore === true };
+}
+
+/** v2 對戰歷史：依 endedAt 為主，無 endedAt 則用 startedAt。 */
+function buildV2MatchHistoryDateWhere(startDate, endDate) {
+  if (!startDate && !endDate) return null;
+  const range = {};
+  if (startDate) range.gte = startDate;
+  if (endDate) range.lte = endDate;
+  return {
+    OR: [
+      { endedAt: range },
+      { AND: [{ endedAt: null }, { startedAt: range }] },
+    ],
+  };
+}
+
 /**
  * 查找俱樂部（支持內部ID或俱樂部ID）
  */
@@ -991,22 +1027,27 @@ router.get('/:clubId/activity', async (req, res) => {
   try {
     const { prisma } = req.app.locals;
     const { clubId } = req.params;
-    const limitRaw = req.query.limit;
+    const limitRaw = Number(req.query.limit);
     const limitParsed = Number(limitRaw);
     const limit = Number.isFinite(limitParsed)
       ? Math.min(Math.max(limitParsed, 1), 200)
-      : 50;
+      : 40;
+    const skipRaw = Number(req.query.skip);
+    const skip = Number.isFinite(skipRaw) && skipRaw >= 0 ? Math.floor(skipRaw) : 0;
 
     const club = await findClub(prisma, clubId);
     if (!club) {
       return errorResponse(res, '俱樂部不存在', null, 404);
     }
 
-    const rows = await prisma.clubActivity.findMany({
+    const fetchedRows = await prisma.clubActivity.findMany({
       where: { clubId: club.id },
       orderBy: { createdAt: 'desc' },
-      take: limit,
+      skip,
+      take: limit + 1,
     });
+    const hasMore = fetchedRows.length > limit;
+    const rows = hasMore ? fetchedRows.slice(0, limit) : fetchedRows;
 
     const kickedTargetIds = [...new Set(
       rows
@@ -1078,7 +1119,7 @@ router.get('/:clubId/activity', async (req, res) => {
       targetUserId: isNonEmptyString(r?.targetPlayerId) ? (userIdMap.get(r.targetPlayerId) ?? null) : null,
     }));
 
-    return successResponse(res, enrichedRows);
+    return successResponse(res, skipLimitPayload(enrichedRows, { skip, limit, hasMore }));
   } catch (error) {
     console.error('[Clubs API] 獲取俱樂部動態失敗:', error);
     return errorResponse(res, '獲取俱樂部動態失敗', error.message, 500);
@@ -1419,7 +1460,14 @@ router.get('/:clubId/rankings', async (req, res) => {
       ...r,
     }));
 
-    return successResponse(res, ranked);
+    const { page, pageSize, skip } = parsePageQuery(req, {
+      defaultPageSize: 50,
+      maxPageSize: 100,
+    });
+    const total = ranked.length;
+    const pageItems = ranked.slice(skip, skip + pageSize);
+
+    return successResponse(res, pagedPayload(pageItems, { total, page, pageSize }));
   } catch (error) {
     console.error('[Clubs API] 獲取排行榜失敗:', error);
     return errorResponse(res, '獲取排行榜失敗', error.message, 500);
@@ -1496,50 +1544,57 @@ router.get('/:clubId/match-history', async (req, res) => {
       scopeAnd.push({ participants: searchParticipantFilter });
     }
 
-    const sessions = await prisma.v2MatchSession.findMany({
-      where: {
-        clubId: club.id,
-        status: { in: ['FINISHED', 'DISBANDED'] },
-        ...(scopeAnd.length > 0 ? { AND: scopeAnd } : {}),
-      },
-      orderBy: [{ endedAt: 'desc' }, { startedAt: 'desc' }],
-      take: 100,
-      include: {
-        participants: {
-          include: {
-            player: {
-              select: {
-                id: true,
-                userId: true,
-                nickname: true,
-                avatarUrl: true,
+    const dateWhere = buildV2MatchHistoryDateWhere(startDate, endDate);
+    if (dateWhere) {
+      scopeAnd.push(dateWhere);
+    }
+
+    const sessionWhere = {
+      clubId: club.id,
+      status: { in: ['FINISHED', 'DISBANDED'] },
+      ...(scopeAnd.length > 0 ? { AND: scopeAnd } : {}),
+    };
+
+    const { page, pageSize, skip } = parsePageQuery(req, {
+      defaultPageSize: 30,
+      maxPageSize: 50,
+    });
+
+    const [total, sessions] = await Promise.all([
+      prisma.v2MatchSession.count({ where: sessionWhere }),
+      prisma.v2MatchSession.findMany({
+        where: sessionWhere,
+        orderBy: [{ endedAt: 'desc' }, { startedAt: 'desc' }],
+        skip,
+        take: pageSize,
+        include: {
+          participants: {
+            include: {
+              player: {
+                select: {
+                  id: true,
+                  userId: true,
+                  nickname: true,
+                  avatarUrl: true,
+                },
               },
             },
           },
-        },
-        rounds: {
-          select: {
-            id: true,
-            roundIndex: true,
-            endedAt: true,
-            scoreChangeBySeat: true,
-            shareCode: true,
+          rounds: {
+            select: {
+              id: true,
+              roundIndex: true,
+              endedAt: true,
+              scoreChangeBySeat: true,
+              shareCode: true,
+            },
+            orderBy: { roundIndex: 'asc' },
           },
-          orderBy: { roundIndex: 'asc' },
         },
-      },
-    });
+      }),
+    ]);
 
-    const inRange = (s) => {
-      if (!startDate && !endDate) return true;
-      const t = s.endedAt ?? s.startedAt;
-      if (!t) return false;
-      if (startDate && t < startDate) return false;
-      if (endDate && t > endDate) return false;
-      return true;
-    };
-
-    const history = sessions.filter(inRange).map((s) => {
+    const history = sessions.map((s) => {
       const gameSettings = s.gameSettings && typeof s.gameSettings === 'object' ? s.gameSettings : {};
       const gameType = gameSettings.game_type || 'NORTHERN';
       const gameTypeLabel = gameType === 'SOUTHERN' ? '南部麻將' : '北部麻將';
@@ -1589,7 +1644,7 @@ router.get('/:clubId/match-history', async (req, res) => {
       };
     });
 
-    return successResponse(res, history);
+    return successResponse(res, pagedPayload(history, { total, page, pageSize }));
   } catch (error) {
     console.error('[Clubs API] 獲取戰績失敗:', error);
     return errorResponse(res, '獲取戰績失敗', error.message, 500);
@@ -1847,7 +1902,8 @@ router.get('/players/:playerId/clubs', async (req, res) => {
 
 /**
  * GET /api/client/clubs/:clubId/members
- * 獲取俱樂部成員列表
+ * 獲取俱樂部成員列表（分頁）
+ * Query: page, pageSize, search（暱稱 / userId / playerId 子字串）
  */
 router.get('/:clubId/members', async (req, res) => {
   try {
@@ -1860,22 +1916,43 @@ router.get('/:clubId/members', async (req, res) => {
       return errorResponse(res, '俱樂部不存在', null, 404);
     }
 
-    const members = await prisma.clubMember.findMany({
-      where: { clubId: club.id },
-      include: {
-        player: {
-          select: {
-            id: true,
-            userId: true,
-            nickname: true,
-            cardCount: true,
+    const { page, pageSize, skip } = parsePageQuery(req, {
+      defaultPageSize: 50,
+      maxPageSize: 100,
+    });
+    const searchRaw = (req.query.search || '').toString().trim();
+
+    const memberWhere = { clubId: club.id };
+    if (searchRaw) {
+      memberWhere.OR = [
+        { player: { userId: { contains: searchRaw, mode: 'insensitive' } } },
+        { player: { nickname: { contains: searchRaw, mode: 'insensitive' } } },
+        { playerId: { contains: searchRaw, mode: 'insensitive' } },
+      ];
+    }
+
+    const [total, members] = await Promise.all([
+      prisma.clubMember.count({ where: memberWhere }),
+      prisma.clubMember.findMany({
+        where: memberWhere,
+        include: {
+          player: {
+            select: {
+              id: true,
+              userId: true,
+              nickname: true,
+              cardCount: true,
+              avatarUrl: true,
+            },
           },
         },
-      },
-      orderBy: { joinedAt: 'desc' },
-    });
+        orderBy: { joinedAt: 'desc' },
+        skip,
+        take: pageSize,
+      }),
+    ]);
 
-    return successResponse(res, members);
+    return successResponse(res, pagedPayload(members, { total, page, pageSize }));
   } catch (error) {
     console.error('[Clubs API] 獲取成員列表失敗:', error);
     return errorResponse(res, '獲取成員列表失敗', null, 500);

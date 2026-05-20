@@ -180,6 +180,7 @@ model ClubJoinRequest {
   createdAt DateTime          @default(now())
   updatedAt DateTime          @updatedAt
 
+  @@index([clubId, status])
   @@map("club_join_requests")
 }
 
