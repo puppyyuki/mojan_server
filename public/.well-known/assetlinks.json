@@ -8,7 +8,8 @@
       "namespace": "android_app",
       "package_name": "com.mojan.app",
       "sha256_cert_fingerprints": [
-        "A4:12:86:C5:F3:93:80:DF:85:A1:81:B6:F4:94:38:49:95:E0:94:C5:B5:C2:8B:FC:A1:78:2E:CC:F2:60:45:27"
+        "A4:12:86:C5:F3:93:80:DF:85:A1:81:B6:F4:94:38:49:95:E0:94:C5:B5:C2:8B:FC:A1:78:2E:CC:F2:60:45:27",
+        "0A:7B:AE:B6:43:99:B0:88:AC:C6:4E:DF:0A:3A:F2:C8:E8:63:5B:F0:A5:59:82:2E:D7:67:3A:86:AE:07:1C:F2"
       ]
     }
   }
