@@ -1,11 +1,14 @@
 [
   {
-    "relation": ["delegate_permission/common.handle_all_urls"],
+    "relation": [
+      "delegate_permission/common.handle_all_urls",
+      "delegate_permission/common.get_login_creds"
+    ],
     "target": {
       "namespace": "android_app",
       "package_name": "com.mojan.app",
       "sha256_cert_fingerprints": [
-        "REPLACE_WITH_RELEASE_SHA256_FINGERPRINT"
+        "A4:12:86:C5:F3:93:80:DF:85:A1:81:B6:F4:94:38:49:95:E0:94:C5:B5:C2:8B:FC:A1:78:2E:CC:F2:60:45:27"
       ]
     }
   }
