@@ -1478,7 +1478,7 @@ router.get('/:clubId/rankings', async (req, res) => {
  * GET /api/client/clubs/:clubId/match-history
  * 俱樂部 v2 對戰歷史（V2MatchSession，含重播碼摘要、四位玩家總分）
  * Query: actorPlayerId（必填，用於身分與可見範圍）
- *        startDate, endDate (YYYY-MM-DD，依結束時間為主，無 endedAt 則用 startedAt)
+ *        startDate, endDate (YYYY-MM-DD 視為台灣日曆日 UTC+8 區間；依 endedAt 為主，無 endedAt 則用 startedAt)
  *        playerId（可選，比對參與者 playerId / userId 子字串；一般成員僅能看到含自己的場次）
  *
  * 可見範圍：擁有者、副會長可看全部；其餘成員僅看自己參與的場次（代理身分不額外放寬）。
@@ -1504,18 +1504,8 @@ router.get('/:clubId/match-history', async (req, res) => {
     const endDateRaw = req.query.endDate?.toString?.() ?? '';
     const playerIdRaw = (req.query.playerId || '').toString().trim();
 
-    const parseDateMaybe = (raw, isEnd) => {
-      if (!raw) return null;
-      const dt = new Date(raw);
-      if (Number.isNaN(dt.getTime())) return null;
-      const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(raw);
-      if (isDateOnly && isEnd) {
-        dt.setHours(23, 59, 59, 999);
-      }
-      return dt;
-    };
-    const startDate = parseDateMaybe(startDateRaw, false);
-    const endDate = parseDateMaybe(endDateRaw, true);
+    const startDate = parseRankingQueryDate(startDateRaw, false);
+    const endDate = parseRankingQueryDate(endDateRaw, true);
     if ((startDateRaw && !startDate) || (endDateRaw && !endDate)) {
       return errorResponse(res, '日期格式錯誤，請使用 YYYY-MM-DD', null, 400);
     }
