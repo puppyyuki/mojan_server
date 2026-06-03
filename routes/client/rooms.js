@@ -4,6 +4,10 @@ const { successResponse, errorResponse } = require('../../utils/response');
 const { generateUniqueId } = require('../../utils/idGenerator');
 const { allocateShareCodeInTx } = require('../../utils/v2ReplayShareCode');
 const { isV2RoundCompletedForStatistics } = require('../../utils/v2RoundStatistics');
+const {
+  broadcastClubRoomChange,
+  broadcastClubRoomRemoved,
+} = require('../../lib/clubRoomsBroadcast');
 
 function normalizeRounds(raw) {
   const n = Number(raw);
@@ -526,6 +530,10 @@ router.delete('/:roomId', async (req, res) => {
       return successResponse(res, { roomId, deleted: false }, '房間已不存在');
     }
 
+    if (room.clubId) {
+      broadcastClubRoomRemoved(room.clubId, room.roomId, 'deleted');
+    }
+
     await prisma.room.delete({
       where: { roomId },
     });
@@ -553,7 +561,7 @@ router.post('/:roomId/participants/join', async (req, res) => {
 
     const room = await prisma.room.findUnique({
       where: { roomId },
-      select: { id: true, roomId: true },
+      select: { id: true, roomId: true, clubId: true },
     });
     if (!room) {
       return errorResponse(res, '房間不存在', null, 404);
@@ -590,6 +598,10 @@ router.post('/:roomId/participants/join', async (req, res) => {
       );
     }
 
+    if (room.clubId) {
+      void broadcastClubRoomChange(prisma, room.clubId, room.roomId);
+    }
+
     return successResponse(
       res,
       { roomId: room.roomId, playerId, currentPlayers: activeCount },
@@ -617,7 +629,7 @@ router.post('/:roomId/participants/leave', async (req, res) => {
 
     const room = await prisma.room.findUnique({
       where: { roomId },
-      select: { id: true, roomId: true },
+      select: { id: true, roomId: true, clubId: true },
     });
     if (!room) {
       return successResponse(
@@ -651,6 +663,10 @@ router.post('/:roomId/participants/leave', async (req, res) => {
         { roomId: room.roomId, playerId, currentPlayers: activeCount },
         '房間紀錄已移除，略過人數同步'
       );
+    }
+
+    if (room.clubId) {
+      void broadcastClubRoomChange(prisma, room.clubId, room.roomId);
     }
 
     return successResponse(
@@ -1069,6 +1085,16 @@ router.post('/:roomId/v2/round', async (req, res) => {
       }
     }
 
+    if (
+      session.clubId &&
+      roundEndPayload &&
+      typeof roundEndPayload === 'object' &&
+      !Array.isArray(roundEndPayload) &&
+      roundEndPayload.isLastRound === true
+    ) {
+      void broadcastClubRoomChange(prisma, session.clubId, roomId);
+    }
+
     return successResponse(
       res,
       { sessionId, roundIndex, firstRoundDeduction },
@@ -1101,7 +1127,7 @@ router.patch('/:roomId/v2/session/status', async (req, res) => {
 
     const session = await prisma.v2MatchSession.findUnique({
       where: { id: sessionId },
-      select: { roomCode: true },
+      select: { roomCode: true, clubId: true },
     });
     if (!session || session.roomCode !== roomId) {
       return errorResponse(res, 'session 與房號不符', null, 400);
@@ -1114,6 +1140,10 @@ router.patch('/:roomId/v2/session/status', async (req, res) => {
         endedAt: new Date(),
       },
     });
+
+    if (session.clubId) {
+      void broadcastClubRoomChange(prisma, session.clubId, roomId);
+    }
 
     return successResponse(res, { sessionId, status }, 'session 狀態已更新');
   } catch (error) {
@@ -1142,7 +1172,7 @@ router.patch('/:roomId/v2/room/status', async (req, res) => {
 
     const room = await prisma.room.findUnique({
       where: { roomId },
-      select: { id: true, roomId: true },
+      select: { id: true, roomId: true, clubId: true },
     });
     if (!room) {
       return errorResponse(res, '房間不存在', null, 404);
@@ -1152,6 +1182,10 @@ router.patch('/:roomId/v2/room/status', async (req, res) => {
       where: { id: room.id },
       data: { status },
     });
+
+    if (room.clubId) {
+      void broadcastClubRoomChange(prisma, room.clubId, room.roomId);
+    }
 
     return successResponse(res, { roomId: room.roomId, status }, 'room 狀態已更新');
   } catch (error) {

@@ -7,9 +7,11 @@ const {
 } = require('../../utils/clubV2HistoryAccess');
 const { isV2RoundCompletedForStatistics } = require('../../utils/v2RoundStatistics');
 const { sumSelfDrawRakeMoneyByPlayerId } = require('../../utils/clubSelfDrawRakeMoney');
-
-// 房間列表輪詢頻繁：只在統計值變化時輸出一次，避免終端重複洗版。
-const _lastClubRoomsListLogSignatureByClubId = new Map();
+const { listClubRooms } = require('../../lib/clubRoomsList');
+const {
+  broadcastClubRoomChange,
+  emitStaleRemoves,
+} = require('../../lib/clubRoomsBroadcast');
 
 /** 俱樂部排行：query 的 YYYY-MM-DD 視為台灣日曆日（UTC+8），與前端 TaiwanTime 一致。 */
 function parseTaipeiDateStartYmd(raw) {
@@ -771,141 +773,10 @@ router.get('/:clubId/rooms', async (req, res) => {
       return errorResponse(res, '俱樂部不存在', null, 404);
     }
 
-    // 僅查「等待／進行中」房間：已結束房間會隨時間累積，全表載入會越來越慢且無必要
-    const rooms = await prisma.room.findMany({
-      where: {
-        clubId: club.id,
-        status: { in: ['WAITING', 'PLAYING'] },
-      },
-      orderBy: { createdAt: 'desc' },
-      include: {
-        participants: {
-          where: { leftAt: null },
-          orderBy: { joinedAt: 'asc' },
-          include: {
-            player: {
-              select: {
-                id: true,
-                userId: true,
-                nickname: true,
-                avatarUrl: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    // 舊資料或異常中斷可能留下「無人在房但房間仍存在」的殘留房。
-    // 但剛創建的房間在 host 尚未完成 socket join 前，也會短暫呈現 0 participants。
-    // 若讀列表就立刻刪除，會造成創房後被其他客戶端輪詢提前清掉（加入顯示房間不存在）。
-    // 因此僅清理「超過寬限時間」且 WAITING + 無活躍 participants 的房間。
-    const staleGraceMs = 90 * 1000;
-    const nowMs = Date.now();
-    const staleRoomIds = rooms
-      .filter((room) => {
-        const activeCount = Array.isArray(room.participants)
-          ? room.participants.length
-          : 0;
-        const currentPlayersRaw = Number(room.currentPlayers ?? 0);
-        const currentPlayers = Number.isFinite(currentPlayersRaw)
-          ? currentPlayersRaw
-          : 0;
-        const roomCreatedMs = new Date(room.createdAt).getTime();
-        const ageMs = Number.isFinite(roomCreatedMs) ? nowMs - roomCreatedMs : staleGraceMs + 1;
-        const noActiveParticipants = activeCount <= 0;
-        // room.currentPlayers 與 participants 偶發不同步時，也視為殘留房候選。
-        const noSyncedPlayers = currentPlayers <= 0;
-        return room.status === 'WAITING' && (noActiveParticipants || noSyncedPlayers) && ageMs >= staleGraceMs;
-      })
-      .map((room) => room.id);
-
-    if (staleRoomIds.length > 0) {
-      console.warn(
-        `[Clubs API] 清理 stale 房間 club=${club.id} totalRooms=${rooms.length} staleCount=${staleRoomIds.length} staleIds=${staleRoomIds.join(',')}`
-      );
-      await prisma.room.deleteMany({
-        where: { id: { in: staleRoomIds } },
-      });
+    const { data, staleRoomCodes } = await listClubRooms(prisma, club.id);
+    if (staleRoomCodes.length > 0) {
+      emitStaleRemoves(club.id, staleRoomCodes);
     }
-
-    const visibleRooms = rooms.filter((room) => !staleRoomIds.includes(room.id));
-    const visibleRoomCodes = visibleRooms
-      .map((room) => room.roomId)
-      .filter((code) => typeof code === 'string' && code.length > 0);
-
-    // V2：最後一局 roundEnd（isLastRound=true）到最終結算完成前，房間不應再顯示於俱樂部房間列表。
-    // 以 IN_PROGRESS session 的「最新一局 roundEndPayload.isLastRound」判定，避免中間結算階段被快速加入。
-    const finalizingRoomCodeSet = new Set();
-    if (visibleRoomCodes.length > 0) {
-      const sessions = await prisma.v2MatchSession.findMany({
-        where: {
-          roomCode: { in: visibleRoomCodes },
-          status: 'IN_PROGRESS',
-        },
-        select: {
-          roomCode: true,
-          rounds: {
-            orderBy: { roundIndex: 'desc' },
-            take: 1,
-            select: { roundEndPayload: true },
-          },
-        },
-      });
-      for (const session of sessions) {
-        const payload = session?.rounds?.[0]?.roundEndPayload;
-        if (!payload || typeof payload !== 'object' || Array.isArray(payload)) continue;
-        if (payload.isLastRound === true) {
-          finalizingRoomCodeSet.add(session.roomCode);
-        }
-      }
-    }
-
-    const listRooms = visibleRooms.filter(
-      (room) => !finalizingRoomCodeSet.has(room.roomId)
-    );
-    const listLogSignature = [
-      rooms.length,
-      visibleRooms.length,
-      listRooms.length,
-      staleRoomIds.length,
-      finalizingRoomCodeSet.size,
-    ].join('|');
-    if (_lastClubRoomsListLogSignatureByClubId.get(club.id) !== listLogSignature) {
-      _lastClubRoomsListLogSignatureByClubId.set(club.id, listLogSignature);
-      console.log(
-        `[Clubs API] 俱樂部房間列表 club=${club.id} total=${rooms.length} visible=${visibleRooms.length} listed=${listRooms.length} staleCleaned=${staleRoomIds.length} finalizingHidden=${finalizingRoomCodeSet.size}`
-      );
-    }
-
-    const data = listRooms.map((room) => ({
-      id: room.id,
-      roomId: room.roomId,
-      creatorId: room.creatorId,
-      hostPlayerId: room.creatorId,
-      multiplayerVersion: room.multiplayerVersion,
-      status: room.status,
-      currentPlayers: room.currentPlayers,
-      maxPlayers: room.maxPlayers,
-      gameSettings: room.gameSettings,
-      game_settings: room.gameSettings,
-      createdAt: room.createdAt,
-      updatedAt: room.updatedAt,
-      players: (room.participants || []).map((p) => ({
-        id: p.player?.id ?? p.playerId ?? null,
-        playerId: p.player?.id ?? p.playerId ?? null,
-        userId: p.player?.userId ?? null,
-        user_id: p.player?.userId ?? null,
-        nickname: p.player?.nickname ?? '',
-        display_name: p.player?.nickname ?? '',
-        name: p.player?.nickname ?? '',
-        avatarUrl: p.player?.avatarUrl ?? null,
-        profile_picture_url: p.player?.avatarUrl ?? null,
-        joinedAt: p.joinedAt,
-        leftAt: p.leftAt,
-        isHost: (p.player?.id ?? p.playerId) === room.creatorId,
-      })),
-    }));
 
     return successResponse(res, data);
   } catch (error) {
@@ -1770,6 +1641,7 @@ router.post('/:clubId/rooms', async (req, res) => {
       console.warn(
         `[Clubs API] duplicate create-room request reused roomId=${duplicatedRoom.roomId} club=${club.id} creator=${roomCreatorId}`
       );
+      void broadcastClubRoomChange(prisma, club.id, duplicatedRoom.roomId);
       return successResponse(
         res,
         {
@@ -1799,6 +1671,7 @@ router.post('/:clubId/rooms', async (req, res) => {
 
     const clubDisplayCode = club.clubId ?? null;
     const clubAvatarUrl = club.avatarUrl ?? club.logoUrl ?? null;
+    void broadcastClubRoomChange(prisma, club.id, room.roomId);
     return successResponse(
       res,
       {

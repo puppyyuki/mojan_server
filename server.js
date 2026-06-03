@@ -169,6 +169,13 @@ const uploadPlayerAvatar = multer({
 
 const server = http.createServer(app);
 const io = new Server(server, socketConfig);
+const {
+  registerClubRoomsBroadcast,
+  attachClubRoomsHandlersToSocket,
+  broadcastClubRoomRemoved,
+} = require('./lib/clubRoomsBroadcast');
+registerClubRoomsBroadcast(io);
+app.locals.io = io;
 const useProtocolEngine = process.env.USE_PROTOCOL_ENGINE === '1';
 console.log(`[ProtocolEngine] enabled=${useProtocolEngine} (USE_PROTOCOL_ENGINE=${process.env.USE_PROTOCOL_ENGINE ?? ''})`);
 let protocolEngineRegistry = null;
@@ -5185,9 +5192,13 @@ async function handlePlayerDisconnect(tableId, playerId, socketId) {
       // 查找並刪除房間
       const room = await prisma.room.findUnique({
         where: { roomId: tableId },
+        select: { id: true, clubId: true },
       });
 
       if (room) {
+        if (room.clubId) {
+          broadcastClubRoomRemoved(room.clubId, tableId, 'deleted');
+        }
         await prisma.room.delete({
           where: { roomId: tableId },
         });
@@ -5336,6 +5347,7 @@ function canSelfKong(hand, newTile) {
 
 io.on('connection', (socket) => {
   console.log('有玩家連線', socket.id);
+  attachClubRoomsHandlersToSocket(socket, prisma);
   let protocolDeps = null;
   if (useProtocolEngine && protocolEngineRegistry && createLegacySocketHandler) {
     protocolDeps = {
