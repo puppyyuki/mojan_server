@@ -1761,9 +1761,15 @@ router.post('/:clubId/rooms', async (req, res) => {
       orderBy: { createdAt: 'desc' },
       take: 5,
     });
-    const duplicatedRoom = recentWaitingRooms.find(
-      (row) => JSON.stringify(row.gameSettings ?? {}) === wantedSettingsSignature
-    );
+    // 剛解散的 WAITING 房通常 currentPlayers=0；若重用會讓第二次開房沿用舊 roomId，
+    // 客戶端可能收到延遲的 v2_roomClosed 而清掉玩家列表（房主頭像消失）。
+    const duplicatedRoom = recentWaitingRooms.find((row) => {
+      if (JSON.stringify(row.gameSettings ?? {}) !== wantedSettingsSignature) {
+        return false;
+      }
+      const activeCount = Number(row.currentPlayers) || 0;
+      return activeCount > 0;
+    });
     if (duplicatedRoom) {
       const clubDisplayCode = club.clubId ?? null;
       const clubAvatarUrl = club.avatarUrl ?? club.logoUrl ?? null;
