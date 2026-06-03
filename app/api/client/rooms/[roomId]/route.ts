@@ -24,7 +24,6 @@ export async function GET(
       where: { roomId },
       select: {
         roomId: true,
-        clubId: true,
         creatorId: true,
         currentPlayers: true,
         maxPlayers: true,
@@ -32,7 +31,6 @@ export async function GET(
         gameSettings: true,
         createdAt: true,
         updatedAt: true,
-        club: { select: { clubId: true } },
       },
     })
 
@@ -46,11 +44,7 @@ export async function GET(
     return NextResponse.json(
       {
         success: true,
-        data: {
-          ...room,
-          clubDisplayCode: room.club?.clubId ?? null,
-          club: undefined,
-        },
+        data: room,
         message: '獲取房間資訊成功',
       },
       { headers: corsHeaders() }
@@ -59,47 +53,6 @@ export async function GET(
     console.error('[Client Rooms API] 獲取房間資訊失敗:', error)
     return NextResponse.json(
       { success: false, error: '獲取房間資訊失敗' },
-      { status: 500, headers: corsHeaders() }
-    )
-  }
-}
-
-export async function DELETE(
-  request: NextRequest,
-  { params }: { params: Promise<{ roomId: string }> }
-) {
-  try {
-    const { roomId } = await params
-    const room = await prisma.room.findUnique({
-      where: { roomId },
-      select: { id: true, roomId: true },
-    })
-
-    if (!room) {
-      return NextResponse.json(
-        {
-          success: true,
-          data: { roomId, deleted: false },
-          message: '房間已不存在',
-        },
-        { headers: corsHeaders() }
-      )
-    }
-
-    await prisma.room.delete({ where: { id: room.id } })
-
-    return NextResponse.json(
-      {
-        success: true,
-        data: { roomId: room.roomId, deleted: true },
-        message: '房間已刪除',
-      },
-      { headers: corsHeaders() }
-    )
-  } catch (error) {
-    console.error('[Client Rooms API] 刪除房間失敗:', error)
-    return NextResponse.json(
-      { success: false, error: '刪除房間失敗' },
       { status: 500, headers: corsHeaders() }
     )
   }
