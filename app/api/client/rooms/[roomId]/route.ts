@@ -32,6 +32,7 @@ export async function GET(
         gameSettings: true,
         createdAt: true,
         updatedAt: true,
+        club: { select: { clubId: true } },
       },
     })
 
@@ -45,7 +46,11 @@ export async function GET(
     return NextResponse.json(
       {
         success: true,
-        data: room,
+        data: {
+          ...room,
+          clubDisplayCode: room.club?.clubId ?? null,
+          club: undefined,
+        },
         message: '獲取房間資訊成功',
       },
       { headers: corsHeaders() }
