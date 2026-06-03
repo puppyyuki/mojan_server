@@ -172,6 +172,7 @@ const io = new Server(server, socketConfig);
 const {
   registerClubRoomsBroadcast,
   attachClubRoomsHandlersToSocket,
+  broadcastClubRoomChange,
   broadcastClubRoomRemoved,
 } = require('./lib/clubRoomsBroadcast');
 registerClubRoomsBroadcast(io);
@@ -5072,10 +5073,11 @@ async function handlePlayerDisconnect(tableId, playerId, socketId) {
     }
   }
 
+  let clubIdForRoomListBroadcast = null;
   try {
     const room = await prisma.room.findUnique({
       where: { roomId: tableId },
-      select: { id: true },
+      select: { id: true, clubId: true, status: true },
     });
 
     if (room) {
@@ -5087,6 +5089,9 @@ async function handlePlayerDisconnect(tableId, playerId, socketId) {
         },
         data: { leftAt: new Date() },
       });
+      if (room.clubId && (room.status || '').toString().toUpperCase() === 'PLAYING') {
+        clubIdForRoomListBroadcast = room.clubId;
+      }
     }
   } catch (error) {
     console.error(`更新房間參與者離開時間失敗（roomId=${tableId}, playerId=${playerId}）:`, error);
@@ -5181,6 +5186,10 @@ async function handlePlayerDisconnect(tableId, playerId, socketId) {
   updateRoomCurrentPlayers(tableId, table.players.length).catch(err => {
     console.error(`更新房間 ${tableId} 的 currentPlayers 失敗:`, err);
   });
+
+  if (clubIdForRoomListBroadcast) {
+    void broadcastClubRoomChange(prisma, clubIdForRoomListBroadcast, tableId);
+  }
 
   // 如果房間空了，刪除房間
   if (table.players.length === 0) {
