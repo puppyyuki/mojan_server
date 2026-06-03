@@ -35,6 +35,10 @@ export async function POST(
     const { roomId } = await params
     const body = await request.json().catch(() => ({}))
     const rawPlayerId = body?.playerId?.toString?.().trim?.() ?? ''
+    const joinedAtMsRaw = Number(body?.joinedAtMs)
+    const joinedAt = Number.isFinite(joinedAtMsRaw)
+      ? new Date(joinedAtMsRaw)
+      : new Date()
     if (!rawPlayerId) {
       return NextResponse.json(
         { success: false, error: '缺少玩家 ID' },
@@ -62,13 +66,27 @@ export async function POST(
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      await tx.roomParticipant.upsert({
+      const existing = await tx.roomParticipant.findUnique({
         where: {
           roomId_playerId: { roomId: room.id, playerId },
         },
-        update: { leftAt: null },
-        create: { roomId: room.id, playerId, leftAt: null },
+        select: { leftAt: true },
       })
+      if (existing) {
+        const leftAtMs = existing.leftAt?.getTime() ?? 0
+        if (leftAtMs <= 0 || joinedAt.getTime() > leftAtMs) {
+          await tx.roomParticipant.update({
+            where: {
+              roomId_playerId: { roomId: room.id, playerId },
+            },
+            data: { leftAt: null },
+          })
+        }
+      } else {
+        await tx.roomParticipant.create({
+          data: { roomId: room.id, playerId, joinedAt, leftAt: null },
+        })
+      }
 
       const currentPlayers = await tx.roomParticipant.count({
         where: { roomId: room.id, leftAt: null },

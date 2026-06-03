@@ -35,6 +35,10 @@ export async function POST(
     const { roomId } = await params
     const body = await request.json().catch(() => ({}))
     const rawPlayerId = body?.playerId?.toString?.().trim?.() ?? ''
+    const leftAtMsRaw = Number(body?.leftAtMs)
+    const leftAt = Number.isFinite(leftAtMsRaw)
+      ? new Date(leftAtMsRaw)
+      : new Date()
     if (!rawPlayerId) {
       return NextResponse.json(
         { success: false, error: '缺少玩家 ID' },
@@ -66,10 +70,9 @@ export async function POST(
     }
 
     const result = await prisma.$transaction(async (tx) => {
-      const now = new Date()
       await tx.roomParticipant.updateMany({
         where: { roomId: room.id, playerId, leftAt: null },
-        data: { leftAt: now },
+        data: { leftAt },
       })
 
       const currentPlayers = await tx.roomParticipant.count({
