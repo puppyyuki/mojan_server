@@ -3,7 +3,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const mahjongLogic = require('./mahjong_logic');
 const { calculateTai: calculateTaiCore } = require('./packages/rules-tw16/scoring/calculateTai');
-const { PrismaClient } = require('@prisma/client');
+const { prisma } = require('./lib/prisma');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -17,9 +17,6 @@ const gameLog = (...args) => {
 const corsMiddleware = require('./middleware/cors');
 const errorHandler = require('./middleware/errorHandler');
 const socketConfig = require('./config/socket');
-
-// 創建全局 PrismaClient 實例
-const prisma = new PrismaClient();
 
 const app = express();
 app.locals.prisma = prisma;

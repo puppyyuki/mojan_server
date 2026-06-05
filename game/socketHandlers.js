@@ -11,8 +11,7 @@
  */
 function initializeSocketHandlers(io, gameLogic, roomManager) {
   const { tables, socketToPlayer, nicknameToPlayerId } = roomManager;
-  const { PrismaClient } = require('@prisma/client');
-  const prisma = new PrismaClient();
+  const { prisma } = require('../lib/prisma');
 
   io.on('connection', (socket) => {
     console.log('有玩家連線', socket.id);

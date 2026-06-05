@@ -1,9 +1,7 @@
 const express = require('express');
 const router = express.Router();
-const { PrismaClient } = require('@prisma/client');
+const { prisma } = require('../lib/prisma');
 const iapVerification = require('../lib/iap_verification');
-
-const prisma = new PrismaClient();
 
 // Product ID 對應的房卡數量（必須與前端和 Google Play/App Store 一致）
 // 重要：根據測試，Google Play Billing Library 支援使用 Product ID 查詢（向後兼容）
