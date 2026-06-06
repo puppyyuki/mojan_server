@@ -149,23 +149,6 @@ export async function PATCH(
       updateData.upstreamAgentPlayerId = normalizedUpstream
     }
 
-    // 如果更新暱稱，檢查是否重複
-    if (updateData.nickname) {
-      const existingPlayer = await prisma.player.findFirst({
-        where: {
-          nickname: updateData.nickname,
-          NOT: { id },
-        },
-      })
-
-      if (existingPlayer) {
-        return NextResponse.json(
-          { success: false, error: '暱稱已存在' },
-          { status: 400, headers: corsHeaders() }
-        )
-      }
-    }
-
     // 如果更新房卡數量，記錄補卡操作
     if (cardCount !== undefined) {
       const previousCount = currentPlayer.cardCount
