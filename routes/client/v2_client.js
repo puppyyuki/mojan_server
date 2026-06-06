@@ -8,6 +8,7 @@ const {
 const {
   mayReadClubV2MatchAsNonParticipant,
 } = require('../../utils/clubV2HistoryAccess');
+const { participantsWithReconciledScores } = require('../../utils/v2MatchScoreReconcile');
 
 /** 俱樂部房戰績／重播：6 碼顯示用 ID + 頭像（V2MatchSession.clubId 為 Club 主鍵） */
 async function v2ClubSettlementMeta(prisma, sessionClubInternalId) {
@@ -122,6 +123,11 @@ router.get('/matches/:sessionId', async (req, res) => {
 
     const clubMeta = v2ClubSettlementMetaFromRow(clubRow);
 
+    const reconciledParticipants = participantsWithReconciledScores(
+      session.participants,
+      session.rounds
+    );
+
     return successResponse(res, {
       sessionId: session.id,
       roomCode: session.roomCode,
@@ -134,7 +140,7 @@ router.get('/matches/:sessionId', async (req, res) => {
       gameSettings: session.gameSettings,
       gameTypeLabel: gameLabel,
       hostPlayerId: session.hostPlayerId,
-      players: session.participants.map((p) => ({
+      players: reconciledParticipants.map((p) => ({
         playerId: p.playerId,
         userId: p.userId ?? p.player?.userId,
         nickname: p.nickname || p.player?.nickname || '',

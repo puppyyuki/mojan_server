@@ -4,6 +4,7 @@ const { successResponse, errorResponse } = require('../../utils/response');
 const { generateUniqueId } = require('../../utils/idGenerator');
 const { allocateShareCodeInTx } = require('../../utils/v2ReplayShareCode');
 const { isV2RoundCompletedForStatistics } = require('../../utils/v2RoundStatistics');
+const { reconcileParticipantScoresInTx } = require('../../utils/v2MatchScoreReconcile');
 const {
   broadcastClubRoomChange,
   broadcastClubRoomRemoved,
@@ -1168,12 +1169,35 @@ router.patch('/:roomId/v2/session/status', async (req, res) => {
       return errorResponse(res, 'session 與房號不符', null, 400);
     }
 
-    await prisma.v2MatchSession.update({
-      where: { id: sessionId },
-      data: {
-        status,
-        endedAt: new Date(),
-      },
+    await prisma.$transaction(async (tx) => {
+      await tx.v2MatchSession.update({
+        where: { id: sessionId },
+        data: {
+          status,
+          endedAt: new Date(),
+        },
+      });
+      if (status === 'FINISHED') {
+        const [participants, rounds] = await Promise.all([
+          tx.v2MatchParticipant.findMany({ where: { sessionId } }),
+          tx.v2MatchRound.findMany({
+            where: { sessionId },
+            select: { scoreChangeBySeat: true },
+          }),
+        ]);
+        const fixed = await reconcileParticipantScoresInTx(
+          tx,
+          sessionId,
+          participants,
+          rounds
+        );
+        if (fixed > 0) {
+          console.warn(
+            '[Rooms API] v2 session FINISHED: reconciled participant scores from rounds',
+            { sessionId, roomId, fixedCount: fixed }
+          );
+        }
+      }
     });
 
     if (session.clubId) {

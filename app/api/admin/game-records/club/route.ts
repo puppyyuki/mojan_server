@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client'
 import { prisma } from '@/lib/prisma'
 import { parseTaipeiDateEnd, parseTaipeiDateStart } from '@/lib/taipei-time'
 import {
+  batchLinkedSessionStatusForClubSettlements,
   batchPlayedRoundCountsForClubSettlements,
   isDisbandedDuplicateOfClubSettlement,
   playedRoundCountFromV2Rounds,
@@ -49,11 +50,18 @@ function normalizeRecordCategory(raw: string): RecordCategory {
   return 'ALL'
 }
 
-function classifyClubGameResultRow(playersJson: unknown, totalRounds: number) {
+function classifyClubGameResultRow(
+  playersJson: unknown,
+  totalRounds: number,
+  linkedSessionStatus?: string | null
+) {
   const players = Array.isArray(playersJson) ? playersJson : []
   const pc = players.length
   if (totalRounds < 1 || pc !== 4) {
     return { recordCategory: 'ERROR' as const, recordCategoryLabel: '錯誤戰績' }
+  }
+  if (linkedSessionStatus === 'DISBANDED') {
+    return { recordCategory: 'DISBANDED_MID' as const, recordCategoryLabel: '中途解散' }
   }
   return {
     recordCategory: 'COMPLETED_FULL' as const,
@@ -61,18 +69,33 @@ function classifyClubGameResultRow(playersJson: unknown, totalRounds: number) {
   }
 }
 
+type ClubSettlementLinkRow = {
+  id: string
+  clubId: string
+  roomId: string
+  roomInternalId: string | null
+  endedAt: Date
+}
+
 /** 結算表：戰績分類為「全局完結／錯誤」時篩選 id（players 為長度 4 的 JSON 陣列且 totalRounds>=1） */
 async function clubResultIdsForCategory(
   category: 'COMPLETED_FULL' | 'ERROR'
 ): Promise<string[]> {
   if (category === 'COMPLETED_FULL') {
-    const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
-      SELECT cgr.id FROM "club_game_results" cgr
+    const rows = await prisma.$queryRaw<
+      (ClubSettlementLinkRow & { clubId: string; roomId: string })[]
+    >(Prisma.sql`
+      SELECT cgr.id, cgr."clubId", cgr."roomId", cgr."roomInternalId", cgr."endedAt"
+      FROM "club_game_results" cgr
       WHERE cgr."totalRounds" >= 1
       AND jsonb_typeof(cgr.players::jsonb) = 'array'
       AND jsonb_array_length(cgr.players::jsonb) = 4
     `)
-    return rows.map((r) => r.id)
+    if (rows.length === 0) return []
+    const statusById = await batchLinkedSessionStatusForClubSettlements(prisma, rows)
+    return rows
+      .filter((r) => statusById.get(r.id) !== 'DISBANDED')
+      .map((r) => r.id)
   }
   const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
     SELECT cgr.id FROM "club_game_results" cgr
@@ -98,7 +121,8 @@ function mapClubGameResultRow(
     createdAt: Date
     club: { id: string; clubId: string; name: string }
   },
-  forcedLabel?: { recordCategory: string; recordCategoryLabel: string }
+  forcedLabel?: { recordCategory: string; recordCategoryLabel: string },
+  linkedSessionStatus?: string | null
 ) {
   const players = Array.isArray(r.players) ? (r.players as Record<string, unknown>[]) : []
   const playerSummaries = players.map((p) => ({
@@ -120,7 +144,8 @@ function mapClubGameResultRow(
     .map((p) => `${p.nickname}:${p.score}`)
     .join(' / ')
 
-  const cls = forcedLabel ?? classifyClubGameResultRow(r.players, r.totalRounds)
+  const cls =
+    forcedLabel ?? classifyClubGameResultRow(r.players, r.totalRounds, linkedSessionStatus)
 
   return {
     id: r.id,
@@ -178,9 +203,9 @@ function deductionFilterMatch(
  *
  * recordCategory（戰績分類）:
  * - ALL — ClubGameResult（結算）+ 俱樂部 V2 session（中途解散／進行中），不含錯誤戰績；錯誤戰績請選 ERROR
- * - COMPLETED_FULL — 結算表：局數≥1 且 players 為 4 人
+ * - COMPLETED_FULL — 結算表：局數≥1、players 4 人，且對應 V2 session 非 DISBANDED
  * - ERROR — 結算表：資料異常（局數或人數不符等）
- * - DISBANDED_MID — 俱樂部 V2 session：DISBANDED（不限制局數）
+ * - DISBANDED_MID — 俱樂部 V2 session DISBANDED，或結算列對應 session 為 DISBANDED（投票解散等）
  * - LIVE — 俱樂部 V2 session：IN_PROGRESS 且對應俱樂部房仍為 PLAYING
  *
  * deduction: ALL | AA_DEDUCTION | CLUB（+ 舊 HOST/CLUB_DEDUCTION）
@@ -200,7 +225,7 @@ export async function GET(request: NextRequest) {
       searchParams.get('recordCategory') || searchParams.get('status') || 'ALL'
     )
 
-    if (recordCategory === 'LIVE' || recordCategory === 'DISBANDED_MID') {
+    if (recordCategory === 'LIVE') {
       return handleClubV2Sessions({
         page,
         pageSize,
@@ -210,7 +235,20 @@ export async function GET(request: NextRequest) {
         deduction,
         startRaw,
         endRaw,
-        mode: recordCategory,
+        mode: 'LIVE',
+      })
+    }
+
+    if (recordCategory === 'DISBANDED_MID') {
+      return handleClubDisbandedMidRecords({
+        page,
+        pageSize,
+        keyword,
+        clubSixId,
+        version,
+        deduction,
+        startRaw,
+        endRaw,
       })
     }
 
@@ -313,17 +351,30 @@ export async function GET(request: NextRequest) {
           )
         : new Map<string, number>()
 
+    const linkedStatusMap =
+      recordCategory === 'COMPLETED_FULL'
+        ? await batchLinkedSessionStatusForClubSettlements(
+            prisma,
+            rows.map((r) => ({
+              id: r.id,
+              clubId: r.clubId,
+              roomId: r.roomId,
+              roomInternalId: r.roomInternalId,
+              endedAt: r.endedAt,
+            }))
+          )
+        : new Map<string, string>()
+
     const items = rows.map((r) => {
       const base = mapClubGameResultRow(
         {
           ...r,
           bigWinnerPlayerIds: r.bigWinnerPlayerIds || [],
         },
-        recordCategory === 'COMPLETED_FULL'
-          ? { recordCategory: 'COMPLETED_FULL', recordCategoryLabel: '全局完結' }
-          : recordCategory === 'ERROR'
-            ? { recordCategory: 'ERROR', recordCategoryLabel: '錯誤戰績' }
-            : undefined
+        recordCategory === 'ERROR'
+          ? { recordCategory: 'ERROR', recordCategoryLabel: '錯誤戰績' }
+          : undefined,
+        recordCategory === 'COMPLETED_FULL' ? linkedStatusMap.get(r.id) ?? null : null
       )
       const played = playedMap.get(r.id)
       if (played != null && played > 0) {
@@ -544,11 +595,26 @@ async function handleClubAllRecords(opts: {
     }))
   )
 
+  const linkedStatusForSettlement = await batchLinkedSessionStatusForClubSettlements(
+    prisma,
+    settlementRows.map((r) => ({
+      id: r.id,
+      clubId: r.clubId,
+      roomId: r.roomId,
+      roomInternalId: r.roomInternalId,
+      endedAt: r.endedAt,
+    }))
+  )
+
   const settlementItems = settlementRows.map((r) => {
-    const base = mapClubGameResultRow({
-      ...r,
-      bigWinnerPlayerIds: r.bigWinnerPlayerIds || [],
-    })
+    const base = mapClubGameResultRow(
+      {
+        ...r,
+        bigWinnerPlayerIds: r.bigWinnerPlayerIds || [],
+      },
+      undefined,
+      linkedStatusForSettlement.get(r.id) ?? null
+    )
     const played = playedForSettlement.get(r.id)
     if (played != null && played > 0) {
       return { ...base, totalRounds: Math.max(base.totalRounds, played) }
@@ -659,6 +725,291 @@ async function handleClubAllRecords(opts: {
   )
 }
 
+async function handleClubDisbandedMidRecords(opts: {
+  page: number
+  pageSize: number
+  keyword: string
+  clubSixId: string
+  version: string
+  deduction: string
+  startRaw: string
+  endRaw: string
+}) {
+  const { page, pageSize, keyword, clubSixId, version, deduction, startRaw, endRaw } = opts
+
+  const playingClubRooms = await prisma.room.findMany({
+    where: { clubId: { not: null }, status: 'PLAYING' },
+    select: { id: true, roomId: true },
+  })
+
+  const matchedClubs = clubSixId
+    ? await prisma.club.findMany({
+        where: { clubId: { contains: clubSixId } },
+        select: { id: true },
+      })
+    : []
+  const clubIds = matchedClubs.map((c) => c.id)
+
+  let settlementWhere: Prisma.ClubGameResultWhereInput = {}
+  if (clubSixId) {
+    settlementWhere.club =
+      clubIds.length === 0 ? { id: '__admin_club_six_no_match__' } : { id: { in: clubIds } }
+  }
+  if (keyword) {
+    settlementWhere.OR = [
+      { roomId: { contains: keyword } },
+      { club: { clubId: { contains: keyword } } },
+      { club: { name: { contains: keyword, mode: 'insensitive' } } },
+    ]
+  }
+  if (startRaw || endRaw) {
+    settlementWhere.endedAt = {}
+    if (startRaw) {
+      const s = parseTaipeiDateStart(startRaw)
+      if (s) settlementWhere.endedAt.gte = s
+    }
+    if (endRaw) {
+      const e = parseTaipeiDateEnd(endRaw)
+      if (e) settlementWhere.endedAt.lte = e
+    }
+  }
+  if (version === 'V1' || version === 'V2') {
+    settlementWhere.multiplayerVersion = version as 'V1' | 'V2'
+  }
+  if (deduction === 'AA_DEDUCTION') {
+    settlementWhere.deduction = 'AA_DEDUCTION'
+  } else if (deduction === 'CLUB') {
+    settlementWhere.deduction = { in: ['HOST_DEDUCTION', 'CLUB_DEDUCTION'] }
+  } else if (deduction === 'HOST_DEDUCTION' || deduction === 'CLUB_DEDUCTION') {
+    settlementWhere.deduction = deduction
+  }
+
+  const errorSettlementIds = await clubResultIdsForCategory('ERROR')
+  if (errorSettlementIds.length > 0) {
+    settlementWhere = {
+      AND: [settlementWhere, { NOT: { id: { in: errorSettlementIds } } }],
+    }
+  }
+
+  const andParts: Prisma.V2MatchSessionWhereInput[] = [
+    { clubId: { not: null } },
+    { status: 'DISBANDED' },
+  ]
+
+  if (clubSixId) {
+    if (clubIds.length === 0) {
+      andParts.push({ id: '__admin_club_six_no_match__' })
+    } else {
+      andParts.push({ clubId: { in: clubIds } })
+    }
+  }
+  if (keyword) {
+    andParts.push({
+      OR: [
+        { roomCode: { contains: keyword } },
+        {
+          participants: {
+            some: {
+              OR: [
+                { userId: { contains: keyword, mode: 'insensitive' } },
+                { nickname: { contains: keyword, mode: 'insensitive' } },
+                { player: { userId: { contains: keyword } } },
+                { player: { nickname: { contains: keyword, mode: 'insensitive' } } },
+              ],
+            },
+          },
+        },
+      ],
+    })
+  }
+  if (version === 'V1' || version === 'V2') {
+    andParts.push({ multiplayerVersion: version as 'V1' | 'V2' })
+  }
+  if (startRaw || endRaw) {
+    const timeFilter: Prisma.DateTimeFilter = {}
+    if (startRaw) {
+      const s = parseTaipeiDateStart(startRaw)
+      if (s) timeFilter.gte = s
+    }
+    if (endRaw) {
+      const e = parseTaipeiDateEnd(endRaw)
+      if (e) timeFilter.lte = e
+    }
+    if (Object.keys(timeFilter).length > 0) {
+      andParts.push({
+        OR: [{ endedAt: timeFilter }, { AND: [{ endedAt: null }, { startedAt: timeFilter }] }],
+      })
+    }
+  }
+
+  const sessionWhere: Prisma.V2MatchSessionWhereInput =
+    andParts.length === 1 ? andParts[0]! : { AND: andParts }
+
+  const [settlementRows, sessions] = await Promise.all([
+    prisma.clubGameResult.findMany({
+      where: settlementWhere,
+      orderBy: [{ endedAt: 'desc' }, { createdAt: 'desc' }],
+      include: { club: { select: { id: true, clubId: true, name: true } } },
+    }),
+    prisma.v2MatchSession.findMany({
+      where: sessionWhere,
+      orderBy: [{ endedAt: 'desc' }, { startedAt: 'desc' }],
+      include: {
+        participants: {
+          include: {
+            player: { select: { id: true, userId: true, nickname: true, avatarUrl: true } },
+          },
+        },
+        rounds: {
+          select: { id: true, roundIndex: true, shareCode: true, endedAt: true },
+          orderBy: { roundIndex: 'asc' },
+        },
+      },
+    }),
+  ])
+
+  const settlementLinkRows = settlementRows.map((r) => ({
+    id: r.id,
+    clubId: r.clubId,
+    roomId: r.roomId,
+    roomInternalId: r.roomInternalId,
+    endedAt: r.endedAt,
+  }))
+  const [linkedStatusForSettlement, playedForSettlement] = await Promise.all([
+    batchLinkedSessionStatusForClubSettlements(prisma, settlementLinkRows),
+    batchPlayedRoundCountsForClubSettlements(prisma, settlementLinkRows),
+  ])
+
+  const disbandSettlementRows = settlementRows.filter(
+    (r) => linkedStatusForSettlement.get(r.id) === 'DISBANDED'
+  )
+
+  const filteredSessions = sessions.filter((s) =>
+    deductionFilterMatch(deduction, normalizeSessionDeduction(s.gameSettings))
+  )
+  const sessionsDeduped = filteredSessions.filter(
+    (s) => !isDisbandedDuplicateOfClubSettlement(s, disbandSettlementRows)
+  )
+
+  const sessionClubIds = [
+    ...new Set(sessionsDeduped.map((s) => s.clubId).filter((id): id is string => !!id)),
+  ]
+  const clubRows =
+    sessionClubIds.length > 0
+      ? await prisma.club.findMany({
+          where: { id: { in: sessionClubIds } },
+          select: { id: true, clubId: true, name: true },
+        })
+      : []
+  const clubById = new Map(clubRows.map((c) => [c.id, c]))
+
+  const settlementItems = disbandSettlementRows.map((r) => {
+    const base = mapClubGameResultRow(
+      {
+        ...r,
+        bigWinnerPlayerIds: r.bigWinnerPlayerIds || [],
+      },
+      undefined,
+      'DISBANDED'
+    )
+    const played = playedForSettlement.get(r.id)
+    if (played != null && played > 0) {
+      return { ...base, totalRounds: Math.max(base.totalRounds, played) }
+    }
+    return base
+  })
+
+  const sessionItems = sessionsDeduped.map((s) => {
+    const players = (s.participants || []).map((p) => ({
+      playerId: p.playerId,
+      userId: p.userId ?? p.player?.userId ?? null,
+      nickname: (p.nickname || p.player?.nickname || '').trim() || '—',
+      seat: typeof p.seat === 'number' ? p.seat : null,
+      score: p.matchTotalScore ?? 0,
+      isBigWinner: false,
+      roomCardConsumed: 0,
+      rank: null,
+    }))
+
+    let best: number | null = null
+    for (const pl of players) {
+      const sc = Number(pl.score) || 0
+      if (best === null || sc > best) best = sc
+    }
+    const bigWinnerPlayerIds =
+      best === null
+        ? []
+        : players.filter((pl) => (Number(pl.score) || 0) === best).map((pl) => pl.playerId)
+    const bigWinnerLabels = players
+      .filter((pl) => bigWinnerPlayerIds.includes(pl.playerId))
+      .map((pl) => pl.nickname)
+    const scoreLine = [...players]
+      .sort((a, b) => (a.seat ?? 99) - (b.seat ?? 99))
+      .map((p) => `${p.nickname}:${p.score}`)
+      .join(' / ')
+
+    const sessionDeduction = normalizeSessionDeduction(s.gameSettings)
+    const sessionRounds = normalizeSessionRounds(s.gameSettings)
+    const roomCardConsumedTotal = (s.rounds?.length ?? 0) >= 1 ? sessionRounds * 4 : 0
+
+    const club =
+      (s.clubId && clubById.get(s.clubId)) || {
+        id: s.clubId || '',
+        clubId: '—',
+        name: '（俱樂部資料缺失）',
+      }
+
+    return {
+      id: s.id,
+      roomId: s.roomCode,
+      roomInternalId: s.roomInternalId,
+      multiplayerVersion: s.multiplayerVersion,
+      totalRounds: playedRoundCountFromV2Rounds(s.rounds || []),
+      deduction: sessionDeduction,
+      roomCardConsumedTotal,
+      bigWinnerPlayerIds,
+      bigWinnerLabels,
+      scoreLine,
+      playerSummaries: players,
+      endedAt: s.endedAt ?? s.startedAt,
+      createdAt: s.createdAt,
+      club,
+      listRowKind: 'session' as const,
+      recordCategory: 'DISBANDED_MID' as const,
+      recordCategoryLabel: '中途解散',
+    }
+  })
+
+  const merged = [...settlementItems, ...sessionItems]
+  const toTs = (v: Date | string | null | undefined) => {
+    if (!v) return 0
+    const t = new Date(v).getTime()
+    return Number.isFinite(t) ? t : 0
+  }
+  merged.sort((a, b) => {
+    const endedDiff = toTs(b.endedAt) - toTs(a.endedAt)
+    if (endedDiff !== 0) return endedDiff
+    return toTs(b.createdAt) - toTs(a.createdAt)
+  })
+
+  const total = merged.length
+  const items = merged.slice((page - 1) * pageSize, page * pageSize)
+
+  return NextResponse.json(
+    {
+      success: true,
+      data: {
+        items,
+        total,
+        page,
+        pageSize,
+        liveClubPlayingRoomCount: playingClubRooms.length,
+      },
+    },
+    { headers: corsHeaders() }
+  )
+}
+
 async function handleClubV2Sessions(opts: {
   page: number
   pageSize: number
@@ -668,9 +1019,9 @@ async function handleClubV2Sessions(opts: {
   deduction: string
   startRaw: string
   endRaw: string
-  mode: 'LIVE' | 'DISBANDED_MID'
+  mode: 'LIVE'
 }) {
-  const { page, pageSize, keyword, clubSixId, version, deduction, startRaw, endRaw, mode } = opts
+  const { page, pageSize, keyword, clubSixId, version, deduction, startRaw, endRaw } = opts
 
   const playingClubRooms = await prisma.room.findMany({
     where: { clubId: { not: null }, status: 'PLAYING' },
@@ -681,24 +1032,16 @@ async function handleClubV2Sessions(opts: {
 
   const andParts: Prisma.V2MatchSessionWhereInput[] = [{ clubId: { not: null } }]
 
-  if (mode === 'DISBANDED_MID') {
-    andParts.push({ status: 'DISBANDED' })
+  if (playingInternalIds.size === 0 && playingRoomCodes.size === 0) {
+    andParts.push({ id: '__admin_no_club_playing_room__' })
   } else {
-    if (playingInternalIds.size === 0 && playingRoomCodes.size === 0) {
-      andParts.push({ id: '__admin_no_club_playing_room__' })
-    } else {
-      andParts.push({
-        status: 'IN_PROGRESS',
-        OR: [
-          ...(playingInternalIds.size
-            ? [{ roomInternalId: { in: [...playingInternalIds] } }]
-            : []),
-          ...(playingRoomCodes.size
-            ? [{ roomCode: { in: [...playingRoomCodes] } }]
-            : []),
-        ],
-      })
-    }
+    andParts.push({
+      status: 'IN_PROGRESS',
+      OR: [
+        ...(playingInternalIds.size ? [{ roomInternalId: { in: [...playingInternalIds] } }] : []),
+        ...(playingRoomCodes.size ? [{ roomCode: { in: [...playingRoomCodes] } }] : []),
+      ],
+    })
   }
 
   if (clubSixId) {
@@ -783,40 +1126,8 @@ async function handleClubV2Sessions(opts: {
     deductionFilterMatch(deduction, normalizeSessionDeduction(s.gameSettings))
   )
 
-  let sessionsForPaging = filteredSessions
-  if (mode === 'DISBANDED_MID') {
-    const disbandProbe = filteredSessions.filter(
-      (s) => s.status === 'DISBANDED' && s.roomInternalId && s.endedAt
-    )
-    if (disbandProbe.length) {
-      const clubIdsFromSessions = [
-        ...new Set(disbandProbe.map((s) => s.clubId).filter(Boolean) as string[]),
-      ]
-      const internalIds = [...new Set(disbandProbe.map((s) => s.roomInternalId!))]
-      const minT = Math.min(...disbandProbe.map((s) => s.endedAt!.getTime()))
-      const maxT = Math.max(...disbandProbe.map((s) => s.endedAt!.getTime()))
-      const settlementsNear = await prisma.clubGameResult.findMany({
-        where: {
-          clubId:
-            clubIdsFromSessions.length === 1
-              ? clubIdsFromSessions[0]
-              : { in: clubIdsFromSessions },
-          roomInternalId: { in: internalIds },
-          endedAt: {
-            gte: new Date(minT - 35 * 60 * 1000),
-            lte: new Date(maxT + 35 * 60 * 1000),
-          },
-        },
-        select: { roomInternalId: true, endedAt: true },
-      })
-      sessionsForPaging = filteredSessions.filter(
-        (s) => !isDisbandedDuplicateOfClubSettlement(s, settlementsNear)
-      )
-    }
-  }
-
-  const total = sessionsForPaging.length
-  const pagedSessions = sessionsForPaging.slice((page - 1) * pageSize, page * pageSize)
+  const total = filteredSessions.length
+  const pagedSessions = filteredSessions.slice((page - 1) * pageSize, page * pageSize)
 
   const sessionClubIds = [
     ...new Set(pagedSessions.map((s) => s.clubId).filter((id): id is string => !!id)),
@@ -869,8 +1180,8 @@ async function handleClubV2Sessions(opts: {
         name: '（俱樂部資料缺失）',
       }
 
-    const label = mode === 'LIVE' ? '進行中' : '中途解散'
-    const cat = mode === 'LIVE' ? 'LIVE' : 'DISBANDED_MID'
+    const label = '進行中'
+    const cat = 'LIVE' as const
 
     return {
       id: s.id,

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { successResponse, errorResponse } = require('../../utils/response');
 const { generateUniqueId } = require('../../utils/idGenerator');
+const { participantsWithReconciledScores } = require('../../utils/v2MatchScoreReconcile');
 
 /**
  * GET /api/client/players
@@ -84,6 +85,11 @@ router.get('/:id/v2/matches', async (req, res) => {
         scoreChangeBySeat: r.scoreChangeBySeat,
         shareCode: r.shareCode,
       }));
+      const reconciledParticipants = participantsWithReconciledScores(
+        s.participants || [],
+        s.rounds || []
+      );
+      const myReconciled = reconciledParticipants.find((p) => p.playerId === id);
       return {
         sessionId: s.id,
         roomCode: s.roomCode,
@@ -95,11 +101,11 @@ router.get('/:id/v2/matches', async (req, res) => {
         gameSettings: s.gameSettings,
         hostPlayerId: s.hostPlayerId,
         mySeat: row.seat,
-        myTotalScore: row.matchTotalScore,
+        myTotalScore: myReconciled?.matchTotalScore ?? row.matchTotalScore,
         isHost: row.isHost,
         roundCount: rounds.length,
         rounds,
-        players: (s.participants || []).map((p) => ({
+        players: reconciledParticipants.map((p) => ({
           playerId: p.playerId,
           userId: p.userId ?? p.player?.userId,
           nickname: p.nickname || p.player?.nickname || '',

@@ -6,6 +6,7 @@ const {
   resolveClubV2HistoryVisibility,
 } = require('../../utils/clubV2HistoryAccess');
 const { isV2RoundCompletedForStatistics } = require('../../utils/v2RoundStatistics');
+const { participantsWithReconciledScores } = require('../../utils/v2MatchScoreReconcile');
 const { sumSelfDrawRakeMoneyByPlayerId } = require('../../utils/clubSelfDrawRakeMoney');
 const { listClubRooms } = require('../../lib/clubRoomsList');
 const {
@@ -1490,7 +1491,11 @@ router.get('/:clubId/match-history', async (req, res) => {
         shareCode: r.shareCode,
       }));
 
-      const players = (s.participants || []).map((p) => ({
+      const reconciledParticipants = participantsWithReconciledScores(
+        s.participants || [],
+        s.rounds || []
+      );
+      const players = reconciledParticipants.map((p) => ({
         playerId: p.playerId,
         userId: p.userId ?? p.player?.userId ?? null,
         nickname: (p.nickname || p.player?.nickname || '').trim() || '—',

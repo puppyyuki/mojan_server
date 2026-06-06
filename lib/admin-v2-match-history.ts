@@ -60,6 +60,63 @@ export async function findLinkedV2SessionForClubGameResult(
   return best
 }
 
+export async function batchLinkedSessionStatusForClubSettlements(
+  prisma: PrismaClient,
+  settlements: {
+    id: string
+    clubId: string
+    roomId: string
+    roomInternalId: string | null
+    endedAt: Date
+  }[]
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  const internals = [...new Set(settlements.map((s) => s.roomInternalId).filter(Boolean) as string[])]
+  if (!internals.length) return out
+
+  const sessions = await prisma.v2MatchSession.findMany({
+    where: { roomInternalId: { in: internals } },
+    select: {
+      roomInternalId: true,
+      roomCode: true,
+      clubId: true,
+      status: true,
+      endedAt: true,
+      startedAt: true,
+    },
+  })
+
+  const grouped = new Map<string, typeof sessions>()
+  for (const s of sessions) {
+    if (!s.roomInternalId) continue
+    const arr = grouped.get(s.roomInternalId) ?? []
+    arr.push(s)
+    grouped.set(s.roomInternalId, arr)
+  }
+
+  for (const row of settlements) {
+    if (!row.roomInternalId) continue
+    const cands = (grouped.get(row.roomInternalId) ?? []).filter(
+      (s) => s.clubId === row.clubId && s.roomCode === row.roomId
+    )
+    if (!cands.length) continue
+    const target = row.endedAt.getTime()
+    let best = cands[0]!
+    let bestDiff = Infinity
+    for (const c of cands) {
+      const d = Math.abs((c.endedAt ?? c.startedAt).getTime() - target)
+      if (d < bestDiff) {
+        bestDiff = d
+        best = c
+      }
+    }
+    if (bestDiff <= LINK_MAX_MS) {
+      out.set(row.id, best.status)
+    }
+  }
+  return out
+}
+
 export async function batchPlayedRoundCountsForClubSettlements(
   prisma: PrismaClient,
   settlements: {
