@@ -25,7 +25,7 @@ services:
   - type: web
     name: mojan-server
     runtime: node
-    plan: starter
+    plan: pro
     region: singapore
     buildCommand: npm install && npx prisma generate
     startCommand: npm start
@@ -34,6 +34,7 @@ services:
         value: production
       - key: PORT
         value: 10000
+      # 建議在 Dashboard 為 DATABASE_URL 加上 ?connection_limit=5&pool_timeout=20
       - key: DATABASE_URL
         sync: false
       - key: JWT_SECRET
@@ -45,8 +46,9 @@ services:
     healthCheckPath: /health
 
 databases:
+  # 實際方案（Render Dashboard / MCP 確認）：pro_4gb、20GB 磁碟、Postgres 18
   - name: mojan-database
-    plan: free
+    plan: pro_4gb
     databaseName: mojan_db
     user: mojan_user
     region: singapore

@@ -12,6 +12,11 @@ const {
   broadcastClubRoomChange,
   emitStaleRemoves,
 } = require('../../lib/clubRoomsBroadcast');
+const {
+  normalizeMemberWeeklyScore,
+  isMemberOverWeeklyScoreLimit,
+  weeklyScoreLimitMessage,
+} = require('../../utils/clubWeeklyScore');
 
 /** 俱樂部排行：query 的 YYYY-MM-DD 視為台灣日曆日（UTC+8），與前端 TaiwanTime 一致。 */
 function parseTaipeiDateStartYmd(raw) {
@@ -278,6 +283,18 @@ function parseNonNegativeIntOrNull(raw) {
   const parsed = Number(raw);
   if (!Number.isFinite(parsed)) return null;
   return Math.max(0, Math.floor(Math.abs(parsed)));
+}
+
+function enrichClubMemberWeeklyScoreFields(member, now = new Date()) {
+  if (!member || typeof member !== 'object') return member;
+  const normalized = normalizeMemberWeeklyScore(member, now);
+  const isOverWeeklyScoreLimit = isMemberOverWeeklyScoreLimit(member, now);
+  return {
+    ...member,
+    weeklyNetScore: normalized.weeklyNetScore,
+    weeklyScoreWeekKey: normalized.weeklyScoreWeekKey,
+    isOverWeeklyScoreLimit,
+  };
 }
 
 function isRoomOverMemberBaseTaiLimit(member, roomGameSettings) {
@@ -705,9 +722,13 @@ router.get('/:clubId', async (req, res) => {
         return errorResponse(res, '俱樂部不存在', null, 404);
       }
       const totalMembers = slim._count?.members ?? 0;
-      const { _count, ...rest } = slim;
+      const { _count, members, ...rest } = slim;
+      const enrichedMembers = Array.isArray(members)
+        ? members.map((m) => enrichClubMemberWeeklyScoreFields(m))
+        : members;
       return successResponse(res, {
         ...rest,
+        members: enrichedMembers,
         totalMembers,
         memberCount: totalMembers,
       });
@@ -1555,6 +1576,9 @@ router.post('/:clubId/rooms', async (req, res) => {
         coLeaderPermissions: true,
         basePointLimit: true,
         taiCountLimit: true,
+        scoreLimit: true,
+        weeklyNetScore: true,
+        weeklyScoreWeekKey: true,
       },
     });
 
@@ -1563,6 +1587,14 @@ router.post('/:clubId/rooms', async (req, res) => {
     }
     if (member.isBanned === true) {
       return errorResponse(res, '您目前被禁止開房', null, 403);
+    }
+    if (isMemberOverWeeklyScoreLimit(member)) {
+      return errorResponse(
+        res,
+        weeklyScoreLimitMessage(member.scoreLimit),
+        null,
+        403
+      );
     }
     // 開房權限不與副會長細項權限綁定：
     // 只要是俱樂部成員且未被禁開房，即可建立房間。
@@ -2506,6 +2538,9 @@ router.post('/:clubId/table-restrictions/check-join', async (req, res) => {
         bannedTablePlayers: true,
         basePointLimit: true,
         taiCountLimit: true,
+        scoreLimit: true,
+        weeklyNetScore: true,
+        weeklyScoreWeekKey: true,
       },
     });
     if (!joinerMember) {
@@ -2513,6 +2548,16 @@ router.post('/:clubId/table-restrictions/check-join', async (req, res) => {
         res,
         { ok: false, message: '僅俱樂部成員可加入此房間' },
         '成員檢查未通過'
+      );
+    }
+    if (isMemberOverWeeklyScoreLimit(joinerMember)) {
+      return successResponse(
+        res,
+        {
+          ok: false,
+          message: weeklyScoreLimitMessage(joinerMember.scoreLimit),
+        },
+        '分數上限檢查未通過'
       );
     }
     if (isRoomOverMemberBaseTaiLimit(joinerMember, roomGameSettings)) {

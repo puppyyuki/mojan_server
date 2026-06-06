@@ -288,6 +288,8 @@ model ClubMember {
   taiCountLimit       Int?
   noSameTable         Boolean    @default(false)
   clubScore           Int        @default(0) // 俱樂部內分數
+  weeklyNetScore      Int        @default(0) // 當週淨分（台北週一起算，供分數上限判定）
+  weeklyScoreWeekKey  String? // 當週識別（週一 YYYY-MM-DD）
   totalGames          Int        @default(0) // 俱樂部內總局數（V2：每小局胡牌／自摸／流局結束累加一次）
   bigWinnerCount      Int        @default(0) // 俱樂部內大贏家次數
   roomCardConsumed    Int        @default(0) // 俱樂部內房卡消耗

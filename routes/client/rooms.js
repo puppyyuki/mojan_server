@@ -8,6 +8,11 @@ const {
   broadcastClubRoomChange,
   broadcastClubRoomRemoved,
 } = require('../../lib/clubRoomsBroadcast');
+const {
+  applyWeeklyScoreDelta,
+  normalizeMemberWeeklyScore,
+  isMemberOverWeeklyScoreLimit,
+} = require('../../utils/clubWeeklyScore');
 
 function normalizeRounds(raw) {
   const n = Number(raw);
@@ -446,6 +451,9 @@ router.get('/:roomId', async (req, res) => {
       isClubMember: false,
       isBanned: false,
       isOverBaseTaiLimit: false,
+      isOverWeeklyScoreLimit: false,
+      scoreLimit: null,
+      weeklyNetScore: 0,
       basePointLimit: null,
       taiCountLimit: null,
       canJoinViaLobby: room.clubId ? false : true,
@@ -464,20 +472,32 @@ router.get('/:roomId', async (req, res) => {
           isBanned: true,
           basePointLimit: true,
           taiCountLimit: true,
+          scoreLimit: true,
+          weeklyNetScore: true,
+          weeklyScoreWeekKey: true,
         },
       });
       const isClubMember = !!member;
       const isBanned = member?.isBanned === true;
       const isOverBaseTaiLimit = isRoomOverMemberBaseTaiLimit(member, room.gameSettings);
+      const weeklyNormalized = normalizeMemberWeeklyScore(member);
+      const isOverWeeklyScoreLimit = isMemberOverWeeklyScoreLimit(member);
       access = {
         isClubRoom: true,
         isClubMember,
         isBanned,
         isOverBaseTaiLimit,
+        isOverWeeklyScoreLimit,
+        scoreLimit: member?.scoreLimit ?? null,
+        weeklyNetScore: weeklyNormalized.weeklyNetScore,
         basePointLimit: member?.basePointLimit ?? null,
         taiCountLimit: member?.taiCountLimit ?? null,
         canJoinViaLobby: false,
-        canJoinViaClub: isClubMember && !isBanned && !isOverBaseTaiLimit,
+        canJoinViaClub:
+          isClubMember &&
+          !isBanned &&
+          !isOverBaseTaiLimit &&
+          !isOverWeeklyScoreLimit,
       };
     }
 
@@ -793,21 +813,36 @@ router.post('/:roomId/final-settlement', async (req, res) => {
       });
 
       for (const p of playersWithRanking) {
-        const increments = {
+        const member = await tx.clubMember.findUnique({
+          where: {
+            clubId_playerId: {
+              clubId: room.clubId,
+              playerId: p.playerId,
+            },
+          },
+          select: {
+            weeklyNetScore: true,
+            weeklyScoreWeekKey: true,
+          },
+        });
+        const weeklyUpdate = applyWeeklyScoreDelta(member, p.score, now);
+        const data = {
           clubScore: { increment: p.score },
           bigWinnerCount: { increment: p.isBigWinner ? 1 : 0 },
           roomCardConsumed: { increment: p.roomCardConsumed },
           lastGameTime: now,
+          weeklyNetScore: weeklyUpdate.weeklyNetScore,
+          weeklyScoreWeekKey: weeklyUpdate.weeklyScoreWeekKey,
         };
         if (p.playerId === room.creatorId) {
-          increments.hostCount = { increment: 1 };
+          data.hostCount = { increment: 1 };
         }
         await tx.clubMember.updateMany({
           where: {
             clubId: room.clubId,
             playerId: p.playerId,
           },
-          data: increments,
+          data,
         });
       }
 

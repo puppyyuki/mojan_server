@@ -6954,8 +6954,11 @@ app.use((req, res, next) => {
 // 掛載錯誤處理中間件（必須在所有路由之後）
 app.use(errorHandler);
 
+const { startStaleClubRoomsCleanupScheduler } = require('./lib/clubRoomsList');
+
 const PORT = process.env.PORT || 3000;
 if (require.main === module) {
+  startStaleClubRoomsCleanupScheduler(prisma);
   server.listen(PORT, '0.0.0.0', () => {
     console.log(`伺服器啟動於 http://0.0.0.0:${PORT}`);
   });
