@@ -28,6 +28,7 @@ interface Club {
   venueDrawPercent?: number
   selfDrawRakePercent?: number
   weeklySettlementEnabled?: boolean
+  roomCardFee?: number
   members: Array<{
     id: string
     player: {

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { generateUniqueId } from '@/lib/utils'
 import { agentLevelLabelZh } from '@/lib/agent-level-display'
+import { serializePlayerClubUpstreamBinding } from '@/lib/agent-club-binding-helpers'
 
 // CORS headers helper
 function corsHeaders() {
@@ -70,6 +71,30 @@ export async function GET(request: NextRequest) {
       orderBy: { createdAt: 'desc' },
     })
 
+    const playerDbIds = players.map((p) => p.id)
+    const allUpstreamBindings =
+      playerDbIds.length > 0
+        ? await prisma.playerClubUpstreamBinding.findMany({
+            where: { playerId: { in: playerDbIds } },
+            include: {
+              club: { select: { id: true, clubId: true, name: true } },
+              upstreamAgent: {
+                select: { id: true, userId: true, nickname: true },
+              },
+            },
+            orderBy: { createdAt: 'asc' },
+          })
+        : []
+    const upstreamBindingsByPlayer = new Map<
+      string,
+      ReturnType<typeof serializePlayerClubUpstreamBinding>[]
+    >()
+    for (const b of allUpstreamBindings) {
+      const list = upstreamBindingsByPlayer.get(b.playerId) ?? []
+      list.push(serializePlayerClubUpstreamBinding(b))
+      upstreamBindingsByPlayer.set(b.playerId, list)
+    }
+
     // 計算每個玩家的統計資訊
     const playersWithStats = players.map((player) => {
       // 計算總補卡數
@@ -130,6 +155,8 @@ export async function GET(request: NextRequest) {
         createdAt: player.createdAt,
         updatedAt: player.updatedAt,
         upstreamAgent,
+        clubUpstreamBindings: upstreamBindingsByPlayer.get(player.id) ?? [],
+        clubUpstreamBindingCount: (upstreamBindingsByPlayer.get(player.id) ?? []).length,
         totalRechargeAmount,
         averageMonthlyRecharge: Math.round(averageMonthlyConsumption * 100) / 100,
         currentClubs,

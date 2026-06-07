@@ -75,6 +75,10 @@ model Player {
   clubCardReplenishAsActor ClubCardReplenishRecord[] @relation("ClubReplenishActor")
   accountDeletionRequests  AccountDeletionRequest[]
   v2TileBiasRules          V2TileBiasRule[]
+  agentClubBindings        AgentClubBinding[] @relation("AgentClubBindingPlayer")
+  agentClubBindingsAsUpstream AgentClubBinding[] @relation("AgentClubBindingUpstream")
+  playerClubUpstreamBindings PlayerClubUpstreamBinding[] @relation("PlayerClubUpstreamBindingPlayer")
+  playerClubUpstreamBindingsAsUpstream PlayerClubUpstreamBinding[] @relation("PlayerClubUpstreamBindingUpstream")
 
   @@map("players")
 }
@@ -121,6 +125,8 @@ model Club {
   selfDrawRakePercent Float @default(8)
   /// 開啟後，App 俱樂部排行榜「積分」為戰績分扣除與報表相同規則計算之自摸抽（依俱樂部自摸抽％）
   weeklySettlementEnabled Boolean @default(false)
+  /// 房卡費（後台設定；暫不影響開局扣卡邏輯）
+  roomCardFee  Float    @default(2)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -131,8 +137,44 @@ model Club {
   gameResults  ClubGameResult[]
   cardReplenishRecords ClubCardReplenishRecord[]
   adminCardRechargeRecords ClubAdminCardRechargeRecord[]
+  agentClubBindings AgentClubBinding[]
+  playerClubUpstreamBindings PlayerClubUpstreamBinding[]
 
   @@map("clubs")
+}
+
+/// 代理按俱樂部綁定（上層代理、層級、代理房卡費）
+model AgentClubBinding {
+  id                    String   @id @default(cuid())
+  playerId              String
+  player                Player   @relation("AgentClubBindingPlayer", fields: [playerId], references: [id], onDelete: Cascade)
+  clubId                String
+  club                  Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  upstreamAgentPlayerId String?
+  upstreamAgent         Player?  @relation("AgentClubBindingUpstream", fields: [upstreamAgentPlayerId], references: [id], onDelete: SetNull)
+  agentLevel            String   @default("agent") // super | master | mid | small | agent
+  agentRoomCardFee      Float    @default(2)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([playerId, clubId])
+  @@map("agent_club_bindings")
+}
+
+/// 玩家按俱樂部綁定上層代理
+model PlayerClubUpstreamBinding {
+  id                    String   @id @default(cuid())
+  playerId              String
+  player                Player   @relation("PlayerClubUpstreamBindingPlayer", fields: [playerId], references: [id], onDelete: Cascade)
+  clubId                String
+  club                  Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  upstreamAgentPlayerId String
+  upstreamAgent         Player   @relation("PlayerClubUpstreamBindingUpstream", fields: [upstreamAgentPlayerId], references: [id], onDelete: Cascade)
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@unique([playerId, clubId])
+  @@map("player_club_upstream_bindings")
 }
 
 // 成員從個人房卡轉入俱樂部房卡（頂部條補卡）

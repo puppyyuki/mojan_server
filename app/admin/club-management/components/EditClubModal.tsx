@@ -23,6 +23,7 @@ interface Club {
   venueDrawPercent?: number
   selfDrawRakePercent?: number
   weeklySettlementEnabled?: boolean
+  roomCardFee?: number
   members: Array<{
     player: {
       id: string
@@ -52,6 +53,7 @@ export default function EditClubModal({
   const [venueDrawPercent, setVenueDrawPercent] = useState<string>('5')
   const [selfDrawRakePercent, setSelfDrawRakePercent] = useState<string>('8')
   const [weeklySettlementEnabled, setWeeklySettlementEnabled] = useState<boolean>(false)
+  const [roomCardFee, setRoomCardFee] = useState<string>('2')
   const [avatarUrl, setAvatarUrl] = useState<string>('')
   const [loading, setLoading] = useState<boolean>(false)
 
@@ -72,6 +74,11 @@ export default function EditClubModal({
           : 8
       setSelfDrawRakePercent(String(sdr))
       setWeeklySettlementEnabled(club.weeklySettlementEnabled === true)
+      const rcf =
+        typeof club.roomCardFee === 'number' && Number.isFinite(club.roomCardFee)
+          ? club.roomCardFee
+          : 2
+      setRoomCardFee(String(rcf))
       setAvatarUrl(club.avatarUrl || club.creator?.avatarUrl || '')
     }
   }, [isOpen, club])
@@ -110,6 +117,12 @@ export default function EditClubModal({
       return
     }
 
+    const roomCardFeeParsed = Number.parseFloat(roomCardFee)
+    if (!Number.isFinite(roomCardFeeParsed) || roomCardFeeParsed < 0) {
+      alert('房卡費須為非負數')
+      return
+    }
+
     const opCode = await requestAdminOpCode(
       '確定要儲存俱樂部資料嗎？（含公開 ID、房卡、加入審核設定時須驗證）'
     )
@@ -128,6 +141,7 @@ export default function EditClubModal({
         venueDrawPercent: venueParsed,
         selfDrawRakePercent: rakeParsed,
         weeklySettlementEnabled,
+        roomCardFee: roomCardFeeParsed,
       }, {
         headers: withAdminOpCodeHeader(opCode),
       })
@@ -306,6 +320,24 @@ export default function EditClubModal({
                 }`}
               />
             </button>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              房卡費
+            </label>
+            <p className="text-xs text-gray-500 mb-2">
+              俱樂部房卡費設定；預設 2。目前僅供後台儲存，不影響開局扣卡邏輯。
+            </p>
+            <input
+              type="number"
+              value={roomCardFee}
+              onChange={(e) => setRoomCardFee(e.target.value)}
+              placeholder="2"
+              min={0}
+              step="any"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400"
+            />
           </div>
 
           <div>

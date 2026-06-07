@@ -8,11 +8,15 @@ function setCorsHeaders(res) {
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 }
 
-const VALID_AGENT_LEVELS = ['normal', 'master', 'vip'];
+const VALID_AGENT_LEVELS = ['super', 'master', 'mid', 'small', 'agent', 'normal', 'vip'];
 const AGENT_LEVEL_ORDER = {
+    agent: 1,
     normal: 1,
-    master: 2,
-    vip: 3,
+    small: 2,
+    mid: 3,
+    master: 4,
+    super: 5,
+    vip: 5,
 };
 
 function normalizeAgentLevel(level) {

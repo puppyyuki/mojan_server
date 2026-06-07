@@ -50,6 +50,18 @@ interface Player {
     agentLevel: string
     agentLevelLabel: string
   } | null
+  clubUpstreamBindings?: Array<{
+    id: string
+    clubDbId: string
+    clubId: string
+    clubName: string
+    upstreamAgent: {
+      playerDbId: string
+      userId: string
+      nickname: string
+    }
+  }>
+  clubUpstreamBindingCount?: number
   currentClubs: Array<{
     id: string
     clubId: string
@@ -550,30 +562,28 @@ export default function UserManagementPage() {
                         )}
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-center align-middle border-r border-gray-200 text-gray-900 whitespace-nowrap">
-                      {item.upstreamAgent ? (
-                        <div
-                          className="inline-flex items-center justify-center whitespace-nowrap gap-0"
-                          title={`${item.upstreamAgent.nickname}(${item.upstreamAgent.userId})${item.upstreamAgent.agentLevelLabel}`}
-                        >
-                          <span className="text-sm text-gray-900 whitespace-nowrap">
-                            <span className="font-medium">{item.upstreamAgent.nickname}</span>
-                            <span>({item.upstreamAgent.userId})</span>
-                          </span>
-                          <span
-                            className={`ml-0 shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                              item.upstreamAgent.agentLevel === 'vip'
-                                ? 'bg-purple-100 text-purple-800'
-                                : item.upstreamAgent.agentLevel === 'master'
-                                  ? 'bg-indigo-100 text-indigo-800'
-                                  : 'bg-gray-100 text-gray-800'
-                            }`}
-                          >
-                            {item.upstreamAgent.agentLevelLabel}
-                          </span>
+                    <td className="px-6 py-4 text-center align-middle border-r border-gray-200 text-gray-900">
+                      {(item.clubUpstreamBindings?.length ?? 0) > 0 ? (
+                        <div className="text-xs space-y-1">
+                          <p className="font-medium">
+                            {item.clubUpstreamBindingCount ??
+                              item.clubUpstreamBindings!.length}{' '}
+                            個俱樂部
+                          </p>
+                          {item.clubUpstreamBindings!.slice(0, 2).map((b) => (
+                            <p
+                              key={b.id}
+                              className="text-gray-600 truncate max-w-[220px] mx-auto"
+                              title={`${b.clubName} · ${b.upstreamAgent.nickname}`}
+                            >
+                              {b.clubName} · {b.upstreamAgent.nickname}
+                            </p>
+                          ))}
                         </div>
+                      ) : item.upstreamAgent ? (
+                        <span className="text-amber-700 text-xs">待遷移綁定</span>
                       ) : (
-                        <span className="text-gray-400">—</span>
+                        <span className="text-gray-400 text-sm">未綁定</span>
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200 text-gray-900">

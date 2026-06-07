@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { agentLevelLabelZh } from '@/lib/agent-level-display'
+import { serializeAgentClubBinding } from '@/lib/agent-club-binding-helpers'
 import { formatTaipeiDate, formatTaipeiTime } from '@/lib/taipei-time'
 
 // CORS headers helper
@@ -60,6 +61,27 @@ export async function GET(request: NextRequest) {
       },
       orderBy: { createdAt: 'desc' },
     }) as any
+
+    const playerDbIds = applications.map((app) => app.player.id as string)
+    const allBindings =
+      playerDbIds.length > 0
+        ? await prisma.agentClubBinding.findMany({
+            where: { playerId: { in: playerDbIds } },
+            include: {
+              club: { select: { id: true, clubId: true, name: true } },
+              upstreamAgent: {
+                select: { id: true, userId: true, nickname: true },
+              },
+            },
+            orderBy: { createdAt: 'asc' },
+          })
+        : []
+    const bindingsByPlayer = new Map<string, ReturnType<typeof serializeAgentClubBinding>[]>()
+    for (const b of allBindings) {
+      const list = bindingsByPlayer.get(b.playerId) ?? []
+      list.push(serializeAgentClubBinding(b))
+      bindingsByPlayer.set(b.playerId, list)
+    }
 
     // 格式化數據
     const agents = applications.map((app) => {
@@ -123,12 +145,14 @@ export async function GET(request: NextRequest) {
         playerDbId: app.player.id, // 用於補卡操作的玩家資料庫 ID
         playerName: app.player.nickname,
         upstreamAgent,
+        clubBindings: bindingsByPlayer.get(app.player.id) ?? [],
+        clubBindingCount: (bindingsByPlayer.get(app.player.id) ?? []).length,
         fullName: app.fullName,
         email: app.email,
         phone: app.phone,
         note: app.note,
         status: app.status,
-        agentLevel: app.agentLevel || 'normal', // 代理層級
+        agentLevel: app.agentLevel || 'agent', // 代理層級（legacy）
         maxClubCreateCount: Math.max(Number(app.maxClubCreateCount ?? 1) || 1, 1),
         roomCardBalance: app.player.cardCount,
         totalRechargeAmount,

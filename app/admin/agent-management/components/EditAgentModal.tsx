@@ -1,10 +1,25 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { X, Save } from 'lucide-react'
-import { apiPatch } from '@/lib/api-client'
+import { useCallback, useEffect, useState } from 'react'
+import { X, Save, Plus, Pencil, Trash2 } from 'lucide-react'
+import { apiGet, apiPatch } from '@/lib/api-client'
 import { requestAdminOpCode, withAdminOpCodeHeader } from '@/lib/admin-op-code-client'
-import UpstreamAgentSelect from '@/app/admin/components/UpstreamAgentSelect'
+import AddAgentClubBindingModal, {
+  type AgentClubBindingRow,
+} from './AddAgentClubBindingModal'
+
+type LegacyContext = {
+  previousClub: { clubDbId: string; clubId: string; name: string } | null
+  owners: Array<{ userId: string; nickname: string }>
+  coLeaders: Array<{ userId: string; nickname: string }>
+  legacyUpstreamAgent: {
+    playerDbId: string
+    userId: string
+    nickname: string
+  } | null
+  legacyAgentLevel: string
+  legacyAgentLevelLabel: string
+}
 
 interface Agent {
   id: string
@@ -12,16 +27,8 @@ interface Agent {
   playerDbId: string
   playerName: string
   roomCardBalance: number
-  agentLevel?: 'normal' | 'master' | 'vip'
   maxClubCreateCount?: number
   status?: 'pending' | 'approved' | 'rejected'
-  upstreamAgent: {
-    playerDbId: string
-    userId: string
-    nickname: string
-    agentLevel: string
-    agentLevelLabel: string
-  } | null
 }
 
 interface EditAgentModalProps {
@@ -31,36 +38,109 @@ interface EditAgentModalProps {
   agent: Agent | null
 }
 
+function formatPersonList(
+  list: Array<{ userId: string; nickname: string }>
+): string {
+  if (list.length === 0) return '—'
+  return list.map((p) => `${p.nickname}（${p.userId}）`).join('、')
+}
+
 export default function EditAgentModal({
   isOpen,
   onClose,
   onSuccess,
-  agent
+  agent,
 }: EditAgentModalProps) {
   const [cardCount, setCardCount] = useState<string>('0')
-  const [agentLevel, setAgentLevel] = useState<'normal' | 'master' | 'vip'>('normal')
   const [maxClubCreateCount, setMaxClubCreateCount] = useState<string>('1')
-  const [upstreamDbId, setUpstreamDbId] = useState<string | null>(null)
   const [loading, setLoading] = useState<boolean>(false)
+  const [bindings, setBindings] = useState<AgentClubBindingRow[]>([])
+  const [legacyContext, setLegacyContext] = useState<LegacyContext | null>(null)
+  const [bindingsLoading, setBindingsLoading] = useState(false)
+  const [addModalOpen, setAddModalOpen] = useState(false)
+  const [editingBinding, setEditingBinding] = useState<AgentClubBindingRow | null>(
+    null
+  )
+  const [autoPrompted, setAutoPrompted] = useState(false)
+
+  const loadBindings = useCallback(async () => {
+    if (!agent) return
+    setBindingsLoading(true)
+    try {
+      const res = await apiGet(`/api/admin/agents/${agent.playerDbId}/club-bindings`)
+      const json = await res.json().catch(() => ({}))
+      if (res.ok && json.success) {
+        setBindings(Array.isArray(json.data) ? json.data : [])
+        setLegacyContext(json.legacyContext ?? null)
+      }
+    } catch (error) {
+      console.error('load bindings failed', error)
+    } finally {
+      setBindingsLoading(false)
+    }
+  }, [agent])
 
   useEffect(() => {
     if (isOpen && agent) {
       setCardCount(agent.roomCardBalance.toString())
-      setAgentLevel(agent.agentLevel || 'normal')
       setMaxClubCreateCount(
         Math.max(Number(agent.maxClubCreateCount ?? 1) || 1, 1).toString()
       )
-      setUpstreamDbId(agent.upstreamAgent?.playerDbId ?? null)
+      setAutoPrompted(false)
+      void loadBindings()
     }
-  }, [isOpen, agent])
+  }, [isOpen, agent, loadBindings])
+
+  useEffect(() => {
+    if (
+      isOpen &&
+      agent?.status === 'approved' &&
+      !bindingsLoading &&
+      bindings.length === 0 &&
+      !autoPrompted
+    ) {
+      setAutoPrompted(true)
+      setAddModalOpen(true)
+    }
+  }, [isOpen, agent, bindingsLoading, bindings.length, autoPrompted])
+
+  const handleDeleteBinding = async (binding: AgentClubBindingRow) => {
+    if (!agent) return
+    if (!confirm(`確定要刪除俱樂部「${binding.clubName}」的綁定嗎？`)) return
+
+    const opCode = await requestAdminOpCode('確定要刪除此俱樂部綁定嗎？')
+    if (!opCode) return
+
+    try {
+      const res = await fetch(
+        `/api/admin/agents/${agent.playerDbId}/club-bindings/${binding.id}`,
+        {
+          method: 'DELETE',
+          headers: withAdminOpCodeHeader(opCode),
+        }
+      )
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        alert(json.error || '刪除失敗')
+        return
+      }
+      await loadBindings()
+    } catch {
+      alert('刪除失敗')
+    }
+  }
 
   const handleSave = async () => {
     if (loading || !agent) return
 
-    const opCode = await requestAdminOpCode('確定要調整代理資料或房卡嗎？')
-    if (!opCode) {
+    if (agent.status === 'approved' && bindings.length === 0) {
+      alert('請先完成至少一筆俱樂部綁定（上層代理、層級、房卡費）')
+      setAddModalOpen(true)
       return
     }
+
+    const opCode = await requestAdminOpCode('確定要調整代理資料或房卡嗎？')
+    if (!opCode) return
 
     setLoading(true)
     try {
@@ -74,31 +154,27 @@ export default function EditAgentModal({
         return
       }
 
-      const cardResponse = await apiPatch(`/api/players/${agent.playerDbId}`, {
-        cardCount: parseInt(cardCount),
-        upstreamAgentPlayerId: upstreamDbId,
-      }, {
-        headers: withAdminOpCodeHeader(opCode),
-      })
+      const cardResponse = await apiPatch(
+        `/api/players/${agent.playerDbId}`,
+        { cardCount: parseInt(cardCount) },
+        { headers: withAdminOpCodeHeader(opCode) }
+      )
 
       if (!cardResponse.ok) {
         const result = await cardResponse.json().catch(() => ({ error: '未知錯誤' }))
-        const errorMessage = result.error || `補卡失敗 (HTTP ${cardResponse.status})`
-        console.error('補卡失敗:', errorMessage, result)
-        alert(errorMessage)
+        alert(result.error || '更新房卡失敗')
         setLoading(false)
         return
       }
 
       if (agent.status === 'approved') {
         const levelResponse = await apiPatch(`/api/admin/agents/${agent.id}/level`, {
-          agentLevel: agentLevel,
           maxClubCreateCount: parsedMaxJoinClubCount,
         })
 
         if (!levelResponse.ok) {
-          const result = await levelResponse.json().catch(() => ({ error: '未知錯誤' }))
-          console.error('更新代理層級失敗:', result)
+          const result = await levelResponse.json().catch(() => ({}))
+          console.error('更新可創建俱樂部上限失敗:', result)
         }
       }
 
@@ -115,132 +191,209 @@ export default function EditAgentModal({
 
   if (!isOpen || !agent) return null
 
+  const showLegacyBanner =
+    agent.status === 'approved' && bindings.length === 0 && legacyContext
+
   return (
-    <div
-      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
-      onClick={onClose}
-    >
+    <>
       <div
-        className="bg-white rounded-lg w-full max-w-md mx-auto shadow-xl relative max-h-[90vh] overflow-y-auto"
-        onClick={(e) => e.stopPropagation()}
+        className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+        onClick={onClose}
       >
-        {/* 標題 */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-semibold text-gray-900">編輯代理</h3>
-          <button
-            onClick={onClose}
-            className="p-1 hover:bg-gray-100 rounded-full transition-colors duration-200"
-          >
-            <X size={20} className="text-gray-400" />
-          </button>
-        </div>
-
-        {/* 內容 */}
-        <div className="px-6 py-4 space-y-4">
-          <div>
-            <p className="text-sm text-gray-600 mb-2">
-              代理ID：<span className="font-semibold text-gray-900">{agent.playerId}</span>
-            </p>
-            <p className="text-sm text-gray-600 mb-2">
-              代理名稱：<span className="font-semibold text-gray-900">{agent.playerName}</span>
-            </p>
+        <div
+          className="bg-white rounded-lg w-full max-w-md mx-auto shadow-xl relative max-h-[90vh] overflow-y-auto"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+            <h3 className="text-lg font-semibold text-gray-900">編輯代理</h3>
+            <button
+              onClick={onClose}
+              className="p-1 hover:bg-gray-100 rounded-full transition-colors duration-200"
+            >
+              <X size={20} className="text-gray-400" />
+            </button>
           </div>
 
-          <UpstreamAgentSelect
-            excludePlayerDbId={agent.playerDbId}
-            valuePlayerDbId={upstreamDbId}
-            onPick={(row) =>
-              setUpstreamDbId(row ? row.playerDbId : null)
-            }
-            disabled={loading}
-          />
+          <div className="px-6 py-4 space-y-4">
+            <div>
+              <p className="text-sm text-gray-600 mb-2">
+                代理ID：
+                <span className="font-semibold text-gray-900">{agent.playerId}</span>
+              </p>
+              <p className="text-sm text-gray-600 mb-2">
+                代理名稱：
+                <span className="font-semibold text-gray-900">{agent.playerName}</span>
+              </p>
+            </div>
 
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              當前房卡數量
-            </label>
-            <input
-              type="number"
-              value={cardCount}
-              onChange={(e) => setCardCount(e.target.value)}
-              placeholder="0"
-              min="0"
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400"
-            />
-            <p className="mt-1 text-xs text-gray-500">
-              輸入新的房卡數量，系統會自動計算補卡數量並記錄
-            </p>
-          </div>
-
-          {agent.status === 'approved' && (
-            <>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  代理層級 <span className="text-red-500">*</span>
-                </label>
-                <select
-                  value={agentLevel}
-                  onChange={(e) => setAgentLevel(e.target.value as 'normal' | 'master' | 'vip')}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white"
-                >
-                  <option value="normal">一般代理</option>
-                  <option value="master">大代理</option>
-                  <option value="vip">公關代理</option>
-                </select>
-                <p className="mt-1 text-xs text-gray-500">
-                  房卡權限階層：公司 {'>'} 公關代理 {'>'} 大代理 {'>'} 一般代理 {'>'} 玩家；僅可向下轉卡且不可同階互轉
+            {showLegacyBanner && (
+              <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-950 space-y-1.5">
+                <p className="font-medium">請先完成俱樂部綁定設定</p>
+                <p className="text-xs">
+                  舊有單一上層代理與層級不再沿用，請手動重新設定。
+                </p>
+                {legacyContext.previousClub && (
+                  <p className="text-xs">
+                    原先所屬俱樂部：{legacyContext.previousClub.name}（
+                    {legacyContext.previousClub.clubId}）
+                  </p>
+                )}
+                <p className="text-xs">
+                  會長：{formatPersonList(legacyContext.owners)}
+                </p>
+                <p className="text-xs">
+                  副會長：{formatPersonList(legacyContext.coLeaders)}
+                </p>
+                {legacyContext.legacyUpstreamAgent && (
+                  <p className="text-xs">
+                    原先上層代理：{legacyContext.legacyUpstreamAgent.nickname}（
+                    {legacyContext.legacyUpstreamAgent.userId}）
+                  </p>
+                )}
+                <p className="text-xs">
+                  原先代理層級：{legacyContext.legacyAgentLevelLabel}
                 </p>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  可創建俱樂部上限 <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="number"
-                  value={maxClubCreateCount}
-                  onChange={(e) => setMaxClubCreateCount(e.target.value)}
-                  placeholder="1"
-                  min="1"
-                  step="1"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400"
-                />
-                <p className="mt-1 text-xs text-gray-500">
-                  用於控制該代理最多可創建幾個俱樂部，預設為 1
-                </p>
-              </div>
-            </>
-          )}
-        </div>
+            )}
 
-        {/* 按鈕 */}
-        <div className="flex border-t border-gray-200">
-          <button
-            onClick={onClose}
-            disabled={loading}
-            className="flex-1 py-4 text-gray-600 hover:text-gray-800 transition-colors duration-200 text-sm font-medium disabled:opacity-50"
-          >
-            取消
-          </button>
-          <div className="w-px bg-gray-200"></div>
-          <button
-            onClick={handleSave}
-            disabled={loading}
-            className="flex-1 py-4 text-blue-600 hover:text-blue-700 transition-colors duration-200 text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
-          >
-            {loading ? (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                當前房卡數量
+              </label>
+              <input
+                type="number"
+                value={cardCount}
+                onChange={(e) => setCardCount(e.target.value)}
+                placeholder="0"
+                min="0"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400"
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                輸入新的房卡數量，系統會自動計算補卡數量並記錄
+              </p>
+            </div>
+
+            {agent.status === 'approved' && (
               <>
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-                處理中...
-              </>
-            ) : (
-              <>
-                <Save className="w-4 h-4" />
-                保存
+                <div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingBinding(null)
+                      setAddModalOpen(true)
+                    }}
+                    disabled={loading || bindingsLoading}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+                  >
+                    <Plus className="w-4 h-4" />
+                    添加上層代理、房卡費
+                  </button>
+                </div>
+
+                {bindingsLoading ? (
+                  <p className="text-xs text-gray-500">載入綁定中…</p>
+                ) : bindings.length > 0 ? (
+                  <ul className="space-y-2">
+                    {bindings.map((b) => (
+                      <li
+                        key={b.id}
+                        className="rounded-lg border border-gray-200 px-3 py-2 text-xs text-gray-700"
+                      >
+                        <p>
+                          俱樂部：{b.clubName}（{b.clubId}）、代理房卡費：
+                          {b.agentRoomCardFee}、代理層級：{b.agentLevelLabel}
+                          、上層代理：
+                          {b.upstreamAgent
+                            ? `${b.upstreamAgent.nickname}（${b.upstreamAgent.userId}）`
+                            : '無（總代理）'}
+                        </p>
+                        <div className="mt-2 flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingBinding(b)
+                              setAddModalOpen(true)
+                            }}
+                            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800"
+                          >
+                            <Pencil className="w-3 h-3" />
+                            編輯
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleDeleteBinding(b)}
+                            className="inline-flex items-center gap-1 text-red-600 hover:text-red-800"
+                          >
+                            <Trash2 className="w-3 h-3" />
+                            刪除
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-xs text-gray-500">尚未設定俱樂部綁定</p>
+                )}
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    可創建俱樂部上限 <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="number"
+                    value={maxClubCreateCount}
+                    onChange={(e) => setMaxClubCreateCount(e.target.value)}
+                    placeholder="1"
+                    min="1"
+                    step="1"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400"
+                  />
+                </div>
               </>
             )}
-          </button>
+          </div>
+
+          <div className="flex border-t border-gray-200">
+            <button
+              onClick={onClose}
+              disabled={loading}
+              className="flex-1 py-4 text-gray-600 hover:text-gray-800 transition-colors duration-200 text-sm font-medium disabled:opacity-50"
+            >
+              取消
+            </button>
+            <div className="w-px bg-gray-200" />
+            <button
+              onClick={handleSave}
+              disabled={loading}
+              className="flex-1 py-4 text-blue-600 hover:text-blue-700 transition-colors duration-200 text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+            >
+              {loading ? (
+                <>
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600" />
+                  處理中...
+                </>
+              ) : (
+                <>
+                  <Save className="w-4 h-4" />
+                  保存
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
+
+      <AddAgentClubBindingModal
+        isOpen={addModalOpen}
+        onClose={() => {
+          setAddModalOpen(false)
+          setEditingBinding(null)
+        }}
+        onSuccess={() => void loadBindings()}
+        playerDbId={agent.playerDbId}
+        editing={editingBinding}
+        excludeClubDbIds={bindings.map((b) => b.clubDbId)}
+      />
+    </>
   )
 }

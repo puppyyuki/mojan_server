@@ -36,6 +36,7 @@ export async function GET(
         venueDrawPercent: true,
         selfDrawRakePercent: true,
         weeklySettlementEnabled: true,
+        roomCardFee: true,
         cardCount: true, // 包含俱樂部房卡數量
         avatarUrl: true, // 包含俱樂部頭像 URL
         creator: {
@@ -104,6 +105,7 @@ export async function PATCH(
       venueDrawPercent,
       selfDrawRakePercent,
       weeklySettlementEnabled,
+      roomCardFee,
     } = body
 
     const needsSensitiveGuard =
@@ -112,7 +114,8 @@ export async function PATCH(
       joinRequiresOwnerApproval !== undefined ||
       venueDrawPercent !== undefined ||
       selfDrawRakePercent !== undefined ||
-      weeklySettlementEnabled !== undefined
+      weeklySettlementEnabled !== undefined ||
+      roomCardFee !== undefined
 
     if (needsSensitiveGuard) {
       const opCodeGuard = assertAdminOpCode(request, body)
@@ -169,6 +172,16 @@ export async function PATCH(
     }
     if (weeklySettlementEnabled !== undefined) {
       updateData.weeklySettlementEnabled = Boolean(weeklySettlementEnabled)
+    }
+    if (roomCardFee !== undefined) {
+      const n = Number(roomCardFee)
+      if (!Number.isFinite(n) || n < 0) {
+        return NextResponse.json(
+          { success: false, error: '房卡費須為非負數' },
+          { status: 400, headers: corsHeaders() }
+        )
+      }
+      updateData.roomCardFee = n
     }
     if (bodyClubId !== undefined) {
       const trimmed = String(bodyClubId).trim()

@@ -21,6 +21,7 @@ import AgentReviewModal from './components/AgentReviewModal'
 import AgentRechargeHistoryModal from './components/AgentRechargeHistoryModal'
 import AgentSalesHistoryModal from './components/AgentSalesHistoryModal'
 import EditAgentModal from './components/EditAgentModal'
+import { agentLevelBadgeClass, agentLevelLabelZh } from '@/lib/agent-level-display'
 
 interface Agent {
   id: string
@@ -46,11 +47,26 @@ interface Agent {
     createdAt: string
   }>
   lastLoginAt: string | null
-  agentLevel: 'normal' | 'master' | 'vip' // 代理層級：normal (一般代理), master (大代理), vip (公關代理)
+  agentLevel: string
   maxClubCreateCount: number
   createdAt: string
   reviewedAt: string | null
   reviewedBy: string | null
+  clubBindings?: Array<{
+    id: string
+    clubDbId: string
+    clubId: string
+    clubName: string
+    agentLevel: string
+    agentLevelLabel: string
+    agentRoomCardFee: number
+    upstreamAgent: {
+      playerDbId: string
+      userId: string
+      nickname: string
+    } | null
+  }>
+  clubBindingCount?: number
   upstreamAgent: {
     playerDbId: string
     userId: string
@@ -271,7 +287,7 @@ export default function AgentManagementPage() {
                   管理者名稱
                 </th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 whitespace-nowrap min-w-fit">
-                  上層代理
+                  俱樂部綁定
                 </th>
                 <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider border-r border-gray-200 whitespace-nowrap w-[150px]">
                   當前房卡量
@@ -327,30 +343,20 @@ export default function AgentManagementPage() {
                     <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200 text-gray-900">
                       {item.playerName}
                     </td>
-                    <td className="px-6 py-4 text-center align-middle border-r border-gray-200 text-gray-900 whitespace-nowrap">
-                      {item.upstreamAgent ? (
-                        <div
-                          className="inline-flex items-center justify-center whitespace-nowrap gap-0"
-                          title={`${item.upstreamAgent.nickname}(${item.upstreamAgent.userId})${item.upstreamAgent.agentLevelLabel}`}
-                        >
-                          <span className="text-sm text-gray-900 whitespace-nowrap">
-                            <span className="font-medium">{item.upstreamAgent.nickname}</span>
-                            <span>({item.upstreamAgent.userId})</span>
-                          </span>
-                          <span
-                            className={`ml-0 shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
-                              item.upstreamAgent.agentLevel === 'vip'
-                                ? 'bg-purple-100 text-purple-800'
-                                : item.upstreamAgent.agentLevel === 'master'
-                                  ? 'bg-indigo-100 text-indigo-800'
-                                  : 'bg-gray-100 text-gray-800'
-                            }`}
-                          >
-                            {item.upstreamAgent.agentLevelLabel}
-                          </span>
+                    <td className="px-6 py-4 text-center align-middle border-r border-gray-200 text-gray-900">
+                      {(item.clubBindings?.length ?? 0) > 0 ? (
+                        <div className="text-xs space-y-1">
+                          <p className="font-medium">
+                            {item.clubBindingCount ?? item.clubBindings!.length} 個俱樂部
+                          </p>
+                          {item.clubBindings!.slice(0, 2).map((b) => (
+                            <p key={b.id} className="text-gray-600 truncate max-w-[220px] mx-auto" title={`${b.clubName} · ${b.agentLevelLabel}`}>
+                              {b.clubName} · {b.agentLevelLabel}
+                            </p>
+                          ))}
                         </div>
                       ) : (
-                        <span className="text-gray-400">—</span>
+                        <span className="text-gray-400 text-sm">未綁定</span>
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200 text-gray-900">
@@ -383,19 +389,18 @@ export default function AgentManagementPage() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200">
                       {item.status === 'approved' ? (
-                        <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
-                          item.agentLevel === 'vip'
-                            ? 'bg-purple-100 text-purple-800'
-                            : item.agentLevel === 'master'
-                              ? 'bg-indigo-100 text-indigo-800'
-                              : 'bg-gray-100 text-gray-800'
-                        }`}>
-                          {item.agentLevel === 'vip'
-                            ? '公關代理'
-                            : item.agentLevel === 'master'
-                              ? '大代理'
-                              : '一般代理'}
-                        </span>
+                        (() => {
+                          const first = item.clubBindings?.[0]
+                          const level = first?.agentLevel ?? item.agentLevel
+                          const label = first?.agentLevelLabel ?? agentLevelLabelZh(level)
+                          return (
+                            <span
+                              className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${agentLevelBadgeClass(level)}`}
+                            >
+                              {first ? label : `${label}（舊）`}
+                            </span>
+                          )
+                        })()
                       ) : (
                         <span className="text-gray-400 text-xs">-</span>
                       )}
