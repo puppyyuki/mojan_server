@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import Image from 'next/image'
+import RemoteAvatar from '@/app/admin/components/RemoteAvatar'
 import { uploadPlayerAvatarImage } from '@/lib/upload-server-base'
 
 interface PlayerAvatarFieldProps {
@@ -62,18 +62,12 @@ export default function PlayerAvatarField({
       </label>
       <div className="flex items-center gap-4">
         <div className="w-16 h-16 rounded-full border-2 border-gray-200 overflow-hidden bg-gray-100 flex-shrink-0 flex items-center justify-center">
-          {displayUrl ? (
-            <Image
-              src={displayUrl}
-              alt="頭像預覽"
-              width={64}
-              height={64}
-              className="w-full h-full object-cover"
-              unoptimized
-            />
-          ) : (
-            <span className="text-xs text-gray-400">無</span>
-          )}
+          <RemoteAvatar
+            src={displayUrl || null}
+            alt="頭像預覽"
+            size={64}
+            className="border-0"
+          />
         </div>
         <div className="flex-1 min-w-0 space-y-2">
           <div className="flex items-center gap-2">

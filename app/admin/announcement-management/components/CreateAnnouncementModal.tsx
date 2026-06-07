@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import Image from 'next/image'
+import { RemoteImage } from '@/app/admin/components/RemoteImage'
 import { X, Save } from 'lucide-react'
 import { apiPost } from '@/lib/api-client'
 
@@ -232,12 +232,10 @@ export default function CreateAnnouncementModal({
             {imageUrl && (
               <div className="mt-2">
                 <div className="relative w-full h-40 rounded border border-gray-200 overflow-hidden">
-                  <Image
+                  <RemoteImage
                     src={imageUrl}
                     alt="活動圖片預覽"
                     fill
-                    className="object-cover"
-                    unoptimized
                   />
                 </div>
                 <button

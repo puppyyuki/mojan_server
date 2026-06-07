@@ -9,7 +9,7 @@ import CreateClubModal from './components/CreateClubModal'
 import EditClubModal from './components/EditClubModal'
 import ClubMembersModal from './components/ClubMembersModal'
 import ClubReplenishHistoryModal from './components/ClubReplenishHistoryModal'
-import Image from 'next/image'
+import RemoteAvatar from '@/app/admin/components/RemoteAvatar'
 
 interface Club {
   id: string
@@ -386,27 +386,14 @@ export default function ClubManagementPage() {
                       {item.creator?.nickname || '-'} ({item.creator?.userId || '-'})
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200">
-                      {(item.avatarUrl || item.creator?.avatarUrl) ? (
-                        <div className="flex justify-center">
-                          <Image
-                            src={item.avatarUrl || item.creator?.avatarUrl}
-                            alt="頭像"
-                            width={40}
-                            height={40}
-                            className="w-10 h-10 rounded-full object-cover border-2 border-gray-200"
-                            onError={(e) => {
-                              const target = e.target as HTMLImageElement;
-                              target.src = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="40" height="40"%3E%3Crect width="40" height="40" fill="%23ddd"/%3E%3Ctext x="50%25" y="50%25" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="16" fill="%23999"%3E?%3C/text%3E%3C/svg%3E';
-                            }}
-                          />
-                        </div>
-                      ) : (
-                        <div className="flex justify-center">
-                          <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-gray-400 text-xs">
-                            無
-                          </div>
-                        </div>
-                      )}
+                      <div className="flex justify-center">
+                        <RemoteAvatar
+                          src={item.avatarUrl || item.creator?.avatarUrl}
+                          alt={item.name}
+                          size={40}
+                          className="border-2 border-gray-200"
+                        />
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200 text-gray-900">
                       {item.cardCount}

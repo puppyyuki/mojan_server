@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { RefreshCw, Search, Eye, CheckCircle, XCircle, Clock, Filter } from 'lucide-react'
 import { apiGet } from '@/lib/api-client'
-import Image from 'next/image'
+import RemoteAvatar from '@/app/admin/components/RemoteAvatar'
 
 interface RoomCardOrder {
   id: string
@@ -283,15 +283,11 @@ export default function PaymentManagementPage() {
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-center text-sm border-r border-gray-200">
                         <div className="flex items-center justify-center gap-2">
-                          {order.player.avatarUrl && (
-                            <Image
-                              src={order.player.avatarUrl}
-                              alt={order.player.nickname}
-                              width={32}
-                              height={32}
-                              className="w-8 h-8 rounded-full"
-                            />
-                          )}
+                          <RemoteAvatar
+                            src={order.player.avatarUrl}
+                            alt={order.player.nickname}
+                            size={32}
+                          />
                           <div className="text-left">
                             <div className="text-gray-900 font-medium">{order.player.nickname}</div>
                             <div className="text-gray-500 text-xs">ID: {order.player.userId}</div>

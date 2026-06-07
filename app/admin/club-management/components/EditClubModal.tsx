@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { X, Save } from 'lucide-react'
-import Image from 'next/image'
+import RemoteAvatar from '@/app/admin/components/RemoteAvatar'
 import { apiPatch } from '@/lib/api-client'
 import { requestAdminOpCode, withAdminOpCodeHeader } from '@/lib/admin-op-code-client'
 
@@ -351,18 +351,13 @@ export default function EditClubModal({
               placeholder="請輸入頭像 URL（可選）"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400"
             />
-            {avatarUrl && (
+            {avatarUrl.trim() && (
               <div className="mt-2 flex justify-center">
-                <Image
+                <RemoteAvatar
                   src={avatarUrl}
                   alt="頭像預覽"
-                  width={64}
-                  height={64}
-                  className="w-16 h-16 rounded-full object-cover border-2 border-gray-300"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    target.style.display = 'none';
-                  }}
+                  size={64}
+                  className="border-2 border-gray-300"
                 />
               </div>
             )}

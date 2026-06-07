@@ -10,7 +10,7 @@ import EditUserModal from './components/EditUserModal'
 import CardRechargeHistoryModal from './components/CardRechargeHistoryModal'
 import PlayerClubsModal from './components/PlayerClubsModal'
 import PlayerReferralsModal from './components/PlayerReferralsModal'
-import Image from 'next/image'
+import RemoteAvatar from '@/app/admin/components/RemoteAvatar'
 
 interface AccountDeletionRequestRow {
   id: string
@@ -535,22 +535,12 @@ export default function UserManagementPage() {
                       {item.userId}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200">
-                      {item.avatarUrl ? (
-                        <Image
-                          src={item.avatarUrl}
-                          alt={item.nickname}
-                          width={40}
-                          height={40}
-                          className="w-10 h-10 rounded-full mx-auto object-cover"
-                          onError={(e) => {
-                            (e.target as HTMLImageElement).style.display = 'none'
-                          }}
-                        />
-                      ) : (
-                        <div className="w-10 h-10 rounded-full mx-auto bg-gray-300 flex items-center justify-center text-gray-600 text-xs">
-                          無
-                        </div>
-                      )}
+                      <RemoteAvatar
+                        src={item.avatarUrl}
+                        alt={item.nickname}
+                        size={40}
+                        className="mx-auto"
+                      />
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-center border-r border-gray-200 text-gray-900">
                       <div className="flex items-center justify-center gap-2">
