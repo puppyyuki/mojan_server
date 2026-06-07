@@ -78,12 +78,12 @@ export default function AddPlayerClubUpstreamModal({
 
       const response = editing
         ? await apiPatch(
-            `/api/admin/players/${playerDbId}/club-upstream-bindings/${editing.id}`,
+            `/api/admin/players/club-upstream-bindings/${playerDbId}/${editing.id}`,
             payload,
             { headers: withAdminOpCodeHeader(opCode) }
           )
         : await apiPost(
-            `/api/admin/players/${playerDbId}/club-upstream-bindings`,
+            `/api/admin/players/club-upstream-bindings/${playerDbId}`,
             payload,
             { headers: withAdminOpCodeHeader(opCode) }
           )

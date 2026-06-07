@@ -110,11 +110,11 @@ export default function AddAgentClubBindingModal({
 
       const response = editing
         ? await apiPatch(
-            `/api/admin/agents/${playerDbId}/club-bindings/${editing.id}`,
+            `/api/admin/agents/club-bindings/${playerDbId}/${editing.id}`,
             payload,
             { headers: withAdminOpCodeHeader(opCode) }
           )
-        : await apiPost(`/api/admin/agents/${playerDbId}/club-bindings`, payload, {
+        : await apiPost(`/api/admin/agents/club-bindings/${playerDbId}`, payload, {
             headers: withAdminOpCodeHeader(opCode),
           })
 

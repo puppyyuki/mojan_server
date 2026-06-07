@@ -67,7 +67,7 @@ export default function EditAgentModal({
     if (!agent) return
     setBindingsLoading(true)
     try {
-      const res = await apiGet(`/api/admin/agents/${agent.playerDbId}/club-bindings`)
+      const res = await apiGet(`/api/admin/agents/club-bindings/${agent.playerDbId}`)
       const json = await res.json().catch(() => ({}))
       if (res.ok && json.success) {
         setBindings(Array.isArray(json.data) ? json.data : [])
@@ -113,7 +113,7 @@ export default function EditAgentModal({
 
     try {
       const res = await fetch(
-        `/api/admin/agents/${agent.playerDbId}/club-bindings/${binding.id}`,
+        `/api/admin/agents/club-bindings/${agent.playerDbId}/${binding.id}`,
         {
           method: 'DELETE',
           headers: withAdminOpCodeHeader(opCode),

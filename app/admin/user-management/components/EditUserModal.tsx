@@ -63,7 +63,7 @@ export default function EditUserModal({
     setBindingsLoading(true)
     try {
       const res = await apiGet(
-        `/api/admin/players/${player.id}/club-upstream-bindings`
+        `/api/admin/players/club-upstream-bindings/${player.id}`
       )
       const json = await res.json().catch(() => ({}))
       if (res.ok && json.success) {
@@ -104,7 +104,7 @@ export default function EditUserModal({
 
     try {
       const res = await fetch(
-        `/api/admin/players/${player.id}/club-upstream-bindings/${binding.id}`,
+        `/api/admin/players/club-upstream-bindings/${player.id}/${binding.id}`,
         {
           method: 'DELETE',
           headers: withAdminOpCodeHeader(opCode),
