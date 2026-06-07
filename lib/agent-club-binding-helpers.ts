@@ -143,10 +143,17 @@ export async function validateAgentClubBindingInput(
     agentLevel: string
     upstreamAgentPlayerId: string | null
     agentRoomCardFee: number
+    agentPercentage: number
   }
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const { subjectPlayerDbId, clubId, agentLevel, upstreamAgentPlayerId, agentRoomCardFee } =
-    opts
+  const {
+    subjectPlayerDbId,
+    clubId,
+    agentLevel,
+    upstreamAgentPlayerId,
+    agentRoomCardFee,
+    agentPercentage,
+  } = opts
 
   if (!isValidAgentLevel(agentLevel)) {
     return { ok: false, error: '無效的代理層級' }
@@ -154,6 +161,10 @@ export async function validateAgentClubBindingInput(
 
   if (agentRoomCardFee < 0 || !Number.isFinite(agentRoomCardFee)) {
     return { ok: false, error: '代理房卡費須為非負數' }
+  }
+
+  if (agentPercentage < 0 || !Number.isFinite(agentPercentage)) {
+    return { ok: false, error: '代理%數須為非負數' }
   }
 
   const club = await db.club.findUnique({
@@ -188,6 +199,7 @@ export function serializeAgentClubBinding(row: {
   upstreamAgentPlayerId: string | null
   agentLevel: string
   agentRoomCardFee: number
+  agentPercentage: number
   club: { id: string; clubId: string; name: string }
   upstreamAgent: { id: string; userId: string; nickname: string } | null
 }) {
@@ -199,6 +211,7 @@ export function serializeAgentClubBinding(row: {
     agentLevel: row.agentLevel,
     agentLevelLabel: agentLevelLabelZh(row.agentLevel),
     agentRoomCardFee: row.agentRoomCardFee,
+    agentPercentage: row.agentPercentage,
     upstreamAgent: row.upstreamAgent
       ? {
           playerDbId: row.upstreamAgent.id,

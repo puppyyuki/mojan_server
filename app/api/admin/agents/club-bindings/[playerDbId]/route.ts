@@ -90,6 +90,7 @@ export async function POST(
         ? null
         : String(rawUpstream).trim()
     const agentRoomCardFee = parseNonNegativeFloat(body.agentRoomCardFee, 2)
+    const agentPercentage = parseNonNegativeFloat(body.agentPercentage, 2)
 
     if (!clubId) {
       return NextResponse.json(
@@ -115,6 +116,7 @@ export async function POST(
       agentLevel,
       upstreamAgentPlayerId,
       agentRoomCardFee,
+      agentPercentage,
     })
     if (validation.ok === false) {
       return NextResponse.json(
@@ -140,6 +142,7 @@ export async function POST(
         upstreamAgentPlayerId,
         agentLevel: isValidAgentLevel(agentLevel) ? agentLevel : 'agent',
         agentRoomCardFee,
+        agentPercentage,
       },
       include: bindingInclude,
     })

@@ -75,6 +75,10 @@ export async function PATCH(
       body.agentRoomCardFee !== undefined
         ? parseNonNegativeFloat(body.agentRoomCardFee, existing.agentRoomCardFee)
         : existing.agentRoomCardFee
+    const agentPercentage =
+      body.agentPercentage !== undefined
+        ? parseNonNegativeFloat(body.agentPercentage, existing.agentPercentage)
+        : existing.agentPercentage
 
     const validation = await validateAgentClubBindingInput(prisma, {
       subjectPlayerDbId: playerDbId,
@@ -82,6 +86,7 @@ export async function PATCH(
       agentLevel,
       upstreamAgentPlayerId,
       agentRoomCardFee,
+      agentPercentage,
     })
     if (validation.ok === false) {
       return NextResponse.json(
@@ -109,6 +114,7 @@ export async function PATCH(
         agentLevel: isValidAgentLevel(agentLevel) ? agentLevel : existing.agentLevel,
         upstreamAgentPlayerId,
         agentRoomCardFee,
+        agentPercentage,
       },
       include: bindingInclude,
     })

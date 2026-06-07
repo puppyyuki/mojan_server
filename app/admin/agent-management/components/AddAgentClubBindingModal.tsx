@@ -19,6 +19,7 @@ export type AgentClubBindingRow = {
   agentLevel: string
   agentLevelLabel: string
   agentRoomCardFee: number
+  agentPercentage: number
   upstreamAgent: {
     playerDbId: string
     userId: string
@@ -47,6 +48,7 @@ export default function AddAgentClubBindingModal({
   const [upstreamDbId, setUpstreamDbId] = useState<string | null>(null)
   const [agentLevel, setAgentLevel] = useState<AgentLevelValue>('agent')
   const [agentRoomCardFee, setAgentRoomCardFee] = useState<string>('2')
+  const [agentPercentage, setAgentPercentage] = useState<string>('2')
   const [loading, setLoading] = useState(false)
 
   useEffect(() => {
@@ -60,11 +62,13 @@ export default function AddAgentClubBindingModal({
           : 'agent') as AgentLevelValue
       )
       setAgentRoomCardFee(String(editing.agentRoomCardFee ?? 2))
+      setAgentPercentage(String(editing.agentPercentage ?? 2))
     } else {
       setClubDbId(null)
       setUpstreamDbId(null)
       setAgentLevel('agent')
       setAgentRoomCardFee('2')
+      setAgentPercentage('2')
     }
   }, [isOpen, editing])
 
@@ -93,6 +97,12 @@ export default function AddAgentClubBindingModal({
       return
     }
 
+    const percentageParsed = Number.parseFloat(agentPercentage)
+    if (!Number.isFinite(percentageParsed) || percentageParsed < 0) {
+      alert('代理%數須為非負數')
+      return
+    }
+
     const opCode = await requestAdminOpCode(
       editing ? '確定要更新俱樂部綁定嗎？' : '確定要新增俱樂部綁定嗎？'
     )
@@ -105,6 +115,7 @@ export default function AddAgentClubBindingModal({
         agentLevel,
         upstreamAgentPlayerId: isSuperAgentLevel(agentLevel) ? null : upstreamDbId,
         agentRoomCardFee: feeParsed,
+        agentPercentage: percentageParsed,
         adminOpCode: opCode,
       }
 
@@ -152,7 +163,7 @@ export default function AddAgentClubBindingModal({
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <h3 className="text-lg font-semibold text-gray-900">
-            {editing ? '編輯俱樂部綁定' : '添加上層代理、房卡費'}
+            {editing ? '編輯俱樂部綁定' : '添加上層代理、房卡費、代理%數'}
           </h3>
           <button
             onClick={onClose}
@@ -189,10 +200,32 @@ export default function AddAgentClubBindingModal({
             <label className="block text-sm font-medium text-gray-700 mb-2">
               代理房卡費
             </label>
+            <p className="text-xs text-gray-500 mb-2">
+              代理房卡費設定；預設 2。目前僅供後台儲存。
+            </p>
             <input
               type="number"
               value={agentRoomCardFee}
               onChange={(e) => setAgentRoomCardFee(e.target.value)}
+              placeholder="2"
+              min={0}
+              step="any"
+              disabled={loading}
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              代理%數
+            </label>
+            <p className="text-xs text-gray-500 mb-2">
+              代理%數設定；預設 2。目前僅供後台儲存。
+            </p>
+            <input
+              type="number"
+              value={agentPercentage}
+              onChange={(e) => setAgentPercentage(e.target.value)}
               placeholder="2"
               min={0}
               step="any"

@@ -60,6 +60,7 @@ interface Agent {
     agentLevel: string
     agentLevelLabel: string
     agentRoomCardFee: number
+    agentPercentage: number
     upstreamAgent: {
       playerDbId: string
       userId: string
