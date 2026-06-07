@@ -403,6 +403,89 @@ router.post('/:roomId/deduct-on-start', async (req, res) => {
 });
 
 /**
+ * GET /api/client/rooms/active-for-player?playerId=...
+ * 查詢玩家目前仍在進行中的 V2 對局房（殺 App 冷啟動續局校準用）。
+ */
+router.get('/active-for-player', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const playerId =
+      typeof req.query?.playerId === 'string' ? req.query.playerId.trim() : '';
+    if (!playerId) {
+      return errorResponse(res, '請提供 playerId', null, 400);
+    }
+
+    // 對局中斷線時 sync leave 可能已寫入 leftAt，但仍應能續回原桌（見 clubRoomsList PLAYING 規則）。
+    const participant = await prisma.roomParticipant.findFirst({
+      where: {
+        playerId,
+        room: {
+          status: 'PLAYING',
+          multiplayerVersion: 'V2',
+        },
+      },
+      orderBy: { joinedAt: 'desc' },
+      include: {
+        room: {
+          select: {
+            roomId: true,
+            clubId: true,
+            status: true,
+            gameSettings: true,
+            currentPlayers: true,
+            maxPlayers: true,
+            multiplayerVersion: true,
+          },
+        },
+      },
+    });
+
+    if (!participant?.room) {
+      return successResponse(res, { active: false }, '無進行中對局');
+    }
+
+    const room = participant.room;
+    let clubDisplayCode = null;
+    let clubAvatarUrl = null;
+    let clubName = null;
+    if (room.clubId) {
+      const club = await prisma.club.findUnique({
+        where: { id: room.clubId },
+        select: { clubId: true, avatarUrl: true, logoUrl: true, name: true },
+      });
+      if (club) {
+        clubDisplayCode = club.clubId ?? null;
+        clubAvatarUrl = club.logoUrl ?? club.avatarUrl ?? null;
+        clubName = club.name ?? null;
+      }
+    }
+
+    return successResponse(
+      res,
+      {
+        active: true,
+        room: {
+          roomId: room.roomId,
+          clubId: room.clubId,
+          status: room.status,
+          gameSettings: room.gameSettings,
+          currentPlayers: room.currentPlayers,
+          maxPlayers: room.maxPlayers,
+          multiplayerVersion: room.multiplayerVersion,
+          clubDisplayCode,
+          clubAvatarUrl,
+          clubName,
+        },
+      },
+      '已取得進行中對局'
+    );
+  } catch (error) {
+    console.error('[Rooms API] 查詢進行中對局失敗:', error);
+    return errorResponse(res, '查詢進行中對局失敗', error.message, 500);
+  }
+});
+
+/**
  * GET /api/client/rooms/:roomId
  * 獲取房間資訊
  */
