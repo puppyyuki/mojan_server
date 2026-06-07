@@ -404,7 +404,7 @@ router.post('/:roomId/deduct-on-start', async (req, res) => {
 
 /**
  * GET /api/client/rooms/active-for-player?playerId=...
- * 查詢玩家目前仍在進行中的 V2 對局房（殺 App 冷啟動續局校準用）。
+ * 查詢玩家目前仍在的 V2 房（PLAYING 優先，其次 WAITING；殺 App 冷啟動續局校準用）。
  */
 router.get('/active-for-player', async (req, res) => {
   try {
@@ -415,8 +415,18 @@ router.get('/active-for-player', async (req, res) => {
       return errorResponse(res, '請提供 playerId', null, 400);
     }
 
+    const roomSelect = {
+      roomId: true,
+      clubId: true,
+      status: true,
+      gameSettings: true,
+      currentPlayers: true,
+      maxPlayers: true,
+      multiplayerVersion: true,
+    };
+
     // 對局中斷線時 sync leave 可能已寫入 leftAt，但仍應能續回原桌（見 clubRoomsList PLAYING 規則）。
-    const participant = await prisma.roomParticipant.findFirst({
+    let participant = await prisma.roomParticipant.findFirst({
       where: {
         playerId,
         room: {
@@ -425,20 +435,24 @@ router.get('/active-for-player', async (req, res) => {
         },
       },
       orderBy: { joinedAt: 'desc' },
-      include: {
-        room: {
-          select: {
-            roomId: true,
-            clubId: true,
-            status: true,
-            gameSettings: true,
-            currentPlayers: true,
-            maxPlayers: true,
-            multiplayerVersion: true,
+      include: { room: { select: roomSelect } },
+    });
+
+    // 等待大廳：僅仍在房內（leftAt 為 null）才續局。
+    if (!participant?.room) {
+      participant = await prisma.roomParticipant.findFirst({
+        where: {
+          playerId,
+          leftAt: null,
+          room: {
+            status: 'WAITING',
+            multiplayerVersion: 'V2',
           },
         },
-      },
-    });
+        orderBy: { joinedAt: 'desc' },
+        include: { room: { select: roomSelect } },
+      });
+    }
 
     if (!participant?.room) {
       return successResponse(res, { active: false }, '無進行中對局');
