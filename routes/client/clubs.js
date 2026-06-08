@@ -7,7 +7,10 @@ const {
 } = require('../../utils/clubV2HistoryAccess');
 const { isV2RoundCompletedForStatistics } = require('../../utils/v2RoundStatistics');
 const { participantsWithReconciledScores } = require('../../utils/v2MatchScoreReconcile');
-const { sumSelfDrawRakeMoneyByPlayerId } = require('../../utils/clubSelfDrawRakeMoney');
+const {
+  sumSelfDrawRakeMoneyByPlayerId,
+  clubSelfDrawRakePercentNumber,
+} = require('../../utils/clubSelfDrawRakeMoney');
 const { buildSelfDrawDisplayMap } = require('../../utils/clubAgentSelfDrawRakeTree');
 const {
   getAssignableAgentLevels,
@@ -2003,9 +2006,21 @@ router.get('/:clubId/agent-member-list', async (req, res) => {
       }
     }
 
+    const rakeSettings = await prisma.club.findUnique({
+      where: { id: club.id },
+      select: { selfDrawRakePercent: true },
+    });
+    const appliedSelfDrawRakePercent = clubSelfDrawRakePercentNumber(
+      rakeSettings?.selfDrawRakePercent
+    );
+    const clubForRake = {
+      id: club.id,
+      selfDrawRakePercent: rakeSettings?.selfDrawRakePercent,
+    };
+
     const displayMap = await buildSelfDrawDisplayMap(
       prisma,
-      club,
+      clubForRake,
       { startAt: hasDateFilter ? startDate : null, endAt: hasDateFilter ? endDate : null },
       bindings,
       upstreamBindings
@@ -2030,7 +2045,10 @@ router.get('/:clubId/agent-member-list', async (req, res) => {
 
     const total = rows.length;
     const pageItems = rows.slice(skip, skip + pageSize);
-    return successResponse(res, pagedPayload(pageItems, { total, page, pageSize }));
+    return successResponse(res, {
+      ...pagedPayload(pageItems, { total, page, pageSize }),
+      appliedSelfDrawRakePercent,
+    });
   } catch (error) {
     console.error('[Clubs API] 獲取代理成員列表失敗:', error);
     return errorResponse(res, '獲取代理成員列表失敗', error.message, 500);

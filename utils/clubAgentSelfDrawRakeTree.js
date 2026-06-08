@@ -1,8 +1,8 @@
 /**
  * 俱樂部成員列表「自摸抽」顯示值。
  *
- * - 一般玩家：自摸贏分加總 × (100% - 俱樂部自摸抽%)（玩家保留）
- * - 代理分配池 A = 自摸贏分加總 × 俱樂部自摸抽%，依代理設置 % 在樹上分配
+ * - 一般玩家：時間區間內上交金額 A = 自摸贏分加總 × 俱樂部 selfDrawRakePercent
+ * - 代理：從玩家上交的 A 依「代理設置」% 垂直分配後的金額
  */
 
 const { aggregateSelfDrawStatsByPlayerId } = require('./clubSelfDrawRakeMoney');
@@ -59,7 +59,7 @@ function computeDisplaySelfDrawRakeByPlayer(
     upstreamBindings.map((u) => [u.playerId, u.upstreamAgentPlayerId])
   );
 
-  const retainRate = Math.max(0, 1 - clampPercent(clubRakePercent) / 100);
+  const rakeRate = clampPercent(clubRakePercent) / 100;
   const displayMap = new Map();
   for (const b of bindings) {
     displayMap.set(b.playerId, 0);
@@ -78,10 +78,10 @@ function computeDisplaySelfDrawRakeByPlayer(
     if (win <= 0 && pool <= 0) continue;
     if (isAgent(playerId)) continue;
 
-    const playerRetain = roundMoney(win * retainRate);
-    displayMap.set(playerId, roundMoney((displayMap.get(playerId) || 0) + playerRetain));
+    const playerSubmit = pool > 0 ? roundMoney(pool) : roundMoney(win * rakeRate);
+    displayMap.set(playerId, roundMoney((displayMap.get(playerId) || 0) + playerSubmit));
 
-    const a = pool > 0 ? pool : roundMoney(win * (clampPercent(clubRakePercent) / 100));
+    const a = pool > 0 ? pool : roundMoney(win * rakeRate);
     if (a <= 0) continue;
 
     const path = buildAgentPathFromPlayer(
@@ -120,7 +120,11 @@ function computeDisplaySelfDrawRakeByPlayer(
         displayMap.set(playerId, 0);
       } else {
         const win = Number(winByPlayer.get(playerId)) || 0;
-        displayMap.set(playerId, win > 0 ? roundMoney(win * retainRate) : 0);
+        const pool = Number(poolByPlayer.get(playerId)) || 0;
+        displayMap.set(
+          playerId,
+          pool > 0 ? roundMoney(pool) : (win > 0 ? roundMoney(win * rakeRate) : 0)
+        );
       }
     }
   }
