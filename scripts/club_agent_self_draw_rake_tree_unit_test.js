@@ -5,6 +5,7 @@
 
 const assert = require('assert');
 const {
+  agentPercentageRate,
   computeDisplaySelfDrawRakeByPlayer,
 } = require('../utils/clubAgentSelfDrawRakeTree');
 
@@ -17,73 +18,72 @@ const bindings = [
   {
     playerId: 'master',
     upstreamAgentPlayerId: 'super',
-    agentPercentage: 10,
+    agentPercentage: 2,
   },
   {
     playerId: 'mid',
     upstreamAgentPlayerId: 'master',
-    agentPercentage: 10,
-  },
-  {
-    playerId: 'small',
-    upstreamAgentPlayerId: 'mid',
-    agentPercentage: 10,
+    agentPercentage: 1,
   },
 ];
 
+function testAgentPercentageInputConvertsByClubRakePercent() {
+  assert.strictEqual(agentPercentageRate(1, 5), 0.2);
+  assert.strictEqual(agentPercentageRate(2.5, 5), 0.5);
+  assert.strictEqual(agentPercentageRate(1, 0), 0);
+}
+
 function testNormalPlayerDistributionUnchanged() {
   const result = computeDisplaySelfDrawRakeByPlayer(
-    new Map([['player', 1000]]),
     new Map([['player', 100]]),
+    new Map([['player', 5]]),
     bindings,
-    [{ playerId: 'player', upstreamAgentPlayerId: 'small' }],
-    10
+    [{ playerId: 'player', upstreamAgentPlayerId: 'mid' }],
+    5
   );
 
-  assert.strictEqual(result.get('player'), 100);
-  assert.strictEqual(result.get('small'), 70);
-  assert.strictEqual(result.get('mid'), 10);
-  assert.strictEqual(result.get('master'), 10);
-  assert.strictEqual(result.get('super'), 10);
+  assert.strictEqual(result.get('player'), 5);
+  assert.strictEqual(result.get('mid'), 2);
+  assert.strictEqual(result.get('master'), 1);
+  assert.strictEqual(result.get('super'), 2);
 }
 
 function testAgentSelfDrawIncludesOwnUpstreamSubmit() {
   const result = computeDisplaySelfDrawRakeByPlayer(
-    new Map([['small', 1000]]),
-    new Map([['small', 100]]),
+    new Map([['mid', 100]]),
+    new Map([['mid', 5]]),
     bindings,
     [],
-    10
+    5
   );
 
-  assert.strictEqual(result.get('small'), 30);
-  assert.strictEqual(result.get('mid'), 10);
-  assert.strictEqual(result.get('master'), 10);
-  assert.strictEqual(result.get('super'), 10);
+  assert.strictEqual(result.get('mid'), 60);
+  assert.strictEqual(result.get('master'), 20);
+  assert.strictEqual(result.get('super'), 40);
 }
 
 function testAgentDisplayAddsDownstreamIncomeAndOwnSubmit() {
   const result = computeDisplaySelfDrawRakeByPlayer(
     new Map([
-      ['player', 1000],
-      ['small', 1000],
+      ['player', 100],
+      ['mid', 100],
     ]),
     new Map([
-      ['player', 100],
-      ['small', 100],
+      ['player', 5],
+      ['mid', 5],
     ]),
     bindings,
-    [{ playerId: 'player', upstreamAgentPlayerId: 'small' }],
-    10
+    [{ playerId: 'player', upstreamAgentPlayerId: 'mid' }],
+    5
   );
 
-  assert.strictEqual(result.get('player'), 100);
-  assert.strictEqual(result.get('small'), 100);
-  assert.strictEqual(result.get('mid'), 20);
-  assert.strictEqual(result.get('master'), 20);
-  assert.strictEqual(result.get('super'), 20);
+  assert.strictEqual(result.get('player'), 5);
+  assert.strictEqual(result.get('mid'), 62);
+  assert.strictEqual(result.get('master'), 21);
+  assert.strictEqual(result.get('super'), 42);
 }
 
+testAgentPercentageInputConvertsByClubRakePercent();
 testNormalPlayerDistributionUnchanged();
 testAgentSelfDrawIncludesOwnUpstreamSubmit();
 testAgentDisplayAddsDownstreamIncomeAndOwnSubmit();

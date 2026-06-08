@@ -285,7 +285,7 @@ export default function EditAgentModal({
                     className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
                   >
                     <Plus className="w-4 h-4" />
-                    添加上層代理、房卡費、代理%數
+                    添加上層代理、房卡費、代理自摸抽
                   </button>
                 </div>
 
@@ -300,7 +300,7 @@ export default function EditAgentModal({
                       >
                         <p>
                           俱樂部：{b.clubName}（{b.clubId}）、代理房卡費：
-                          {b.agentRoomCardFee}、代理%數：{b.agentPercentage}
+                          {b.agentRoomCardFee}、代理自摸抽：{b.agentPercentage}%
                           、代理層級：{b.agentLevelLabel}
                           、上層代理：
                           {b.upstreamAgent

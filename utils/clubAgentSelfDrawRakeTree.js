@@ -3,6 +3,8 @@
  *
  * - 一般玩家：時間區間內上交金額 A = 自摸贏分加總 × 俱樂部 selfDrawRakePercent
  * - 代理：從下線分上來的金額 + 自身自摸時需往上繳的金額
+ * - 代理%數輸入值代表原始贏分百分點：
+ *   一般玩家上繳池 A 會先換算成池內比例分配；代理自身自摸則直接用原始贏分計算上繳。
  */
 
 const { aggregateSelfDrawStatsByPlayerId } = require('./clubSelfDrawRakeMoney');
@@ -15,6 +17,15 @@ function clampPercent(p) {
   const n = Number(p);
   if (!Number.isFinite(n)) return 0;
   return Math.min(100, Math.max(0, n));
+}
+
+function agentPercentageRate(agentPercentage, clubRakePercent) {
+  const rakePercent = clampPercent(clubRakePercent);
+  if (rakePercent <= 0) return 0;
+
+  const effectivePercentOfPool =
+    (clampPercent(agentPercentage) * 100) / rakePercent;
+  return clampPercent(effectivePercentOfPool) / 100;
 }
 
 function resolveFirstUpstream(playerId, bindingByPlayer, upstreamBindingsByPlayer) {
@@ -66,6 +77,12 @@ function addDisplayAmount(displayMap, playerId, amount) {
   );
 }
 
+function resolveWinBase(win, pool, rakeRate) {
+  if (win > 0) return win;
+  if (pool > 0 && rakeRate > 0) return pool / rakeRate;
+  return 0;
+}
+
 /**
  * @param {Map<string, number>} winByPlayer - 自摸正分加總
  * @param {Map<string, number>} poolByPlayer - 分配池 A
@@ -107,13 +124,18 @@ function computeDisplaySelfDrawRakeByPlayer(
 
     if (isAgent(playerId)) {
       let ownSubmit = 0;
+      const selfWinBase = resolveWinBase(win, pool, rakeRate);
+      if (selfWinBase <= 0) continue;
+
       const path = buildAgentPathFromSelf(playerId, bindingByPlayer);
       for (const agentId of path) {
         const binding = bindingByPlayer.get(agentId);
         const parentId = binding?.upstreamAgentPlayerId;
         if (!parentId) continue;
 
-        const add = roundMoney(a * (clampPercent(binding?.agentPercentage) / 100));
+        const add = roundMoney(
+          selfWinBase * agentPercentageRate(binding?.agentPercentage, clubRakePercent)
+        );
         if (add <= 0) continue;
         ownSubmit = roundMoney(ownSubmit + add);
         addDisplayAmount(displayMap, parentId, add);
@@ -134,8 +156,7 @@ function computeDisplaySelfDrawRakeByPlayer(
     let parentKeepSumRate = 0;
     for (const agentId of path) {
       const binding = bindingByPlayer.get(agentId);
-      const pct = clampPercent(binding?.agentPercentage);
-      const rate = pct / 100;
+      const rate = agentPercentageRate(binding?.agentPercentage, clubRakePercent);
       parentKeepSumRate += rate;
 
       const parentId = binding?.upstreamAgentPlayerId;
@@ -191,8 +212,10 @@ async function buildSelfDrawDisplayMap(
 module.exports = {
   roundMoney,
   clampPercent,
+  agentPercentageRate,
   buildAgentPathFromPlayer,
   buildAgentPathFromSelf,
+  resolveWinBase,
   computeDisplaySelfDrawRakeByPlayer,
   buildSelfDrawDisplayMap,
 };

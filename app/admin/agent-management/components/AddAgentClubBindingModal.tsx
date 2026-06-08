@@ -99,7 +99,7 @@ export default function AddAgentClubBindingModal({
 
     const percentageParsed = Number.parseFloat(agentPercentage)
     if (!Number.isFinite(percentageParsed) || percentageParsed < 0) {
-      alert('代理%數須為非負數')
+      alert('代理自摸抽須為非負數')
       return
     }
 
@@ -163,7 +163,7 @@ export default function AddAgentClubBindingModal({
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
           <h3 className="text-lg font-semibold text-gray-900">
-            {editing ? '編輯俱樂部綁定' : '添加上層代理、房卡費、代理%數'}
+            {editing ? '編輯俱樂部綁定' : '添加上層代理、房卡費、代理自摸抽'}
           </h3>
           <button
             onClick={onClose}
@@ -217,10 +217,10 @@ export default function AddAgentClubBindingModal({
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              代理%數
+              代理自摸抽（%）
             </label>
             <p className="text-xs text-gray-500 mb-2">
-              代理%數設定；預設 2。目前僅供後台儲存。
+              請填原始贏分百分點；系統會依俱樂部「自摸抽（%）」換算成自摸抽池分配比例。例如俱樂部自摸抽 5%，填 1 代表拿池子的 20%。
             </p>
             <input
               type="number"
