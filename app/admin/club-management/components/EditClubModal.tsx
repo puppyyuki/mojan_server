@@ -171,11 +171,11 @@ export default function EditClubModal({
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-lg w-full max-w-md mx-auto shadow-xl relative"
+        className="bg-white rounded-lg w-full max-w-md mx-auto shadow-xl relative max-h-[80vh] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
         {/* 標題 */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+        <div className="flex shrink-0 items-center justify-between px-6 py-4 border-b border-gray-200">
           <h3 className="text-lg font-semibold text-gray-900">編輯俱樂部</h3>
           <button
             onClick={onClose}
@@ -185,8 +185,8 @@ export default function EditClubModal({
           </button>
         </div>
 
-        {/* 內容 */}
-        <div className="px-6 py-4 space-y-4">
+        {/* 內容（可捲動） */}
+        <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
           <div>
             <p className="text-sm text-gray-600 mb-2">
               創建者：<span className="font-semibold text-gray-900">{club.creator.nickname} ({club.creator.userId})</span>
@@ -364,8 +364,8 @@ export default function EditClubModal({
           </div>
         </div>
 
-        {/* 按鈕 */}
-        <div className="flex border-t border-gray-200">
+        {/* 按鈕（固定底部） */}
+        <div className="flex shrink-0 border-t border-gray-200">
           <button
             onClick={onClose}
             disabled={loading}
