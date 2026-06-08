@@ -2,7 +2,7 @@
  * 俱樂部成員列表「自摸抽」顯示值。
  *
  * - 一般玩家：時間區間內上交金額 A = 自摸贏分加總 × 俱樂部 selfDrawRakePercent
- * - 代理：從玩家上交的 A 依「代理設置」% 垂直分配後的金額
+ * - 代理：從下線分上來的金額 + 自身自摸時需往上繳的金額
  */
 
 const { aggregateSelfDrawStatsByPlayerId } = require('./clubSelfDrawRakeMoney');
@@ -42,6 +42,30 @@ function buildAgentPathFromPlayer(playerId, bindingByPlayer, upstreamBindingsByP
   return path;
 }
 
+function buildAgentPathFromSelf(agentId, bindingByPlayer) {
+  const path = [];
+  const visited = new Set();
+  let current = agentId;
+
+  while (current && !visited.has(current)) {
+    visited.add(current);
+    const b = bindingByPlayer.get(current);
+    if (!b) break;
+    path.push(current);
+    current = b.upstreamAgentPlayerId ?? null;
+  }
+
+  return path;
+}
+
+function addDisplayAmount(displayMap, playerId, amount) {
+  if (!playerId) return;
+  displayMap.set(
+    playerId,
+    roundMoney((displayMap.get(playerId) || 0) + amount)
+  );
+}
+
 /**
  * @param {Map<string, number>} winByPlayer - 自摸正分加總
  * @param {Map<string, number>} poolByPlayer - 分配池 A
@@ -76,13 +100,29 @@ function computeDisplaySelfDrawRakeByPlayer(
     const win = Number(winByPlayer.get(playerId)) || 0;
     const pool = Number(poolByPlayer.get(playerId)) || 0;
     if (win <= 0 && pool <= 0) continue;
-    if (isAgent(playerId)) continue;
 
     const playerSubmit = pool > 0 ? roundMoney(pool) : roundMoney(win * rakeRate);
-    displayMap.set(playerId, roundMoney((displayMap.get(playerId) || 0) + playerSubmit));
-
     const a = pool > 0 ? pool : roundMoney(win * rakeRate);
     if (a <= 0) continue;
+
+    if (isAgent(playerId)) {
+      let ownSubmit = 0;
+      const path = buildAgentPathFromSelf(playerId, bindingByPlayer);
+      for (const agentId of path) {
+        const binding = bindingByPlayer.get(agentId);
+        const parentId = binding?.upstreamAgentPlayerId;
+        if (!parentId) continue;
+
+        const add = roundMoney(a * (clampPercent(binding?.agentPercentage) / 100));
+        if (add <= 0) continue;
+        ownSubmit = roundMoney(ownSubmit + add);
+        addDisplayAmount(displayMap, parentId, add);
+      }
+      addDisplayAmount(displayMap, playerId, ownSubmit);
+      continue;
+    }
+
+    addDisplayAmount(displayMap, playerId, playerSubmit);
 
     const path = buildAgentPathFromPlayer(
       playerId,
@@ -101,17 +141,14 @@ function computeDisplaySelfDrawRakeByPlayer(
       const parentId = binding?.upstreamAgentPlayerId;
       if (parentId) {
         const add = roundMoney(a * rate);
-        displayMap.set(parentId, roundMoney((displayMap.get(parentId) || 0) + add));
+        addDisplayAmount(displayMap, parentId, add);
       }
     }
 
     const leafAgentId = path[0];
     const leafRate = Math.max(0, 1 - parentKeepSumRate);
     const leafAdd = roundMoney(a * leafRate);
-    displayMap.set(
-      leafAgentId,
-      roundMoney((displayMap.get(leafAgentId) || 0) + leafAdd)
-    );
+    addDisplayAmount(displayMap, leafAgentId, leafAdd);
   }
 
   for (const playerId of allPlayerIds) {
@@ -155,6 +192,7 @@ module.exports = {
   roundMoney,
   clampPercent,
   buildAgentPathFromPlayer,
+  buildAgentPathFromSelf,
   computeDisplaySelfDrawRakeByPlayer,
   buildSelfDrawDisplayMap,
 };
