@@ -17,6 +17,7 @@ const {
   isValidPromotableLevel,
   resolveUpstreamLevel,
   resolveVisiblePlayerIds,
+  resolveAgentMemberListVisiblePlayerIds,
   isDirectUpstream,
   DEFAULT_CO_LEADER_PERMISSIONS,
   ensureCreatorSuperBinding,
@@ -1941,9 +1942,8 @@ router.get('/:clubId/agent-member-list', async (req, res) => {
       loadClubAgentBindings(prisma, club.id),
       loadPlayerClubUpstreamBindings(prisma, club.id),
     ]);
-    const vis = resolveVisiblePlayerIds(
+    const visibleIds = resolveAgentMemberListVisiblePlayerIds(
       actorPlayerId,
-      club.creatorId,
       bindings,
       upstreamBindings
     );
@@ -2029,9 +2029,18 @@ router.get('/:clubId/agent-member-list', async (req, res) => {
       row.selfDrawRake = displayMap.get(row.playerId) ?? 0;
     }
 
-    if (!vis.isOwner && vis.visibleIds) {
-      rows = rows.filter((r) => vis.visibleIds.has(r.playerId));
-    }
+    rows = rows.filter((r) => visibleIds.has(r.playerId));
+
+    rows.sort((a, b) => {
+      if (a.playerId === actorPlayerId) return -1;
+      if (b.playerId === actorPlayerId) return 1;
+      const nickCmp = String(a.nickname ?? '').localeCompare(
+        String(b.nickname ?? ''),
+        'zh-Hant'
+      );
+      if (nickCmp !== 0) return nickCmp;
+      return String(a.userId ?? '').localeCompare(String(b.userId ?? ''));
+    });
 
     if (searchRaw) {
       const q = searchRaw.toLowerCase();

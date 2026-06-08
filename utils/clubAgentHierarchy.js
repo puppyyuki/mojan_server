@@ -139,7 +139,35 @@ function expandVisibleWithUpstreamBindings(visibleIds, upstreamBindings) {
 }
 
 /**
- * 取得操作者可見的 playerId 集合。
+ * 成員列表可見範圍：自身 + 直屬代理下線 + 直屬玩家（不含更下層）。
+ * @param {Array<{ playerId: string, upstreamAgentPlayerId: string|null }>} bindings
+ * @param {Array<{ playerId: string, upstreamAgentPlayerId: string }>} [upstreamBindings]
+ * @returns {Set<string>}
+ */
+function resolveAgentMemberListVisiblePlayerIds(
+  actorPlayerId,
+  bindings,
+  upstreamBindings = []
+) {
+  const visible = new Set([actorPlayerId]);
+
+  for (const b of bindings) {
+    if (b.upstreamAgentPlayerId === actorPlayerId) {
+      visible.add(b.playerId);
+    }
+  }
+
+  for (const row of upstreamBindings) {
+    if (row.upstreamAgentPlayerId === actorPlayerId) {
+      visible.add(row.playerId);
+    }
+  }
+
+  return visible;
+}
+
+/**
+ * 取得操作者可見的 playerId 集合（完整子樹，供管理成員等）。
  * @param {Array<{ playerId: string, upstreamAgentPlayerId: string }>} [upstreamBindings]
  */
 function resolveVisiblePlayerIds(
@@ -239,6 +267,7 @@ module.exports = {
   expandVisibleWithUpstreamBindings,
   resolveUpstreamLevel,
   resolveVisiblePlayerIds,
+  resolveAgentMemberListVisiblePlayerIds,
   isDirectUpstream,
   DEFAULT_CO_LEADER_PERMISSIONS,
   ensureCreatorSuperBinding,
