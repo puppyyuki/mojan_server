@@ -70,6 +70,8 @@ model Player {
   agentPurchasesAsBuyer  AgentRoomCardSale[]     @relation("BuyerSales")
   agentPurchases         AgentRoomCardPurchase[]
   joinRequests           ClubJoinRequest[]       @relation("PlayerJoinRequests")
+  clubInvitationsSent    ClubInvitation[]        @relation("ClubInvitationInviter")
+  clubInvitationsReceived ClubInvitation[]       @relation("ClubInvitationInvitee")
   roomParticipants       RoomParticipant[]       @relation("PlayerRoomParticipants")
   v2MatchParticipants    V2MatchParticipant[]
   clubCardReplenishAsActor ClubCardReplenishRecord[] @relation("ClubReplenishActor")
@@ -133,6 +135,7 @@ model Club {
   members      ClubMember[]
   rooms        Room[]
   joinRequests ClubJoinRequest[] @relation("ClubJoinRequests")
+  invitations  ClubInvitation[]
   activities   ClubActivity[]
   gameResults  ClubGameResult[]
   cardReplenishRecords ClubCardReplenishRecord[]
@@ -227,6 +230,24 @@ model ClubJoinRequest {
   @@map("club_join_requests")
 }
 
+// 俱樂部邀請（管理成員邀請好友）
+model ClubInvitation {
+  id              String                 @id @default(cuid())
+  clubId          String
+  club            Club                   @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  inviterPlayerId String
+  inviter         Player                 @relation("ClubInvitationInviter", fields: [inviterPlayerId], references: [id], onDelete: Cascade)
+  inviteePlayerId String
+  invitee         Player                 @relation("ClubInvitationInvitee", fields: [inviteePlayerId], references: [id], onDelete: Cascade)
+  status          ClubInvitationStatus   @default(PENDING)
+  createdAt       DateTime               @default(now())
+  updatedAt       DateTime               @updatedAt
+
+  @@index([inviteePlayerId, status])
+  @@index([clubId, inviterPlayerId])
+  @@map("club_invitations")
+}
+
 // 房間參與者紀錄（用於戰績與排行榜統計）
 model RoomParticipant {
   id       String    @id @default(cuid())
@@ -252,6 +273,13 @@ enum MemberRole {
 enum JoinRequestStatus {
   PENDING
   APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum ClubInvitationStatus {
+  PENDING
+  ACCEPTED
   REJECTED
   CANCELLED
 }

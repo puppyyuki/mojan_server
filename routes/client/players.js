@@ -23,6 +23,58 @@ router.get('/', async (req, res) => {
 });
 
 /**
+ * GET /api/client/players/:id/club-invitations
+ * 待處理俱樂部邀請列表
+ * Query: status（預設 pending）
+ */
+router.get('/:id/club-invitations', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { id } = req.params;
+    const statusRaw = (req.query.status || 'pending').toString().trim().toUpperCase();
+    const allowed = ['PENDING', 'ACCEPTED', 'REJECTED', 'CANCELLED'];
+    const status = allowed.includes(statusRaw) ? statusRaw : 'PENDING';
+
+    const invitations = await prisma.clubInvitation.findMany({
+      where: {
+        inviteePlayerId: id,
+        status,
+      },
+      orderBy: { createdAt: 'asc' },
+      include: {
+        club: {
+          select: { id: true, clubId: true, name: true, avatarUrl: true },
+        },
+        inviter: {
+          select: { id: true, userId: true, nickname: true, avatarUrl: true },
+        },
+      },
+    });
+
+    const data = invitations.map((inv) => ({
+      id: inv.id,
+      clubDbId: inv.club.id,
+      clubId: inv.club.clubId,
+      clubName: inv.club.name,
+      clubAvatarUrl: inv.club.avatarUrl ?? null,
+      inviter: {
+        playerId: inv.inviter.id,
+        userId: inv.inviter.userId,
+        nickname: inv.inviter.nickname,
+        avatarUrl: inv.inviter.avatarUrl ?? null,
+      },
+      status: inv.status,
+      createdAt: inv.createdAt,
+    }));
+
+    return successResponse(res, data);
+  } catch (error) {
+    console.error('[Players API] 獲取俱樂部邀請失敗:', error);
+    return errorResponse(res, '獲取俱樂部邀請失敗', error.message, 500);
+  }
+});
+
+/**
  * GET /api/client/players/:id/v2/matches
  * 該玩家參與的 v2 戰績列表（主大廳 card）
  * Query: actorPlayerId（須與 :id 相同）、limit、skip

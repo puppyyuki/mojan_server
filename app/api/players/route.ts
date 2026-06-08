@@ -60,6 +60,11 @@ export async function GET(request: NextRequest) {
             },
           },
         },
+        agentApplications: {
+          where: { status: 'approved' },
+          take: 1,
+          select: { id: true },
+        },
         clubMembers: {
           include: {
             club: true,
@@ -157,6 +162,7 @@ export async function GET(request: NextRequest) {
         upstreamAgent,
         clubUpstreamBindings: upstreamBindingsByPlayer.get(player.id) ?? [],
         clubUpstreamBindingCount: (upstreamBindingsByPlayer.get(player.id) ?? []).length,
+        isApprovedAgent: player.agentApplications.length > 0,
         totalRechargeAmount,
         averageMonthlyRecharge: Math.round(averageMonthlyConsumption * 100) / 100,
         currentClubs,

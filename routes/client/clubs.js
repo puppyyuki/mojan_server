@@ -478,6 +478,80 @@ function applyClubGameSettingsPolicy(clubSettingsRaw, requestedRaw) {
   return normalizeRoomGameSettings(out);
 }
 
+async function validateUpstreamAssignmentJs(prisma, subjectPlayerDbId, upstreamPlayerDbId) {
+  if (!upstreamPlayerDbId) return { ok: true };
+  if (upstreamPlayerDbId === subjectPlayerDbId) {
+    return { ok: false, error: '上層代理不可為本人' };
+  }
+  const upstreamApproved = await prisma.agentApplication.findFirst({
+    where: { playerId: upstreamPlayerDbId, status: 'approved' },
+    select: { id: true },
+  });
+  if (!upstreamApproved) {
+    return { ok: false, error: '上層必須為已核准代理' };
+  }
+  const upstreamExists = await prisma.player.findUnique({
+    where: { id: upstreamPlayerDbId },
+    select: { id: true },
+  });
+  if (!upstreamExists) {
+    return { ok: false, error: '指定的上層玩家不存在' };
+  }
+  return { ok: true };
+}
+
+function agentLevelLabelZh(level) {
+  const map = {
+    super: '總代理',
+    master: '大代理',
+    mid: '中代理',
+    small: '小代理',
+    agent: '代理',
+    vip: '公關代理',
+    normal: '一般代理',
+  };
+  return map[level] || '代理';
+}
+
+function serializeClubInvitationRow(inv) {
+  return {
+    id: inv.id,
+    clubDbId: inv.club.id,
+    clubId: inv.club.clubId,
+    clubName: inv.club.name,
+    clubAvatarUrl: inv.club.avatarUrl ?? null,
+    inviter: {
+      playerId: inv.inviter.id,
+      userId: inv.inviter.userId,
+      nickname: inv.inviter.nickname,
+      avatarUrl: inv.inviter.avatarUrl ?? null,
+    },
+    status: inv.status,
+    createdAt: inv.createdAt,
+  };
+}
+
+async function requireClubOwnerOrCoLeader(prisma, clubInternalId, actorPlayerId) {
+  const club = await prisma.club.findUnique({
+    where: { id: clubInternalId },
+    select: { creatorId: true },
+  });
+  if (!club) {
+    return { ok: false, status: 404, error: '俱樂部不存在' };
+  }
+  if (club.creatorId === actorPlayerId) {
+    return { ok: true, clubCreatorId: club.creatorId };
+  }
+  const actorMember = await prisma.clubMember.findUnique({
+    where: { clubId_playerId: { clubId: clubInternalId, playerId: actorPlayerId } },
+    select: { role: true },
+  });
+  if (actorMember?.role === 'CO_LEADER') {
+    return { ok: true, clubCreatorId: club.creatorId };
+  }
+  return { ok: false, status: 403, error: '沒有權限' };
+}
+
 async function requireClubOwnerOrPermission(prisma, clubInternalId, actorPlayerId, permissionKey) {
   const club = await prisma.club.findUnique({
     where: { id: clubInternalId },
@@ -1181,6 +1255,417 @@ router.post('/:clubId/join-requests/:requestId', async (req, res) => {
   } catch (error) {
     console.error('[Clubs API] 更新加入申請失敗:', error);
     return errorResponse(res, '更新加入申請失敗', error.message, 500);
+  }
+});
+
+/**
+ * POST /api/client/clubs/:clubId/invitations
+ * 管理成員邀請好友（6 位玩家 ID）
+ */
+router.post('/:clubId/invitations', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { clubId } = req.params;
+    const { actorPlayerId, targetUserId } = req.body || {};
+
+    if (!isNonEmptyString(actorPlayerId)) {
+      return errorResponse(res, '請提供操作者ID', null, 400);
+    }
+    const uid = String(targetUserId ?? '').trim();
+    if (!/^\d{6}$/.test(uid)) {
+      return errorResponse(res, '請輸入有效的 6 位玩家 ID', null, 400);
+    }
+
+    const club = await findClub(prisma, clubId);
+    if (!club) {
+      return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    const authz = await requireClubOwnerOrCoLeader(prisma, club.id, actorPlayerId);
+    if (!authz.ok) {
+      return errorResponse(res, authz.error, null, authz.status);
+    }
+
+    const invitee = await prisma.player.findUnique({
+      where: { userId: uid },
+      select: { id: true, userId: true, nickname: true },
+    });
+    if (!invitee) {
+      return errorResponse(res, '玩家不存在', null, 404);
+    }
+    if (invitee.id === actorPlayerId) {
+      return errorResponse(res, '不可邀請自己', null, 400);
+    }
+
+    const existingMember = await prisma.clubMember.findUnique({
+      where: { clubId_playerId: { clubId: club.id, playerId: invitee.id } },
+    });
+    if (existingMember) {
+      return errorResponse(res, '玩家已是俱樂部成員', null, 400);
+    }
+
+    const pendingInvite = await prisma.clubInvitation.findFirst({
+      where: {
+        clubId: club.id,
+        inviteePlayerId: invitee.id,
+        status: 'PENDING',
+      },
+    });
+    if (pendingInvite) {
+      return errorResponse(res, '已有待處理的邀請', null, 400);
+    }
+
+    const invitation = await prisma.clubInvitation.create({
+      data: {
+        clubId: club.id,
+        inviterPlayerId: actorPlayerId,
+        inviteePlayerId: invitee.id,
+        status: 'PENDING',
+      },
+      include: {
+        club: { select: { id: true, clubId: true, name: true, avatarUrl: true } },
+        inviter: {
+          select: { id: true, userId: true, nickname: true, avatarUrl: true },
+        },
+      },
+    });
+
+    return successResponse(res, serializeClubInvitationRow(invitation), '已發送邀請');
+  } catch (error) {
+    console.error('[Clubs API] 發送俱樂部邀請失敗:', error);
+    return errorResponse(res, '發送邀請失敗', error.message, 500);
+  }
+});
+
+/**
+ * POST /api/client/clubs/:clubId/invitations/:invitationId/accept
+ */
+router.post('/:clubId/invitations/:invitationId/accept', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { clubId, invitationId } = req.params;
+    const { playerId } = req.body || {};
+
+    if (!isNonEmptyString(playerId)) {
+      return errorResponse(res, '請提供玩家ID', null, 400);
+    }
+
+    const club = await findClub(prisma, clubId);
+    if (!club) {
+      return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    const invitation = await prisma.clubInvitation.findFirst({
+      where: { id: invitationId, clubId: club.id },
+      include: {
+        inviter: { select: { id: true, userId: true, nickname: true } },
+      },
+    });
+    if (!invitation) {
+      return errorResponse(res, '邀請不存在', null, 404);
+    }
+    if (invitation.inviteePlayerId !== playerId) {
+      return errorResponse(res, '沒有權限', null, 403);
+    }
+    if (invitation.status !== 'PENDING') {
+      return errorResponse(res, '邀請狀態不正確', null, 400);
+    }
+
+    const upstreamCheck = await validateUpstreamAssignmentJs(
+      prisma,
+      playerId,
+      invitation.inviterPlayerId
+    );
+    if (!upstreamCheck.ok) {
+      return errorResponse(res, upstreamCheck.error, null, 400);
+    }
+
+    const joinedClubCount = await getPlayerClubMembershipCount(prisma, playerId);
+    const joinLimit = await getPlayerJoinClubLimit(prisma, playerId);
+    if (joinedClubCount >= joinLimit) {
+      return errorResponse(res, `已達可加入俱樂部上限（${joinLimit}）`, null, 400);
+    }
+
+    await prisma.$transaction(async (tx) => {
+      const existingMember = await tx.clubMember.findUnique({
+        where: { clubId_playerId: { clubId: club.id, playerId } },
+      });
+      if (!existingMember) {
+        await tx.clubMember.create({
+          data: { clubId: club.id, playerId },
+        });
+      }
+
+      await tx.playerClubUpstreamBinding.upsert({
+        where: {
+          playerId_clubId: { playerId, clubId: club.id },
+        },
+        create: {
+          playerId,
+          clubId: club.id,
+          upstreamAgentPlayerId: invitation.inviterPlayerId,
+        },
+        update: {
+          upstreamAgentPlayerId: invitation.inviterPlayerId,
+        },
+      });
+
+      await tx.clubInvitation.update({
+        where: { id: invitation.id },
+        data: { status: 'ACCEPTED' },
+      });
+    });
+
+    await createClubActivity(prisma, club.id, 'MEMBER_JOINED_DIRECT', {
+      actorPlayerId: playerId,
+      targetPlayerId: playerId,
+    });
+
+    return successResponse(res, null, '已加入俱樂部');
+  } catch (error) {
+    console.error('[Clubs API] 接受俱樂部邀請失敗:', error);
+    return errorResponse(res, '接受邀請失敗', error.message, 500);
+  }
+});
+
+/**
+ * POST /api/client/clubs/:clubId/invitations/:invitationId/reject
+ */
+router.post('/:clubId/invitations/:invitationId/reject', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { clubId, invitationId } = req.params;
+    const { playerId } = req.body || {};
+
+    if (!isNonEmptyString(playerId)) {
+      return errorResponse(res, '請提供玩家ID', null, 400);
+    }
+
+    const club = await findClub(prisma, clubId);
+    if (!club) {
+      return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    const invitation = await prisma.clubInvitation.findFirst({
+      where: { id: invitationId, clubId: club.id },
+    });
+    if (!invitation) {
+      return errorResponse(res, '邀請不存在', null, 404);
+    }
+    if (invitation.inviteePlayerId !== playerId) {
+      return errorResponse(res, '沒有權限', null, 403);
+    }
+    if (invitation.status !== 'PENDING') {
+      return errorResponse(res, '邀請狀態不正確', null, 400);
+    }
+
+    await prisma.clubInvitation.update({
+      where: { id: invitation.id },
+      data: { status: 'REJECTED' },
+    });
+
+    return successResponse(res, null, '已拒絕邀請');
+  } catch (error) {
+    console.error('[Clubs API] 拒絕俱樂部邀請失敗:', error);
+    return errorResponse(res, '拒絕邀請失敗', error.message, 500);
+  }
+});
+
+/**
+ * GET /api/client/clubs/:clubId/upstream-agent-candidates
+ * 俱樂部內可選上層代理（關鍵字篩選）
+ */
+router.get('/:clubId/upstream-agent-candidates', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { clubId } = req.params;
+    const playerId = (req.query.playerId || '').toString().trim();
+    const searchRaw = (req.query.search || '').toString().trim().toLowerCase();
+
+    if (!isNonEmptyString(playerId)) {
+      return errorResponse(res, '請提供玩家ID', null, 400);
+    }
+
+    const club = await findClub(prisma, clubId);
+    if (!club) {
+      return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    const member = await prisma.clubMember.findUnique({
+      where: { clubId_playerId: { clubId: club.id, playerId } },
+    });
+    if (!member) {
+      return errorResponse(res, '玩家不是俱樂部成員', null, 403);
+    }
+
+    const bindings = await loadClubAgentBindings(prisma, club.id);
+    const seen = new Set();
+    let candidates = [];
+
+    for (const b of bindings) {
+      if (!b.playerId || b.playerId === playerId || seen.has(b.playerId)) continue;
+      seen.add(b.playerId);
+      candidates.push({
+        playerId: b.player.id,
+        userId: b.player.userId,
+        nickname: b.player.nickname,
+        agentLevel: b.agentLevel,
+        agentLevelLabel: agentLevelLabelZh(b.agentLevel),
+      });
+    }
+
+    if (!seen.has(club.creatorId) && club.creatorId !== playerId) {
+      const creator = await prisma.player.findUnique({
+        where: { id: club.creatorId },
+        select: { id: true, userId: true, nickname: true },
+      });
+      if (creator) {
+        const creatorBinding = bindings.find((b) => b.playerId === club.creatorId);
+        candidates.unshift({
+          playerId: creator.id,
+          userId: creator.userId,
+          nickname: creator.nickname,
+          agentLevel: creatorBinding?.agentLevel ?? 'super',
+          agentLevelLabel: agentLevelLabelZh(creatorBinding?.agentLevel ?? 'super'),
+        });
+      }
+    }
+
+    if (searchRaw) {
+      candidates = candidates.filter((c) => {
+        const n = (c.nickname || '').toLowerCase();
+        const u = (c.userId || '').toLowerCase();
+        const pid = (c.playerId || '').toLowerCase();
+        const lab = (c.agentLevelLabel || '').toLowerCase();
+        return (
+          n.includes(searchRaw) ||
+          u.includes(searchRaw) ||
+          pid.includes(searchRaw) ||
+          lab.includes(searchRaw)
+        );
+      });
+    }
+
+    return successResponse(res, candidates);
+  } catch (error) {
+    console.error('[Clubs API] 查詢上層代理候選失敗:', error);
+    return errorResponse(res, '查詢上層代理候選失敗', error.message, 500);
+  }
+});
+
+/**
+ * GET /api/client/clubs/:clubId/members/upstream-binding-status
+ */
+router.get('/:clubId/members/upstream-binding-status', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { clubId } = req.params;
+    const playerId = (req.query.playerId || '').toString().trim();
+
+    if (!isNonEmptyString(playerId)) {
+      return errorResponse(res, '請提供玩家ID', null, 400);
+    }
+
+    const club = await findClub(prisma, clubId);
+    if (!club) {
+      return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    if (club.creatorId === playerId) {
+      return successResponse(res, { needsSelection: false });
+    }
+
+    const member = await prisma.clubMember.findUnique({
+      where: { clubId_playerId: { clubId: club.id, playerId } },
+    });
+    if (!member) {
+      return successResponse(res, { needsSelection: false });
+    }
+
+    const [upstreamBinding, agentBinding] = await Promise.all([
+      prisma.playerClubUpstreamBinding.findUnique({
+        where: { playerId_clubId: { playerId, clubId: club.id } },
+      }),
+      prisma.agentClubBinding.findUnique({
+        where: { playerId_clubId: { playerId, clubId: club.id } },
+      }),
+    ]);
+
+    const needsSelection = !upstreamBinding && !agentBinding;
+    return successResponse(res, { needsSelection });
+  } catch (error) {
+    console.error('[Clubs API] 查詢上層綁定狀態失敗:', error);
+    return errorResponse(res, '查詢上層綁定狀態失敗', error.message, 500);
+  }
+});
+
+/**
+ * POST /api/client/clubs/:clubId/members/upstream-binding
+ * 玩家自行選擇上層代理
+ */
+router.post('/:clubId/members/upstream-binding', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { clubId } = req.params;
+    const { playerId, upstreamAgentPlayerId } = req.body || {};
+
+    if (!isNonEmptyString(playerId) || !isNonEmptyString(upstreamAgentPlayerId)) {
+      return errorResponse(res, '請提供玩家與上層代理ID', null, 400);
+    }
+
+    const club = await findClub(prisma, clubId);
+    if (!club) {
+      return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    if (club.creatorId === playerId) {
+      return errorResponse(res, '會長不需設定上層代理', null, 400);
+    }
+
+    const member = await prisma.clubMember.findUnique({
+      where: { clubId_playerId: { clubId: club.id, playerId } },
+    });
+    if (!member) {
+      return errorResponse(res, '玩家不是俱樂部成員', null, 404);
+    }
+
+    const agentBinding = await prisma.agentClubBinding.findUnique({
+      where: { playerId_clubId: { playerId, clubId: club.id } },
+    });
+    if (agentBinding) {
+      return errorResponse(res, '代理不需設定玩家上層綁定', null, 400);
+    }
+
+    const upstreamCheck = await validateUpstreamAssignmentJs(
+      prisma,
+      playerId,
+      upstreamAgentPlayerId
+    );
+    if (!upstreamCheck.ok) {
+      return errorResponse(res, upstreamCheck.error, null, 400);
+    }
+
+    const bindings = await loadClubAgentBindings(prisma, club.id);
+    const allowedIds = new Set(bindings.map((b) => b.playerId));
+    allowedIds.add(club.creatorId);
+    if (!allowedIds.has(upstreamAgentPlayerId)) {
+      return errorResponse(res, '所選上層代理不在此俱樂部', null, 400);
+    }
+
+    await prisma.playerClubUpstreamBinding.upsert({
+      where: { playerId_clubId: { playerId, clubId: club.id } },
+      create: {
+        playerId,
+        clubId: club.id,
+        upstreamAgentPlayerId,
+      },
+      update: { upstreamAgentPlayerId },
+    });
+
+    return successResponse(res, null, '上層代理設定成功');
+  } catch (error) {
+    console.error('[Clubs API] 設定上層代理失敗:', error);
+    return errorResponse(res, '設定上層代理失敗', error.message, 500);
   }
 });
 
@@ -2245,6 +2730,10 @@ router.post('/:clubId/members/promote-agent', async (req, res) => {
           role: 'CO_LEADER',
           coLeaderPermissions: perms,
         },
+      });
+
+      await tx.playerClubUpstreamBinding.deleteMany({
+        where: { playerId: targetPlayerId, clubId: club.id },
       });
     });
 

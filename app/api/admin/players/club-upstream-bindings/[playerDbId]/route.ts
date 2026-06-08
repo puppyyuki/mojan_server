@@ -31,11 +31,24 @@ export async function GET(
   try {
     const { playerDbId } = await params
 
-    const bindings = await prisma.playerClubUpstreamBinding.findMany({
-      where: { playerId: playerDbId },
-      include: bindingInclude,
-      orderBy: { createdAt: 'asc' },
-    })
+    const [bindings, agentClubBindings, approvedAgentApp] = await Promise.all([
+      prisma.playerClubUpstreamBinding.findMany({
+        where: { playerId: playerDbId },
+        include: bindingInclude,
+        orderBy: { createdAt: 'asc' },
+      }),
+      prisma.agentClubBinding.findMany({
+        where: { playerId: playerDbId },
+        select: { clubId: true },
+      }),
+      prisma.agentApplication.findFirst({
+        where: { playerId: playerDbId, status: 'approved' },
+        select: { id: true },
+      }),
+    ])
+
+    const agentClubIds = new Set(agentClubBindings.map((b) => b.clubId))
+    const filteredBindings = bindings.filter((b) => !agentClubIds.has(b.clubId))
 
     const player = await prisma.player.findUnique({
       where: { id: playerDbId },
@@ -57,8 +70,9 @@ export async function GET(
     return NextResponse.json(
       {
         success: true,
-        data: bindings.map(serializePlayerClubUpstreamBinding),
+        data: filteredBindings.map(serializePlayerClubUpstreamBinding),
         legacyUpstreamAgent,
+        isApprovedAgent: Boolean(approvedAgentApp),
       },
       { headers: corsHeaders() }
     )
