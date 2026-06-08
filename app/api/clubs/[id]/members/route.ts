@@ -267,13 +267,23 @@ export async function DELETE(
       )
     }
 
-    await prisma.clubMember.delete({
-      where: {
-        clubId_playerId: {
-          clubId: id,
-          playerId: playerId,
+    const leavingPlayerId = playerId.toString()
+
+    await prisma.$transaction(async (tx) => {
+      await tx.playerClubUpstreamBinding.deleteMany({
+        where: { playerId: leavingPlayerId, clubId: id },
+      })
+      await tx.agentClubBinding.deleteMany({
+        where: { playerId: leavingPlayerId, clubId: id },
+      })
+      await tx.clubMember.delete({
+        where: {
+          clubId_playerId: {
+            clubId: id,
+            playerId: leavingPlayerId,
+          },
         },
-      },
+      })
     })
 
     const [actor, target] = await Promise.all([

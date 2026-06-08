@@ -2976,19 +2976,29 @@ router.delete('/:clubId/members', async (req, res) => {
       return errorResponse(res, '玩家不是俱樂部成員', null, 404);
     }
 
-    // 刪除成員
-    await prisma.clubMember.delete({
-      where: {
-        clubId_playerId: {
-          clubId: club.id,
-          playerId: playerId,
+    const leavingPlayerId = playerId.toString();
+
+    // 刪除成員，並清除該俱樂部的玩家上層綁定與代理綁定（後台玩家／代理管理）
+    await prisma.$transaction(async (tx) => {
+      await tx.playerClubUpstreamBinding.deleteMany({
+        where: { playerId: leavingPlayerId, clubId: club.id },
+      });
+      await tx.agentClubBinding.deleteMany({
+        where: { playerId: leavingPlayerId, clubId: club.id },
+      });
+      await tx.clubMember.delete({
+        where: {
+          clubId_playerId: {
+            clubId: club.id,
+            playerId: leavingPlayerId,
+          },
         },
-      },
+      });
     });
 
     await createClubActivity(prisma, club.id, isKick ? 'MEMBER_KICKED' : 'MEMBER_LEFT', {
-      actorPlayerId: (actorId ?? playerId.toString()),
-      targetPlayerId: playerId.toString(),
+      actorPlayerId: (actorId ?? leavingPlayerId),
+      targetPlayerId: leavingPlayerId,
     });
 
     return successResponse(res, null, '退出俱樂部成功');

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { X, Save, Plus, Pencil, Trash2 } from 'lucide-react'
-import { apiGet, apiPatch } from '@/lib/api-client'
+import { apiDelete, apiGet, apiPatch } from '@/lib/api-client'
 import { requestAdminOpCode, withAdminOpCodeHeader } from '@/lib/admin-op-code-client'
 import PlayerAvatarField, {
   resolveAvatarUrlForSave,
@@ -107,10 +107,9 @@ export default function EditUserModal({
     if (!opCode) return
 
     try {
-      const res = await fetch(
+      const res = await apiDelete(
         `/api/admin/players/club-upstream-bindings/${player.id}/${binding.id}`,
         {
-          method: 'DELETE',
           headers: withAdminOpCodeHeader(opCode),
         }
       )

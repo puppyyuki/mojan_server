@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { X, Save, Plus, Pencil, Trash2 } from 'lucide-react'
-import { apiGet, apiPatch } from '@/lib/api-client'
+import { apiDelete, apiGet, apiPatch } from '@/lib/api-client'
 import { requestAdminOpCode, withAdminOpCodeHeader } from '@/lib/admin-op-code-client'
 import AddAgentClubBindingModal, {
   type AgentClubBindingRow,
@@ -112,10 +112,9 @@ export default function EditAgentModal({
     if (!opCode) return
 
     try {
-      const res = await fetch(
+      const res = await apiDelete(
         `/api/admin/agents/club-bindings/${agent.playerDbId}/${binding.id}`,
         {
-          method: 'DELETE',
           headers: withAdminOpCodeHeader(opCode),
         }
       )
