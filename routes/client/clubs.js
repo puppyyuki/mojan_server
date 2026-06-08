@@ -2007,7 +2007,8 @@ router.get('/:clubId/agent-member-list', async (req, res) => {
       prisma,
       club,
       { startAt: hasDateFilter ? startDate : null, endAt: hasDateFilter ? endDate : null },
-      bindings
+      bindings,
+      upstreamBindings
     );
     for (const row of rows) {
       row.selfDrawRake = displayMap.get(row.playerId) ?? 0;

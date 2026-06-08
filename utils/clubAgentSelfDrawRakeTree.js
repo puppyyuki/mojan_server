@@ -1,6 +1,11 @@
 /**
- * 俱樂部代理樹自摸抽顯示值（可變每層上繳 %）。
- * 參考 pos_system groupListAgentCalculations，改為每層 agentPercentage 可獨立設定。
+ * 俱樂部成員列表「自摸抽」顯示值。
+ *
+ * 規則：
+ * 1. 一般玩家（非代理）自摸贏分 × 後台俱樂部 selfDrawRakePercent = 基準值 A（固定上繳池）。
+ * 2. 代理自身打牌不再產生 A。
+ * 3. 上層在「代理設置」為直屬下線設定的 agentPercentage，表示上層從該分支 A 中保留的比例（皆對原始 A 計算）。
+ * 4. 同一分支由上往下各層保留比例加總 + 最底層代理拿走剩餘 = 100% × A。
  */
 
 const { sumSelfDrawRakeMoneyByPlayerId } = require('./clubSelfDrawRakeMoney');
@@ -9,92 +14,108 @@ function roundMoney(v) {
   return Math.round((Number(v) || 0) * 100) / 100;
 }
 
-/**
- * 取得玩家上繳給上層的比例（0–100）。
- * - 無 binding：底層玩家，用 club.selfDrawRakePercent
- * - 有 binding：用上層「代理設置」寫入該玩家 binding 的 agentPercentage
- */
-function resolveSubmitPercent(playerId, bindingByPlayer, clubSelfDrawPercent) {
-  const binding = bindingByPlayer.get(playerId);
-  if (!binding) {
-    return Number(clubSelfDrawPercent) || 0;
-  }
-  if (!binding.upstreamAgentPlayerId) {
-    return 0;
-  }
-  const pct = Number(binding.agentPercentage);
-  if (Number.isFinite(pct) && pct >= 0) {
-    return pct;
-  }
-  return Number(clubSelfDrawPercent) || 0;
+function clampPercent(p) {
+  const n = Number(p);
+  if (!Number.isFinite(n)) return 0;
+  return Math.min(100, Math.max(0, n));
 }
 
 /**
- * 後序 DP：計算每個節點的顯示自摸抽（個人留存 + 下線代理抽成）。
- *
- * @param {Map<string, number>} rawWinByPlayer - playerId -> 區間自摸正分總額（未扣層級）
- * @param {Array} bindings - AgentClubBinding rows
- * @param {number} clubSelfDrawPercent
- * @returns {Map<string, number>} playerId -> displaySelfDrawRake
+ * @param {Map<string, object>} bindingByPlayer
+ * @param {Map<string, string>} upstreamBindingsByPlayer - PlayerClubUpstreamBinding
  */
-function computeDisplaySelfDrawRakeByPlayer(rawWinByPlayer, bindings, clubSelfDrawPercent) {
-  const bindingByPlayer = new Map();
-  const childrenMap = new Map();
+function resolveFirstUpstream(playerId, bindingByPlayer, upstreamBindingsByPlayer) {
+  const fromPlayerBinding = upstreamBindingsByPlayer.get(playerId);
+  if (fromPlayerBinding) return fromPlayerBinding;
 
-  for (const b of bindings) {
-    bindingByPlayer.set(b.playerId, b);
-    const up = b.upstreamAgentPlayerId;
-    if (up) {
-      if (!childrenMap.has(up)) childrenMap.set(up, []);
-      childrenMap.get(up).push(b.playerId);
+  const selfBinding = bindingByPlayer.get(playerId);
+  return selfBinding?.upstreamAgentPlayerId ?? null;
+}
+
+/**
+ * 自玩家向上收集代理鏈（不含玩家），順序為 [最靠近玩家的代理, …, 最上層代理]。
+ */
+function buildAgentPathFromPlayer(playerId, bindingByPlayer, upstreamBindingsByPlayer) {
+  const path = [];
+  const visited = new Set();
+  let current = resolveFirstUpstream(playerId, bindingByPlayer, upstreamBindingsByPlayer);
+
+  while (current && !visited.has(current)) {
+    visited.add(current);
+    if (bindingByPlayer.has(current)) {
+      path.push(current);
     }
+    const b = bindingByPlayer.get(current);
+    current = b?.upstreamAgentPlayerId ?? null;
   }
 
-  const allPlayerIds = new Set([...rawWinByPlayer.keys()]);
-  for (const b of bindings) allPlayerIds.add(b.playerId);
+  return path;
+}
+
+/**
+ * @param {Map<string, number>} aByPlayer - playerId -> 基準值 A（已含後台自摸抽%）
+ * @param {Array} bindings - AgentClubBinding rows
+ * @param {Array<{ playerId: string, upstreamAgentPlayerId: string }>} [upstreamBindings]
+ * @returns {Map<string, number>}
+ */
+function computeDisplaySelfDrawRakeByPlayer(aByPlayer, bindings, upstreamBindings = []) {
+  const bindingByPlayer = new Map(bindings.map((b) => [b.playerId, b]));
+  const upstreamBindingsByPlayer = new Map(
+    upstreamBindings.map((u) => [u.playerId, u.upstreamAgentPlayerId])
+  );
 
   const displayMap = new Map();
-  const superiorFlowMap = new Map();
-
-  function dp(playerId) {
-    if (superiorFlowMap.has(playerId)) {
-      return superiorFlowMap.get(playerId);
-    }
-
-    const rawWin = rawWinByPlayer.get(playerId) || 0;
-    const submitPct = resolveSubmitPercent(playerId, bindingByPlayer, clubSelfDrawPercent);
-    const submitRate = Math.min(100, Math.max(0, submitPct)) / 100;
-    const ownSubmit = rawWin * submitRate;
-    const personalKeep = rawWin - ownSubmit;
-
-    const children = childrenMap.get(playerId) || [];
-    let childSuperiorSum = 0;
-    for (const childId of children) {
-      childSuperiorSum += dp(childId);
-    }
-
-    const keepShare = 1 - submitRate;
-    const downlineCommission = childSuperiorSum * keepShare;
-    const displayValue = roundMoney(personalKeep + downlineCommission);
-
-    const flowToUpstream = ownSubmit + childSuperiorSum * submitRate;
-    superiorFlowMap.set(playerId, flowToUpstream);
-    displayMap.set(playerId, displayValue);
-    return flowToUpstream;
+  for (const b of bindings) {
+    displayMap.set(b.playerId, 0);
   }
 
-  for (const pid of allPlayerIds) {
-    if (!superiorFlowMap.has(pid)) {
-      dp(pid);
+  const isAgent = (pid) => bindingByPlayer.has(pid);
+
+  for (const [playerId, aRaw] of aByPlayer.entries()) {
+    const a = Number(aRaw) || 0;
+    if (a <= 0) continue;
+    if (isAgent(playerId)) continue;
+
+    displayMap.set(playerId, roundMoney((displayMap.get(playerId) || 0) + a));
+
+    const path = buildAgentPathFromPlayer(
+      playerId,
+      bindingByPlayer,
+      upstreamBindingsByPlayer
+    );
+    if (path.length === 0) continue;
+
+    let parentKeepSumRate = 0;
+    for (const agentId of path) {
+      const binding = bindingByPlayer.get(agentId);
+      const pct = clampPercent(binding?.agentPercentage);
+      const rate = pct / 100;
+      parentKeepSumRate += rate;
+
+      const parentId = binding?.upstreamAgentPlayerId;
+      if (parentId) {
+        const add = roundMoney(a * rate);
+        displayMap.set(parentId, roundMoney((displayMap.get(parentId) || 0) + add));
+      }
     }
+
+    const leafAgentId = path[0];
+    const leafRate = Math.max(0, 1 - parentKeepSumRate);
+    const leafAdd = roundMoney(a * leafRate);
+    displayMap.set(
+      leafAgentId,
+      roundMoney((displayMap.get(leafAgentId) || 0) + leafAdd)
+    );
   }
 
-  for (const pid of allPlayerIds) {
+  for (const [pid, aRaw] of aByPlayer.entries()) {
     if (!displayMap.has(pid)) {
-      const rawWin = rawWinByPlayer.get(pid) || 0;
-      const submitPct = resolveSubmitPercent(pid, bindingByPlayer, clubSelfDrawPercent);
-      const submitRate = Math.min(100, Math.max(0, submitPct)) / 100;
-      displayMap.set(pid, roundMoney(rawWin * (1 - submitRate)));
+      const a = Number(aRaw) || 0;
+      if (a > 0 && !isAgent(pid)) {
+        displayMap.set(pid, roundMoney(a));
+      } else {
+        displayMap.set(pid, 0);
+      }
     }
   }
 
@@ -106,30 +127,29 @@ function computeDisplaySelfDrawRakeByPlayer(rawWinByPlayer, bindings, clubSelfDr
  * @param {{ id: string, selfDrawRakePercent?: number|null }} club
  * @param {{ startAt: Date|null, endAt: Date|null }} range
  * @param {Array} bindings
+ * @param {Array} [upstreamBindings]
  */
-async function buildSelfDrawDisplayMap(prisma, club, range, bindings) {
-  const rakeRate = (Number(club.selfDrawRakePercent) || 8) / 100;
+async function buildSelfDrawDisplayMap(
+  prisma,
+  club,
+  range,
+  bindings,
+  upstreamBindings = []
+) {
   const rakeByPlayer = await sumSelfDrawRakeMoneyByPlayerId(prisma, club, range);
 
-  const rawWinByPlayer = new Map();
+  const aByPlayer = new Map();
   for (const [pid, rake] of rakeByPlayer.entries()) {
-    if (rakeRate > 0) {
-      rawWinByPlayer.set(pid, rake / rakeRate);
-    } else {
-      rawWinByPlayer.set(pid, 0);
-    }
+    aByPlayer.set(pid, rake);
   }
 
-  return computeDisplaySelfDrawRakeByPlayer(
-    rawWinByPlayer,
-    bindings,
-    club.selfDrawRakePercent ?? 8
-  );
+  return computeDisplaySelfDrawRakeByPlayer(aByPlayer, bindings, upstreamBindings);
 }
 
 module.exports = {
   roundMoney,
-  resolveSubmitPercent,
+  clampPercent,
+  buildAgentPathFromPlayer,
   computeDisplaySelfDrawRakeByPlayer,
   buildSelfDrawDisplayMap,
 };
