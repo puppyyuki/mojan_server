@@ -11,6 +11,11 @@ function selfDrawRakeDecimalFromPercent(p) {
   return clamped / 100;
 }
 
+function clubSelfDrawRakePercentNumber(p) {
+  if (p == null || !Number.isFinite(Number(p))) return DEFAULT_SELF_DRAW_RAKE_PERCENT;
+  return Math.min(100, Math.max(0, Number(p)));
+}
+
 /** 該局該座位分數變化（與 rooms normalizeScoresBySeat / admin club-summary 一致） */
 function seatScoreDelta(scoreChangeBySeat, seat) {
   if (!scoreChangeBySeat || typeof scoreChangeBySeat !== 'object' || Array.isArray(scoreChangeBySeat)) {
@@ -41,69 +46,84 @@ function selfDrawWinnerSeatFromRoundEndPayload(raw) {
   return null;
 }
 
-/**
- * @param {import('@prisma/client').PrismaClient} prisma
- * @param {{ id: string, selfDrawRakePercent?: number | null }} club
- * @param {{ startAt: Date | null | undefined, endAt: Date | null | undefined }} range  —
- *   皆為 null/undefined 時不限制 session.endedAt（全期間）
- * @returns {Promise<Map<string, number>>} playerId -> 累計自摸抽（未四捨五入）
- */
-async function sumSelfDrawRakeMoneyByPlayerId(prisma, club, range) {
-  const selfDrawRakeRate = selfDrawRakeDecimalFromPercent(club.selfDrawRakePercent);
-
-  const where = {
-    clubId: club.id,
-    status: { in: ['FINISHED', 'DISBANDED'] },
+function buildRoundWhereForClub(clubInternalId, range) {
+  const roundWhere = {
+    session: {
+      clubId: clubInternalId,
+      status: { in: ['FINISHED', 'DISBANDED'] },
+    },
   };
   const startAt = range?.startAt ?? null;
   const endAt = range?.endAt ?? null;
   if (startAt || endAt) {
-    where.endedAt = {};
-    if (startAt) where.endedAt.gte = startAt;
-    if (endAt) where.endedAt.lte = endAt;
+    roundWhere.endedAt = {};
+    if (startAt) roundWhere.endedAt.gte = startAt;
+    if (endAt) roundWhere.endedAt.lte = endAt;
   }
+  return roundWhere;
+}
 
-  const settledSessions = await prisma.v2MatchSession.findMany({
-    where,
+/**
+ * 依小局 endedAt 區間聚合（與排行榜日期篩選一致）。
+ * @returns {{ winByPlayer: Map<string, number>, poolByPlayer: Map<string, number>, rakePercent: number }}
+ *   winByPlayer = 自摸正分加總；poolByPlayer = A = win × 俱樂部自摸抽%
+ */
+async function aggregateSelfDrawStatsByPlayerId(prisma, club, range) {
+  const rakePercent = clubSelfDrawRakePercentNumber(club.selfDrawRakePercent);
+  const selfDrawRakeRate = rakePercent / 100;
+
+  const clubRounds = await prisma.v2MatchRound.findMany({
+    where: buildRoundWhereForClub(club.id, range),
     select: {
-      participants: {
+      roundEndPayload: true,
+      scoreChangeBySeat: true,
+      session: {
         select: {
-          playerId: true,
-          seat: true,
-        },
-      },
-      rounds: {
-        select: {
-          roundEndPayload: true,
-          scoreChangeBySeat: true,
+          participants: {
+            select: { playerId: true, seat: true },
+          },
         },
       },
     },
   });
 
-  const totals = new Map();
-  for (const sess of settledSessions) {
+  const winByPlayer = new Map();
+  const poolByPlayer = new Map();
+
+  for (const round of clubRounds) {
+    const winnerSeat = selfDrawWinnerSeatFromRoundEndPayload(round.roundEndPayload);
+    if (winnerSeat == null) continue;
+
+    const participants = round.session?.participants ?? [];
     const seatToParticipant = new Map(
-      (sess.participants ?? []).map((p) => [p.seat, { playerId: p.playerId }])
+      participants.map((p) => [p.seat, { playerId: p.playerId }])
     );
-    for (const round of sess.rounds ?? []) {
-      const winnerSeat = selfDrawWinnerSeatFromRoundEndPayload(round.roundEndPayload);
-      if (winnerSeat == null) continue;
-      const winner = seatToParticipant.get(winnerSeat);
-      if (!winner?.playerId) continue;
+    const winner = seatToParticipant.get(winnerSeat);
+    if (!winner?.playerId) continue;
 
-      const winDelta = seatScoreDelta(round.scoreChangeBySeat, winnerSeat);
-      const winForRake = winDelta > 0 ? winDelta : 0;
-      const rakeThisRound = winForRake * selfDrawRakeRate;
+    const winDelta = seatScoreDelta(round.scoreChangeBySeat, winnerSeat);
+    const winForRake = winDelta > 0 ? winDelta : 0;
+    if (winForRake <= 0) continue;
 
-      const pid = winner.playerId;
-      totals.set(pid, (totals.get(pid) || 0) + rakeThisRound);
-    }
+    const pid = winner.playerId;
+    winByPlayer.set(pid, (winByPlayer.get(pid) || 0) + winForRake);
+    poolByPlayer.set(pid, (poolByPlayer.get(pid) || 0) + winForRake * selfDrawRakeRate);
   }
 
-  return totals;
+  return { winByPlayer, poolByPlayer, rakePercent };
+}
+
+/**
+ * @returns {Promise<Map<string, number>>} playerId -> 累計自摸抽池 A（未四捨五入）
+ */
+async function sumSelfDrawRakeMoneyByPlayerId(prisma, club, range) {
+  const { poolByPlayer } = await aggregateSelfDrawStatsByPlayerId(prisma, club, range);
+  return poolByPlayer;
 }
 
 module.exports = {
   sumSelfDrawRakeMoneyByPlayerId,
+  aggregateSelfDrawStatsByPlayerId,
+  selfDrawRakeDecimalFromPercent,
+  clubSelfDrawRakePercentNumber,
 };
