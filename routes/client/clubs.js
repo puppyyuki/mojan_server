@@ -8,6 +8,18 @@ const {
 const { isV2RoundCompletedForStatistics } = require('../../utils/v2RoundStatistics');
 const { participantsWithReconciledScores } = require('../../utils/v2MatchScoreReconcile');
 const { sumSelfDrawRakeMoneyByPlayerId } = require('../../utils/clubSelfDrawRakeMoney');
+const { buildSelfDrawDisplayMap } = require('../../utils/clubAgentSelfDrawRakeTree');
+const {
+  getAssignableAgentLevels,
+  isValidPromotableLevel,
+  resolveUpstreamLevel,
+  resolveVisiblePlayerIds,
+  isDirectUpstream,
+  DEFAULT_CO_LEADER_PERMISSIONS,
+  ensureCreatorSuperBinding,
+  loadClubAgentBindings,
+  loadPlayerClubUpstreamBindings,
+} = require('../../utils/clubAgentHierarchy');
 const { listClubRooms } = require('../../lib/clubRoomsList');
 const {
   broadcastClubRoomChange,
@@ -621,8 +633,11 @@ router.post('/', async (req, res) => {
       data: {
         clubId: club.id,
         playerId: creatorId,
+        role: 'OWNER',
       },
     });
+
+    await ensureCreatorSuperBinding(prisma, club.id, creatorId);
 
     // 重新獲取包含成員的俱樂部
     const clubWithMembers = await prisma.club.findUnique({
@@ -1803,7 +1818,7 @@ router.get('/players/:playerId/clubs', async (req, res) => {
 /**
  * GET /api/client/clubs/:clubId/members
  * 獲取俱樂部成員列表（分頁）
- * Query: page, pageSize, search（暱稱 / userId / playerId 子字串）
+ * Query: page, pageSize, search, actorPlayerId（可選，限制為自身+樹狀下線）
  */
 router.get('/:clubId/members', async (req, res) => {
   try {
@@ -1821,6 +1836,7 @@ router.get('/:clubId/members', async (req, res) => {
       maxPageSize: 100,
     });
     const searchRaw = (req.query.search || '').toString().trim();
+    const actorPlayerId = (req.query.actorPlayerId || '').toString().trim();
 
     const memberWhere = { clubId: club.id };
     if (searchRaw) {
@@ -1831,31 +1847,478 @@ router.get('/:clubId/members', async (req, res) => {
       ];
     }
 
-    const [total, members] = await Promise.all([
-      prisma.clubMember.count({ where: memberWhere }),
-      prisma.clubMember.findMany({
-        where: memberWhere,
-        include: {
-          player: {
-            select: {
-              id: true,
-              userId: true,
-              nickname: true,
-              cardCount: true,
-              avatarUrl: true,
-            },
+    let allMembers = await prisma.clubMember.findMany({
+      where: memberWhere,
+      include: {
+        player: {
+          select: {
+            id: true,
+            userId: true,
+            nickname: true,
+            cardCount: true,
+            avatarUrl: true,
           },
         },
-        orderBy: { joinedAt: 'desc' },
-        skip,
-        take: pageSize,
-      }),
-    ]);
+      },
+      orderBy: { joinedAt: 'desc' },
+    });
+
+    if (actorPlayerId) {
+      const [bindings, upstreamBindings] = await Promise.all([
+        loadClubAgentBindings(prisma, club.id),
+        loadPlayerClubUpstreamBindings(prisma, club.id),
+      ]);
+      const vis = resolveVisiblePlayerIds(
+        actorPlayerId,
+        club.creatorId,
+        bindings,
+        upstreamBindings
+      );
+      if (!vis.isOwner && vis.visibleIds) {
+        allMembers = allMembers.filter((m) => vis.visibleIds.has(m.playerId));
+      }
+    }
+
+    const total = allMembers.length;
+    const members = allMembers.slice(skip, skip + pageSize);
 
     return successResponse(res, pagedPayload(members, { total, page, pageSize }));
   } catch (error) {
     console.error('[Clubs API] 獲取成員列表失敗:', error);
     return errorResponse(res, '獲取成員列表失敗', null, 500);
+  }
+});
+
+/**
+ * GET /api/client/clubs/:clubId/agent-member-list
+ * 代理樹成員列表（自摸抽、耗卡量、上層代理等）
+ * Query: actorPlayerId, startDate, endDate, search, page, pageSize
+ */
+router.get('/:clubId/agent-member-list', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { clubId } = req.params;
+
+    const club = await findClub(prisma, clubId);
+    if (!club) {
+      return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    const actorPlayerId = (req.query.actorPlayerId || '').toString().trim();
+    if (!actorPlayerId) {
+      return errorResponse(res, '請提供操作者ID', null, 400);
+    }
+
+    const actorMember = await prisma.clubMember.findUnique({
+      where: { clubId_playerId: { clubId: club.id, playerId: actorPlayerId } },
+    });
+    if (!actorMember) {
+      return errorResponse(res, '操作者不是俱樂部成員', null, 403);
+    }
+
+    const startDateRaw = req.query.startDate?.toString?.() ?? '';
+    const endDateRaw = req.query.endDate?.toString?.() ?? '';
+    const hasDateFilter = !!(startDateRaw || endDateRaw);
+    const startDate = parseRankingQueryDate(startDateRaw, false);
+    const endDate = parseRankingQueryDate(endDateRaw, true);
+    if ((startDateRaw && !startDate) || (endDateRaw && !endDate)) {
+      return errorResponse(res, '日期格式錯誤，請使用 YYYY-MM-DD', null, 400);
+    }
+    if (startDate && endDate && startDate > endDate) {
+      return errorResponse(res, '開始日期不可晚於結束日期', null, 400);
+    }
+
+    const searchRaw = (req.query.search || '').toString().trim();
+    const { page, pageSize, skip } = parsePageQuery(req, {
+      defaultPageSize: 50,
+      maxPageSize: 100,
+    });
+
+    const [bindings, upstreamBindings] = await Promise.all([
+      loadClubAgentBindings(prisma, club.id),
+      loadPlayerClubUpstreamBindings(prisma, club.id),
+    ]);
+    const vis = resolveVisiblePlayerIds(
+      actorPlayerId,
+      club.creatorId,
+      bindings,
+      upstreamBindings
+    );
+
+    const members = await prisma.clubMember.findMany({
+      where: { clubId: club.id },
+      include: {
+        player: {
+          select: { id: true, userId: true, nickname: true, avatarUrl: true },
+        },
+      },
+    });
+
+    const bindingByPlayer = new Map(bindings.map((b) => [b.playerId, b]));
+
+    let rows = members.map((m) => {
+      const binding = bindingByPlayer.get(m.playerId);
+      const upstream = binding?.upstreamAgent ?? null;
+      return {
+        playerId: m.playerId,
+        userId: m.player?.userId ?? null,
+        nickname: m.player?.nickname ?? '',
+        scoreLimit: m.scoreLimit,
+        roomCardConsumed: m.roomCardConsumed ?? 0,
+        agentLevel: binding?.agentLevel ?? null,
+        upstreamAgent: upstream
+          ? {
+              playerId: upstream.id,
+              userId: upstream.userId,
+              nickname: upstream.nickname,
+            }
+          : null,
+        selfDrawRake: 0,
+      };
+    });
+
+    if (hasDateFilter) {
+      for (const row of rows) {
+        row.roomCardConsumed = 0;
+      }
+      const where = { clubId: club.id };
+      if (startDate || endDate) {
+        where.endedAt = {};
+        if (startDate) where.endedAt.gte = startDate;
+        if (endDate) where.endedAt.lte = endDate;
+      }
+      const gameResults = await prisma.clubGameResult.findMany({
+        where,
+        select: { players: true },
+      });
+      const rowByPid = new Map(rows.map((r) => [r.playerId, r]));
+      for (const game of gameResults) {
+        const players = Array.isArray(game.players) ? game.players : [];
+        for (const p of players) {
+          const pid = p?.playerId?.toString?.() ?? '';
+          if (!pid || !rowByPid.has(pid)) continue;
+          const row = rowByPid.get(pid);
+          row.roomCardConsumed += Number(p?.roomCardConsumed ?? 0) || 0;
+        }
+      }
+    }
+
+    const displayMap = await buildSelfDrawDisplayMap(
+      prisma,
+      club,
+      { startAt: hasDateFilter ? startDate : null, endAt: hasDateFilter ? endDate : null },
+      bindings
+    );
+    for (const row of rows) {
+      row.selfDrawRake = displayMap.get(row.playerId) ?? 0;
+    }
+
+    if (!vis.isOwner && vis.visibleIds) {
+      rows = rows.filter((r) => vis.visibleIds.has(r.playerId));
+    }
+
+    if (searchRaw) {
+      const q = searchRaw.toLowerCase();
+      rows = rows.filter((r) => {
+        const uid = String(r.userId ?? '').toLowerCase();
+        const nick = String(r.nickname ?? '').toLowerCase();
+        const pid = String(r.playerId ?? '').toLowerCase();
+        return uid.includes(q) || nick.includes(q) || pid.includes(q);
+      });
+    }
+
+    const total = rows.length;
+    const pageItems = rows.slice(skip, skip + pageSize);
+    return successResponse(res, pagedPayload(pageItems, { total, page, pageSize }));
+  } catch (error) {
+    console.error('[Clubs API] 獲取代理成員列表失敗:', error);
+    return errorResponse(res, '獲取代理成員列表失敗', error.message, 500);
+  }
+});
+
+/**
+ * GET /api/client/clubs/:clubId/members/assignable-agent-levels
+ * 查詢目標成員可被授予的代理層級（會長用）
+ */
+router.get('/:clubId/members/assignable-agent-levels', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { clubId } = req.params;
+    const targetPlayerId = (req.query.targetPlayerId || '').toString().trim();
+    const actorPlayerId = (req.query.actorPlayerId || '').toString().trim();
+
+    if (!targetPlayerId || !actorPlayerId) {
+      return errorResponse(res, '請提供目標玩家與操作者ID', null, 400);
+    }
+
+    const club = await findClub(prisma, clubId);
+    if (!club) {
+      return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+    if (club.creatorId !== actorPlayerId) {
+      return errorResponse(res, '沒有權限', null, 403);
+    }
+
+    const upstreamLevel = await resolveUpstreamLevel(prisma, club.id, targetPlayerId);
+    const levels = getAssignableAgentLevels(upstreamLevel);
+
+    return successResponse(res, {
+      upstreamLevel,
+      assignableLevels: levels,
+    });
+  } catch (error) {
+    console.error('[Clubs API] 查詢可任命層級失敗:', error);
+    return errorResponse(res, '查詢可任命層級失敗', error.message, 500);
+  }
+});
+
+/**
+ * POST /api/client/clubs/:clubId/members/promote-agent
+ * 任命代理副會長：自動核准 AgentApplication + AgentClubBinding + CO_LEADER
+ */
+router.post('/:clubId/members/promote-agent', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { clubId } = req.params;
+    const {
+      targetPlayerId,
+      actorPlayerId,
+      agentLevel,
+      permissions,
+      upstreamAgentPlayerId,
+      agentPercentage,
+      agentRoomCardFee,
+      demote,
+    } = req.body || {};
+
+    if (!targetPlayerId || !actorPlayerId) {
+      return errorResponse(res, '請提供目標玩家與操作者ID', null, 400);
+    }
+
+    const club = await findClub(prisma, clubId);
+    if (!club) {
+      return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+    if (club.creatorId !== actorPlayerId) {
+      return errorResponse(res, '沒有權限', null, 403);
+    }
+    if (club.creatorId === targetPlayerId) {
+      return errorResponse(res, '不可修改擁有者設定', null, 400);
+    }
+
+    const member = await prisma.clubMember.findUnique({
+      where: { clubId_playerId: { clubId: club.id, playerId: targetPlayerId } },
+      include: { player: { select: { id: true, nickname: true, userId: true } } },
+    });
+    if (!member) {
+      return errorResponse(res, '玩家不是俱樂部成員', null, 404);
+    }
+
+    if (demote === true) {
+      await prisma.agentClubBinding.deleteMany({
+        where: { clubId: club.id, playerId: targetPlayerId },
+      });
+      const updated = await prisma.clubMember.update({
+        where: { clubId_playerId: { clubId: club.id, playerId: targetPlayerId } },
+        data: { role: 'MEMBER', coLeaderPermissions: null },
+      });
+      return successResponse(res, updated, '已撤銷副會長');
+    }
+
+    const level = String(agentLevel ?? '').trim().toLowerCase();
+    if (!isValidPromotableLevel(level)) {
+      return errorResponse(res, '無效的代理層級', null, 400);
+    }
+
+    const upstreamLevel = await resolveUpstreamLevel(prisma, club.id, targetPlayerId);
+    const allowed = getAssignableAgentLevels(upstreamLevel);
+    if (!allowed.includes(level)) {
+      return errorResponse(res, '依上層代理層級，無法授予此代理身分', null, 400);
+    }
+
+    let resolvedUpstream = upstreamAgentPlayerId ?? null;
+    if (!resolvedUpstream) {
+      const upBinding = await prisma.playerClubUpstreamBinding.findUnique({
+        where: {
+          playerId_clubId: { playerId: targetPlayerId, clubId: club.id },
+        },
+      });
+      resolvedUpstream = upBinding?.upstreamAgentPlayerId ?? club.creatorId;
+    }
+
+    const pct = agentPercentage !== undefined && agentPercentage !== null
+      ? Math.max(0, Number(agentPercentage) || 0)
+      : 2;
+    const fee = agentRoomCardFee !== undefined && agentRoomCardFee !== null
+      ? Math.max(0, Number(agentRoomCardFee) || 0)
+      : 2;
+
+    const perms = normalizeBoolPermissions(permissions) ?? DEFAULT_CO_LEADER_PERMISSIONS;
+
+    await prisma.$transaction(async (tx) => {
+      const existingApp = await tx.agentApplication.findFirst({
+        where: { playerId: targetPlayerId },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      if (existingApp && existingApp.status === 'approved') {
+        // keep approved
+      } else if (existingApp) {
+        await tx.agentApplication.update({
+          where: { id: existingApp.id },
+          data: {
+            status: 'approved',
+            agentLevel: 'agent',
+            reviewedAt: new Date(),
+          },
+        });
+      } else {
+        const player = member.player;
+        await tx.agentApplication.create({
+          data: {
+            playerId: targetPlayerId,
+            fullName: player?.nickname ?? '代理',
+            email: `${player?.userId ?? targetPlayerId}@club.local`,
+            phone: '0000000000',
+            phoneOtpCode: 'club-auto',
+            emailOtpCode: 'club-auto',
+            status: 'approved',
+            agentLevel: 'agent',
+            maxClubCreateCount: 1,
+            reviewedAt: new Date(),
+            note: '俱樂部會長任命代理',
+          },
+        });
+      }
+
+      await tx.agentClubBinding.upsert({
+        where: {
+          playerId_clubId: { playerId: targetPlayerId, clubId: club.id },
+        },
+        create: {
+          playerId: targetPlayerId,
+          clubId: club.id,
+          agentLevel: level,
+          upstreamAgentPlayerId: resolvedUpstream,
+          agentPercentage: pct,
+          agentRoomCardFee: fee,
+        },
+        update: {
+          agentLevel: level,
+          upstreamAgentPlayerId: resolvedUpstream,
+          agentPercentage: pct,
+          agentRoomCardFee: fee,
+        },
+      });
+
+      await tx.clubMember.update({
+        where: { clubId_playerId: { clubId: club.id, playerId: targetPlayerId } },
+        data: {
+          role: 'CO_LEADER',
+          coLeaderPermissions: perms,
+        },
+      });
+    });
+
+    const binding = await prisma.agentClubBinding.findUnique({
+      where: {
+        playerId_clubId: { playerId: targetPlayerId, clubId: club.id },
+      },
+      include: {
+        upstreamAgent: { select: { id: true, userId: true, nickname: true } },
+      },
+    });
+
+    const updatedMember = await prisma.clubMember.findUnique({
+      where: { clubId_playerId: { clubId: club.id, playerId: targetPlayerId } },
+    });
+
+    return successResponse(
+      res,
+      { member: updatedMember, binding },
+      '任命代理副會長成功'
+    );
+  } catch (error) {
+    console.error('[Clubs API] 任命代理失敗:', error);
+    return errorResponse(res, '任命代理失敗', error.message, 500);
+  }
+});
+
+/**
+ * POST /api/client/clubs/:clubId/members/agent-settings
+ * 設定下線代理 %數與房卡費
+ */
+router.post('/:clubId/members/agent-settings', async (req, res) => {
+  try {
+    const { prisma } = req.app.locals;
+    const { clubId } = req.params;
+    const {
+      targetPlayerId,
+      actorPlayerId,
+      agentPercentage,
+      agentRoomCardFee,
+      clear,
+    } = req.body || {};
+
+    if (!targetPlayerId || !actorPlayerId) {
+      return errorResponse(res, '請提供目標玩家與操作者ID', null, 400);
+    }
+
+    const club = await findClub(prisma, clubId);
+    if (!club) {
+      return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    const bindings = await loadClubAgentBindings(prisma, club.id);
+    if (!isDirectUpstream(actorPlayerId, targetPlayerId, club.creatorId, bindings)) {
+      return errorResponse(res, '僅可設定直屬下線代理', null, 403);
+    }
+
+    const existing = await prisma.agentClubBinding.findUnique({
+      where: {
+        playerId_clubId: { playerId: targetPlayerId, clubId: club.id },
+      },
+    });
+    if (!existing) {
+      return errorResponse(res, '目標尚未具備代理身分', null, 400);
+    }
+
+    if (clear === true) {
+      const updated = await prisma.agentClubBinding.update({
+        where: { id: existing.id },
+        data: { agentPercentage: 2, agentRoomCardFee: 2 },
+      });
+      return successResponse(res, updated, '代理設置已清除');
+    }
+
+    const data = {};
+    if (agentPercentage !== undefined && agentPercentage !== null) {
+      const pct = Number(agentPercentage);
+      if (!Number.isFinite(pct) || pct < 0) {
+        return errorResponse(res, '代理%數須為非負數', null, 400);
+      }
+      data.agentPercentage = pct;
+    }
+    if (agentRoomCardFee !== undefined && agentRoomCardFee !== null) {
+      const fee = Number(agentRoomCardFee);
+      if (!Number.isFinite(fee) || fee < 0) {
+        return errorResponse(res, '代理房卡費須為非負數', null, 400);
+      }
+      data.agentRoomCardFee = fee;
+    }
+
+    if (Object.keys(data).length === 0) {
+      return errorResponse(res, '請提供要更新的欄位', null, 400);
+    }
+
+    const updated = await prisma.agentClubBinding.update({
+      where: { id: existing.id },
+      data,
+    });
+    return successResponse(res, updated, '代理設置已更新');
+  } catch (error) {
+    console.error('[Clubs API] 代理設置失敗:', error);
+    return errorResponse(res, '代理設置失敗', error.message, 500);
   }
 });
 
