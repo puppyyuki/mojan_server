@@ -258,76 +258,74 @@ export default function EditUserModal({
 
             <div className="space-y-2">
               <p className="block text-sm font-medium text-gray-700">上層代理</p>
-              {isApprovedAgent ? (
+              <p className="text-xs text-gray-500">
+                依俱樂部分別綁定上層代理；同一玩家可在某些俱樂部是代理，在其他俱樂部仍是玩家。
+              </p>
+
+              {isApprovedAgent && (
                 <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">
-                  此玩家為代理，請至「代理管理」設定俱樂部綁定、上層代理、房卡費與代理%數。
+                  若要設定此玩家作為代理的俱樂部綁定、房卡費與代理%數，請至「代理管理」。此處僅設定他在其他俱樂部作為玩家時的上層代理。
                 </div>
-              ) : (
-                <>
-                  <p className="text-xs text-gray-500">
-                    依俱樂部分別綁定上層代理；舊有單一上層代理設定不再沿用。
-                  </p>
+              )}
 
-                  {needsUpstreamMigration && legacyNick && legacyUserId && (
-                    <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-                      原玩家先前上層代理為：{legacyNick}（{legacyUserId}）。請綁定玩家的俱樂部與上層代理。
-                    </div>
-                  )}
+              {needsUpstreamMigration && legacyNick && legacyUserId && (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+                  原玩家先前上層代理為：{legacyNick}（{legacyUserId}）。請綁定玩家的俱樂部與上層代理。
+                </div>
+              )}
 
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditingBinding(null)
-                      setAddModalOpen(true)
-                    }}
-                    disabled={loading || bindingsLoading}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
-                  >
-                    <Plus className="w-4 h-4" />
-                    添加上層代理
-                  </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingBinding(null)
+                  setAddModalOpen(true)
+                }}
+                disabled={loading || bindingsLoading}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+              >
+                <Plus className="w-4 h-4" />
+                添加上層代理
+              </button>
 
-                  {bindingsLoading ? (
-                    <p className="text-xs text-gray-500">載入綁定中…</p>
-                  ) : bindings.length > 0 ? (
-                    <ul className="space-y-2">
-                      {bindings.map((b) => (
-                        <li
-                          key={b.id}
-                          className="rounded-lg border border-gray-200 px-3 py-2 text-xs text-gray-700"
+              {bindingsLoading ? (
+                <p className="text-xs text-gray-500">載入綁定中…</p>
+              ) : bindings.length > 0 ? (
+                <ul className="space-y-2">
+                  {bindings.map((b) => (
+                    <li
+                      key={b.id}
+                      className="rounded-lg border border-gray-200 px-3 py-2 text-xs text-gray-700"
+                    >
+                      <p>
+                        俱樂部：{b.clubName}（{b.clubId}）、上層代理：
+                        {b.upstreamAgent.nickname}（{b.upstreamAgent.userId}）
+                      </p>
+                      <div className="mt-2 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditingBinding(b)
+                            setAddModalOpen(true)
+                          }}
+                          className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800"
                         >
-                          <p>
-                            俱樂部：{b.clubName}（{b.clubId}）、上層代理：
-                            {b.upstreamAgent.nickname}（{b.upstreamAgent.userId}）
-                          </p>
-                          <div className="mt-2 flex gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingBinding(b)
-                                setAddModalOpen(true)
-                              }}
-                              className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-800"
-                            >
-                              <Pencil className="w-3 h-3" />
-                              編輯
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void handleDeleteBinding(b)}
-                              className="inline-flex items-center gap-1 text-red-600 hover:text-red-800"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                              刪除
-                            </button>
-                          </div>
-                        </li>
-                      ))}
-                    </ul>
-                  ) : (
-                    <p className="text-xs text-gray-500">尚未設定上層代理綁定</p>
-                  )}
-                </>
+                          <Pencil className="w-3 h-3" />
+                          編輯
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteBinding(b)}
+                          className="inline-flex items-center gap-1 text-red-600 hover:text-red-800"
+                        >
+                          <Trash2 className="w-3 h-3" />
+                          刪除
+                        </button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-xs text-gray-500">尚未設定上層代理綁定</p>
               )}
             </div>
 

@@ -193,15 +193,20 @@ function resolveVisiblePlayerIds(
 async function loadPlayerClubUpstreamBindings(prisma, clubInternalId) {
   return prisma.playerClubUpstreamBinding.findMany({
     where: { clubId: clubInternalId },
-    select: { playerId: true, upstreamAgentPlayerId: true },
+    select: {
+      playerId: true,
+      upstreamAgentPlayerId: true,
+      upstreamAgent: {
+        select: { id: true, userId: true, nickname: true },
+      },
+    },
   });
 }
 
 /**
- * 判斷 actor 是否為 target 的直屬上層（或會長）。
+ * 判斷 actor 是否為 target 的直屬上層。
  */
-function isDirectUpstream(actorPlayerId, targetPlayerId, clubCreatorId, bindings) {
-  if (actorPlayerId === clubCreatorId) return true;
+function isDirectUpstream(actorPlayerId, targetPlayerId, bindings) {
   const target = bindings.find((b) => b.playerId === targetPlayerId);
   return target?.upstreamAgentPlayerId === actorPlayerId;
 }

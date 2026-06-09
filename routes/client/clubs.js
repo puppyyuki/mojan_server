@@ -2352,16 +2352,16 @@ router.get('/:clubId/members', async (req, res) => {
       orderBy: { joinedAt: 'desc' },
     });
 
+    const [bindings, upstreamBindingRows] = await Promise.all([
+      loadClubAgentBindings(prisma, club.id),
+      loadPlayerClubUpstreamBindings(prisma, club.id),
+    ]);
     if (actorPlayerId) {
-      const [bindings, upstreamBindings] = await Promise.all([
-        loadClubAgentBindings(prisma, club.id),
-        loadPlayerClubUpstreamBindings(prisma, club.id),
-      ]);
       const vis = resolveVisiblePlayerIds(
         actorPlayerId,
         club.creatorId,
         bindings,
-        upstreamBindings
+        upstreamBindingRows
       );
       if (!vis.isOwner && vis.visibleIds) {
         allMembers = allMembers.filter((m) => vis.visibleIds.has(m.playerId));
@@ -2370,8 +2370,30 @@ router.get('/:clubId/members', async (req, res) => {
 
     const total = allMembers.length;
     const members = allMembers.slice(skip, skip + pageSize);
+    const bindingByPlayer = new Map(bindings.map((b) => [b.playerId, b]));
+    const upstreamBindingByPlayer = new Map(
+      upstreamBindingRows.map((b) => [b.playerId, b])
+    );
+    const enrichedMembers = members.map((m) => {
+      const binding = bindingByPlayer.get(m.playerId);
+      const playerUpstream = upstreamBindingByPlayer.get(m.playerId);
+      const upstream = binding?.upstreamAgent ?? playerUpstream?.upstreamAgent ?? null;
+      return {
+        ...m,
+        agentLevel: binding?.agentLevel ?? null,
+        agentPercentage: binding?.agentPercentage ?? null,
+        agentRoomCardFee: binding?.agentRoomCardFee ?? null,
+        upstreamAgent: upstream
+          ? {
+              playerId: upstream.id,
+              userId: upstream.userId,
+              nickname: upstream.nickname,
+            }
+          : null,
+      };
+    });
 
-    return successResponse(res, pagedPayload(members, { total, page, pageSize }));
+    return successResponse(res, pagedPayload(enrichedMembers, { total, page, pageSize }));
   } catch (error) {
     console.error('[Clubs API] 獲取成員列表失敗:', error);
     return errorResponse(res, '獲取成員列表失敗', null, 500);
@@ -2443,10 +2465,14 @@ router.get('/:clubId/agent-member-list', async (req, res) => {
     });
 
     const bindingByPlayer = new Map(bindings.map((b) => [b.playerId, b]));
+    const upstreamBindingByPlayer = new Map(
+      upstreamBindings.map((b) => [b.playerId, b])
+    );
 
     let rows = members.map((m) => {
       const binding = bindingByPlayer.get(m.playerId);
-      const upstream = binding?.upstreamAgent ?? null;
+      const playerUpstream = upstreamBindingByPlayer.get(m.playerId);
+      const upstream = binding?.upstreamAgent ?? playerUpstream?.upstreamAgent ?? null;
       return {
         playerId: m.playerId,
         userId: m.player?.userId ?? null,
@@ -2454,6 +2480,8 @@ router.get('/:clubId/agent-member-list', async (req, res) => {
         scoreLimit: m.scoreLimit,
         roomCardConsumed: m.roomCardConsumed ?? 0,
         agentLevel: binding?.agentLevel ?? null,
+        agentPercentage: binding?.agentPercentage ?? null,
+        agentRoomCardFee: binding?.agentRoomCardFee ?? null,
         upstreamAgent: upstream
           ? {
               playerId: upstream.id,
@@ -2787,7 +2815,7 @@ router.post('/:clubId/members/agent-settings', async (req, res) => {
     }
 
     const bindings = await loadClubAgentBindings(prisma, club.id);
-    if (!isDirectUpstream(actorPlayerId, targetPlayerId, club.creatorId, bindings)) {
+    if (!isDirectUpstream(actorPlayerId, targetPlayerId, bindings)) {
       return errorResponse(res, '僅可設定直屬下線代理', null, 403);
     }
 
