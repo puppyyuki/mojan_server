@@ -4,7 +4,7 @@
  * - 一般玩家：時間區間內上交金額 A = 自摸贏分加總 × 俱樂部 selfDrawRakePercent
  * - 代理：從下線分上來的金額 + 自身自摸時需往上繳的金額
  * - 代理%數輸入值代表原始贏分百分點：
- *   一般玩家上繳池 A 會先換算成池內比例分配；代理自身自摸則直接用原始贏分計算上繳。
+ *   先依俱樂部自摸抽%產生上繳池 A，再換算成池內比例分配。
  */
 
 const { aggregateSelfDrawStatsByPlayerId } = require('./clubSelfDrawRakeMoney');
@@ -77,12 +77,6 @@ function addDisplayAmount(displayMap, playerId, amount) {
   );
 }
 
-function resolveWinBase(win, pool, rakeRate) {
-  if (win > 0) return win;
-  if (pool > 0 && rakeRate > 0) return pool / rakeRate;
-  return 0;
-}
-
 /**
  * @param {Map<string, number>} winByPlayer - 自摸正分加總
  * @param {Map<string, number>} poolByPlayer - 分配池 A
@@ -124,9 +118,6 @@ function computeDisplaySelfDrawRakeByPlayer(
 
     if (isAgent(playerId)) {
       let ownSubmit = 0;
-      const selfWinBase = resolveWinBase(win, pool, rakeRate);
-      if (selfWinBase <= 0) continue;
-
       const path = buildAgentPathFromSelf(playerId, bindingByPlayer);
       for (const agentId of path) {
         const binding = bindingByPlayer.get(agentId);
@@ -134,7 +125,7 @@ function computeDisplaySelfDrawRakeByPlayer(
         if (!parentId) continue;
 
         const add = roundMoney(
-          selfWinBase * agentPercentageRate(binding?.agentPercentage, clubRakePercent)
+          a * agentPercentageRate(binding?.agentPercentage, clubRakePercent)
         );
         if (add <= 0) continue;
         ownSubmit = roundMoney(ownSubmit + add);
@@ -215,7 +206,6 @@ module.exports = {
   agentPercentageRate,
   buildAgentPathFromPlayer,
   buildAgentPathFromSelf,
-  resolveWinBase,
   computeDisplaySelfDrawRakeByPlayer,
   buildSelfDrawDisplayMap,
 };

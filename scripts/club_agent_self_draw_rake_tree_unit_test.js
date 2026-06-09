@@ -18,7 +18,7 @@ const bindings = [
   {
     playerId: 'master',
     upstreamAgentPlayerId: 'super',
-    agentPercentage: 2,
+    agentPercentage: 1,
   },
   {
     playerId: 'mid',
@@ -43,34 +43,34 @@ function testNormalPlayerDistributionUnchanged() {
   );
 
   assert.strictEqual(result.get('player'), 5);
-  assert.strictEqual(result.get('mid'), 2);
+  assert.strictEqual(result.get('mid'), 3);
   assert.strictEqual(result.get('master'), 1);
-  assert.strictEqual(result.get('super'), 2);
+  assert.strictEqual(result.get('super'), 1);
 }
 
 function testAgentSelfDrawIncludesOwnUpstreamSubmit() {
   const result = computeDisplaySelfDrawRakeByPlayer(
-    new Map([['mid', 100]]),
-    new Map([['mid', 5]]),
+    new Map([['mid', 1000]]),
+    new Map([['mid', 50]]),
     bindings,
     [],
     5
   );
 
-  assert.strictEqual(result.get('mid'), 60);
-  assert.strictEqual(result.get('master'), 20);
-  assert.strictEqual(result.get('super'), 40);
+  assert.strictEqual(result.get('mid'), 20);
+  assert.strictEqual(result.get('master'), 10);
+  assert.strictEqual(result.get('super'), 10);
 }
 
 function testAgentDisplayAddsDownstreamIncomeAndOwnSubmit() {
   const result = computeDisplaySelfDrawRakeByPlayer(
     new Map([
       ['player', 100],
-      ['mid', 100],
+      ['mid', 1000],
     ]),
     new Map([
       ['player', 5],
-      ['mid', 5],
+      ['mid', 50],
     ]),
     bindings,
     [{ playerId: 'player', upstreamAgentPlayerId: 'mid' }],
@@ -78,9 +78,9 @@ function testAgentDisplayAddsDownstreamIncomeAndOwnSubmit() {
   );
 
   assert.strictEqual(result.get('player'), 5);
-  assert.strictEqual(result.get('mid'), 62);
-  assert.strictEqual(result.get('master'), 21);
-  assert.strictEqual(result.get('super'), 42);
+  assert.strictEqual(result.get('mid'), 23);
+  assert.strictEqual(result.get('master'), 11);
+  assert.strictEqual(result.get('super'), 11);
 }
 
 testAgentPercentageInputConvertsByClubRakePercent();
