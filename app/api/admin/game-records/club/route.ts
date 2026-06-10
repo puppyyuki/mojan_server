@@ -640,7 +640,7 @@ async function handleClubAllRecords(opts: {
       if (best === null || sc > best) best = sc
     }
     const bigWinnerPlayerIds =
-      best === null
+      best === null || best <= 0
         ? []
         : players.filter((pl) => (Number(pl.score) || 0) === best).map((pl) => pl.playerId)
     const bigWinnerLabels = players

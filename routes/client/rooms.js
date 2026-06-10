@@ -857,9 +857,11 @@ router.post('/:roomId/final-settlement', async (req, res) => {
     const highestScore = players.length > 0
       ? Math.max(...players.map((p) => p.score))
       : 0;
-    const bigWinnerPlayerIds = players
-      .filter((p) => p.score === highestScore)
-      .map((p) => p.playerId);
+    const bigWinnerPlayerIds = highestScore > 0
+      ? players
+        .filter((p) => p.score === highestScore)
+        .map((p) => p.playerId)
+      : [];
 
     const { roomCardConsumedByPlayerId, roomCardConsumedTotal } =
       buildRoomCardConsumedByPlayerId(deduction, rounds, players);

@@ -2015,7 +2015,7 @@ router.get('/:clubId/match-history', async (req, res) => {
         if (best === null || sc > best) best = sc;
       }
       const bigWinnerPlayerIds =
-        best === null
+        best === null || best <= 0
           ? []
           : players.filter((pl) => (Number(pl.matchTotalScore) || 0) === best).map((pl) => pl.playerId);
 
