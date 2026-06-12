@@ -6,7 +6,7 @@
 const assert = require('assert');
 const {
   agentPercentageRate,
-  computeDisplaySelfDrawRakeByPlayer,
+  computeViewerSelfDrawRakeForRow,
 } = require('../utils/clubAgentSelfDrawRakeTree');
 
 const bindings = [
@@ -18,7 +18,7 @@ const bindings = [
   {
     playerId: 'master',
     upstreamAgentPlayerId: 'super',
-    agentPercentage: 1,
+    agentPercentage: 2,
   },
   {
     playerId: 'mid',
@@ -28,64 +28,154 @@ const bindings = [
 ];
 
 function testAgentPercentageInputConvertsByClubRakePercent() {
+  assert.strictEqual(agentPercentageRate(2, 5), 0.4);
   assert.strictEqual(agentPercentageRate(1, 5), 0.2);
-  assert.strictEqual(agentPercentageRate(2.5, 5), 0.5);
   assert.strictEqual(agentPercentageRate(1, 0), 0);
 }
 
-function testNormalPlayerDistributionUnchanged() {
-  const result = computeDisplaySelfDrawRakeByPlayer(
-    new Map([['player', 100]]),
-    new Map([['player', 5]]),
+function testUserExampleMasterSeesPlayer30SuperSeesMaster40() {
+  const winByPlayer = new Map([
+    ['player', 1000],
+    ['master', 1000],
+  ]);
+  const poolByPlayer = new Map([
+    ['player', 50],
+    ['master', 50],
+  ]);
+  const upstreamBindings = [{ playerId: 'player', upstreamAgentPlayerId: 'master' }];
+
+  const masterSeesPlayer = computeViewerSelfDrawRakeForRow(
+    'master',
+    'player',
+    winByPlayer,
+    poolByPlayer,
     bindings,
-    [{ playerId: 'player', upstreamAgentPlayerId: 'mid' }],
+    upstreamBindings,
+    5
+  );
+  const superSeesMaster = computeViewerSelfDrawRakeForRow(
+    'super',
+    'master',
+    winByPlayer,
+    poolByPlayer,
+    bindings,
+    upstreamBindings,
     5
   );
 
-  assert.strictEqual(result.get('player'), 5);
-  assert.strictEqual(result.get('mid'), 3);
-  assert.strictEqual(result.get('master'), 1);
-  assert.strictEqual(result.get('super'), 1);
+  assert.strictEqual(masterSeesPlayer, 30);
+  assert.strictEqual(superSeesMaster, 40);
 }
 
-function testAgentSelfDrawIncludesOwnUpstreamSubmit() {
-  const result = computeDisplaySelfDrawRakeByPlayer(
-    new Map([['mid', 1000]]),
-    new Map([['mid', 50]]),
-    bindings,
-    [],
-    5
-  );
+function testZeroPercentMasterPlayer2000SuperSeesMaster0() {
+  const zeroBindings = [
+    { playerId: 'super', upstreamAgentPlayerId: null, agentPercentage: 0 },
+    { playerId: 'master', upstreamAgentPlayerId: 'super', agentPercentage: 0 },
+  ];
+  const winByPlayer = new Map([['player', 2000]]);
+  const poolByPlayer = new Map([['player', 100]]);
+  const upstreamBindings = [{ playerId: 'player', upstreamAgentPlayerId: 'master' }];
 
-  assert.strictEqual(result.get('mid'), 20);
-  assert.strictEqual(result.get('master'), 10);
-  assert.strictEqual(result.get('super'), 10);
+  assert.strictEqual(
+    computeViewerSelfDrawRakeForRow(
+      'master',
+      'player',
+      winByPlayer,
+      poolByPlayer,
+      zeroBindings,
+      upstreamBindings,
+      5
+    ),
+    100
+  );
+  assert.strictEqual(
+    computeViewerSelfDrawRakeForRow(
+      'super',
+      'master',
+      winByPlayer,
+      poolByPlayer,
+      zeroBindings,
+      upstreamBindings,
+      5
+    ),
+    0
+  );
 }
 
-function testAgentDisplayAddsDownstreamIncomeAndOwnSubmit() {
-  const result = computeDisplaySelfDrawRakeByPlayer(
-    new Map([
-      ['player', 100],
-      ['mid', 1000],
-    ]),
-    new Map([
-      ['player', 5],
-      ['mid', 50],
-    ]),
-    bindings,
-    [{ playerId: 'player', upstreamAgentPlayerId: 'mid' }],
-    5
-  );
+function testZeroPercentMasterSelfDrawSuperSeesMaster0() {
+  const zeroBindings = [
+    { playerId: 'super', upstreamAgentPlayerId: null, agentPercentage: 0 },
+    { playerId: 'master', upstreamAgentPlayerId: 'super', agentPercentage: 0 },
+  ];
+  const winByPlayer = new Map([['master', 1000]]);
+  const poolByPlayer = new Map([['master', 50]]);
 
-  assert.strictEqual(result.get('player'), 5);
-  assert.strictEqual(result.get('mid'), 23);
-  assert.strictEqual(result.get('master'), 11);
-  assert.strictEqual(result.get('super'), 11);
+  assert.strictEqual(
+    computeViewerSelfDrawRakeForRow(
+      'super',
+      'master',
+      winByPlayer,
+      poolByPlayer,
+      zeroBindings,
+      [],
+      5
+    ),
+    0
+  );
+}
+
+function testThreeTierPlayerDistribution() {
+  const winByPlayer = new Map([['player', 100]]);
+  const poolByPlayer = new Map([['player', 5]]);
+  const upstreamBindings = [{ playerId: 'player', upstreamAgentPlayerId: 'mid' }];
+  const tierBindings = [
+    { playerId: 'super', upstreamAgentPlayerId: null, agentPercentage: 0 },
+    { playerId: 'master', upstreamAgentPlayerId: 'super', agentPercentage: 1 },
+    { playerId: 'mid', upstreamAgentPlayerId: 'master', agentPercentage: 1 },
+  ];
+
+  assert.strictEqual(
+    computeViewerSelfDrawRakeForRow(
+      'mid',
+      'player',
+      winByPlayer,
+      poolByPlayer,
+      tierBindings,
+      upstreamBindings,
+      5
+    ),
+    3
+  );
+  assert.strictEqual(
+    computeViewerSelfDrawRakeForRow(
+      'master',
+      'player',
+      winByPlayer,
+      poolByPlayer,
+      tierBindings,
+      upstreamBindings,
+      5
+    ),
+    1
+  );
+  assert.strictEqual(
+    computeViewerSelfDrawRakeForRow(
+      'super',
+      'player',
+      winByPlayer,
+      poolByPlayer,
+      tierBindings,
+      upstreamBindings,
+      5
+    ),
+    1
+  );
 }
 
 testAgentPercentageInputConvertsByClubRakePercent();
-testNormalPlayerDistributionUnchanged();
-testAgentSelfDrawIncludesOwnUpstreamSubmit();
-testAgentDisplayAddsDownstreamIncomeAndOwnSubmit();
+testUserExampleMasterSeesPlayer30SuperSeesMaster40();
+testZeroPercentMasterPlayer2000SuperSeesMaster0();
+testZeroPercentMasterSelfDrawSuperSeesMaster0();
+testThreeTierPlayerDistribution();
 
 console.log('club_agent_self_draw_rake_tree_unit_test passed');

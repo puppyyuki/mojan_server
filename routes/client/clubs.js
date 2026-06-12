@@ -2536,7 +2536,8 @@ router.get('/:clubId/agent-member-list', async (req, res) => {
       clubForRake,
       { startAt: hasDateFilter ? startDate : null, endAt: hasDateFilter ? endDate : null },
       bindings,
-      upstreamBindings
+      upstreamBindings,
+      actorPlayerId
     );
     for (const row of rows) {
       row.selfDrawRake = displayMap.get(row.playerId) ?? 0;
