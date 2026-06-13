@@ -2,14 +2,15 @@
 
 import { useEffect, useState } from 'react'
 import { X, Save } from 'lucide-react'
-import { apiPatch, apiPost } from '@/lib/api-client'
+import { apiGet, apiPatch, apiPost } from '@/lib/api-client'
 import { requestAdminOpCode, withAdminOpCodeHeader } from '@/lib/admin-op-code-client'
-import ClubSelect from '@/app/admin/components/ClubSelect'
+import ClubSelect, { type ClubChoice } from '@/app/admin/components/ClubSelect'
 import UpstreamAgentSelect from '@/app/admin/components/UpstreamAgentSelect'
 import AgentLevelSelect, {
   isSuperAgentLevel,
   type AgentLevelValue,
 } from '@/app/admin/components/AgentLevelSelect'
+import { isValidAgentLevel } from '@/lib/agent-levels'
 
 export type AgentClubBindingRow = {
   id: string
@@ -50,6 +51,7 @@ export default function AddAgentClubBindingModal({
   const [agentRoomCardFee, setAgentRoomCardFee] = useState<string>('2')
   const [agentPercentage, setAgentPercentage] = useState<string>('2')
   const [loading, setLoading] = useState(false)
+  const [canAssignSuper, setCanAssignSuper] = useState(true)
 
   useEffect(() => {
     if (!isOpen) return
@@ -57,7 +59,7 @@ export default function AddAgentClubBindingModal({
       setClubDbId(editing.clubDbId)
       setUpstreamDbId(editing.upstreamAgent?.playerDbId ?? null)
       setAgentLevel(
-        (['super', 'master', 'mid', 'small', 'agent'].includes(editing.agentLevel)
+        (isValidAgentLevel(editing.agentLevel)
           ? editing.agentLevel
           : 'agent') as AgentLevelValue
       )
@@ -72,11 +74,58 @@ export default function AddAgentClubBindingModal({
     }
   }, [isOpen, editing])
 
+  const handleClubPick = (c: ClubChoice | null) => {
+    const nextId = c ? c.clubDbId : null
+    setClubDbId(nextId)
+    if (nextId !== clubDbId) {
+      setUpstreamDbId(null)
+    }
+  }
+
   useEffect(() => {
     if (isSuperAgentLevel(agentLevel)) {
       setUpstreamDbId(null)
     }
   }, [agentLevel])
+
+  useEffect(() => {
+    if (!canAssignSuper && isSuperAgentLevel(agentLevel)) {
+      setAgentLevel('agent')
+    }
+  }, [canAssignSuper, agentLevel])
+
+  useEffect(() => {
+    if (!isOpen || !clubDbId) {
+      setCanAssignSuper(true)
+      return
+    }
+
+    let cancelled = false
+    ;(async () => {
+      try {
+        const params = new URLSearchParams({
+          clubId: clubDbId,
+          excludePlayerId: playerDbId,
+        })
+        const response = await apiGet(
+          `/api/admin/upstream-agent-candidates?${params.toString()}`
+        )
+        const result = await response.json().catch(() => ({}))
+        if (cancelled) return
+        if (!response.ok) {
+          setCanAssignSuper(true)
+          return
+        }
+        setCanAssignSuper(result.meta?.canAssignSuper !== false)
+      } catch {
+        if (!cancelled) setCanAssignSuper(true)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [isOpen, clubDbId, playerDbId])
 
   const handleSave = async () => {
     if (loading) return
@@ -158,7 +207,7 @@ export default function AddAgentClubBindingModal({
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-lg w-full max-w-md mx-auto shadow-xl relative max-h-[90vh] overflow-y-auto"
+        className="bg-white rounded-lg w-full max-w-md mx-auto shadow-xl relative flex flex-col max-h-[90vh] overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
@@ -173,10 +222,10 @@ export default function AddAgentClubBindingModal({
           </button>
         </div>
 
-        <div className="px-6 py-4 space-y-4">
+        <div className="px-6 py-4 space-y-4 overflow-y-auto overflow-x-visible flex-1 min-h-0">
           <ClubSelect
             valueClubDbId={clubDbId}
-            onPick={(c) => setClubDbId(c ? c.clubDbId : null)}
+            onPick={handleClubPick}
             disabled={loading}
             excludeClubDbIds={excluded}
           />
@@ -185,10 +234,12 @@ export default function AddAgentClubBindingModal({
             value={agentLevel}
             onChange={setAgentLevel}
             disabled={loading}
+            excludeLevels={canAssignSuper ? [] : ['super']}
           />
 
           {!isSuperAgentLevel(agentLevel) && (
             <UpstreamAgentSelect
+              clubDbId={clubDbId}
               excludePlayerDbId={playerDbId}
               valuePlayerDbId={upstreamDbId}
               onPick={(row) => setUpstreamDbId(row ? row.playerDbId : null)}

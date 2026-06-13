@@ -33,7 +33,7 @@ function testAgentPercentageInputConvertsByClubRakePercent() {
   assert.strictEqual(agentPercentageRate(1, 0), 0);
 }
 
-function testUserExampleMasterSeesPlayer30SuperSeesMaster40() {
+function testUserExampleMasterSeesPlayerPoolSuperSeesMaster40() {
   const winByPlayer = new Map([
     ['player', 1000],
     ['master', 1000],
@@ -63,7 +63,7 @@ function testUserExampleMasterSeesPlayer30SuperSeesMaster40() {
     5
   );
 
-  assert.strictEqual(masterSeesPlayer, 30);
+  assert.strictEqual(masterSeesPlayer, 50);
   assert.strictEqual(superSeesMaster, 40);
 }
 
@@ -144,7 +144,7 @@ function testThreeTierPlayerDistribution() {
       upstreamBindings,
       5
     ),
-    3
+    5
   );
   assert.strictEqual(
     computeViewerSelfDrawRakeForRow(
@@ -172,10 +172,61 @@ function testThreeTierPlayerDistribution() {
   );
 }
 
+function testSelfRowIncludesOwnSelfDrawKeep() {
+  const winByPlayer = new Map([['master', 1000]]);
+  const poolByPlayer = new Map([['master', 50]]);
+  const upstreamBindings = [];
+
+  assert.strictEqual(
+    computeViewerSelfDrawRakeForRow(
+      'master',
+      'master',
+      winByPlayer,
+      poolByPlayer,
+      bindings,
+      upstreamBindings,
+      5
+    ),
+    30
+  );
+}
+
+function testDirectDownlineRowIncludesAgentSelfDrawAndSubtree() {
+  const winByPlayer = new Map([
+    ['player', 100],
+    ['mid', 1000],
+  ]);
+  const poolByPlayer = new Map([
+    ['player', 5],
+    ['mid', 50],
+  ]);
+  const upstreamBindings = [{ playerId: 'player', upstreamAgentPlayerId: 'mid' }];
+  const tierBindings = [
+    { playerId: 'super', upstreamAgentPlayerId: null, agentPercentage: 0 },
+    { playerId: 'master', upstreamAgentPlayerId: 'super', agentPercentage: 1 },
+    { playerId: 'mid', upstreamAgentPlayerId: 'master', agentPercentage: 1 },
+  ];
+
+  assert.strictEqual(
+    computeViewerSelfDrawRakeForRow(
+      'master',
+      'mid',
+      winByPlayer,
+      poolByPlayer,
+      tierBindings,
+      upstreamBindings,
+      5
+    ),
+    11
+  );
+}
+
 testAgentPercentageInputConvertsByClubRakePercent();
-testUserExampleMasterSeesPlayer30SuperSeesMaster40();
+testUserExampleMasterSeesPlayerPoolSuperSeesMaster40();
 testZeroPercentMasterPlayer2000SuperSeesMaster0();
 testZeroPercentMasterSelfDrawSuperSeesMaster0();
 testThreeTierPlayerDistribution();
+testSelfRowIncludesOwnSelfDrawKeep();
+testDirectDownlineRowIncludesAgentSelfDrawAndSubtree();
 
 console.log('club_agent_self_draw_rake_tree_unit_test passed');

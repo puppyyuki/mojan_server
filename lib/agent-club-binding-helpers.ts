@@ -9,6 +9,27 @@ import { validateUpstreamAssignment, type PrismaLike } from './upstream-agent-va
 
 export { AGENT_LEVELS, isValidAgentLevel, isSuperAgentLevel }
 
+export async function findClubSuperAgentBinding(
+  db: PrismaLike,
+  clubId: string
+) {
+  return db.agentClubBinding.findFirst({
+    where: { clubId, agentLevel: 'super' },
+    select: {
+      playerId: true,
+      player: { select: { id: true, userId: true, nickname: true } },
+    },
+  })
+}
+
+export function canAssignSuperAgentLevel(
+  superBinding: { playerId: string } | null | undefined,
+  subjectPlayerDbId: string
+): boolean {
+  if (!superBinding) return true
+  return superBinding.playerId === subjectPlayerDbId
+}
+
 export function parseNonNegativeFloat(raw: unknown, fallback = 2): number {
   const n = Number(raw)
   if (!Number.isFinite(n) || n < 0) return fallback
@@ -178,6 +199,10 @@ export async function validateAgentClubBindingInput(
   if (isSuperAgentLevel(agentLevel)) {
     if (upstreamAgentPlayerId !== null) {
       return { ok: false, error: '總代理不可設定上層代理' }
+    }
+    const existingSuper = await findClubSuperAgentBinding(db, clubId)
+    if (!canAssignSuperAgentLevel(existingSuper, subjectPlayerDbId)) {
+      return { ok: false, error: '該俱樂部已有總代理，無法再指定其他總代理' }
     }
   } else {
     if (!upstreamAgentPlayerId) {

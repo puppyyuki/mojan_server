@@ -13,6 +13,12 @@ export function agentLevelLabelZh(agentLevel: string): string {
       return '小代理'
     case 'agent':
       return '代理'
+    case 'dealer':
+      return '經銷'
+    case 'distributor':
+      return '分銷'
+    case 'promoter':
+      return '推廣'
     // 舊值（唯讀顯示）
     case 'vip':
       return '公關代理'
@@ -37,8 +43,14 @@ export function agentLevelBadgeClass(agentLevel: string): string {
       return 'bg-teal-100 text-teal-800'
     case 'agent':
     case 'normal':
-    default:
       return 'bg-gray-100 text-gray-800'
+    case 'dealer':
+      return 'bg-slate-100 text-slate-800'
+    case 'distributor':
+      return 'bg-stone-100 text-stone-800'
+    case 'promoter':
+      return 'bg-neutral-100 text-neutral-800'
+    default:
   }
 }
 

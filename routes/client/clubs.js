@@ -12,6 +12,8 @@ const {
   clubSelfDrawRakePercentNumber,
 } = require('../../utils/clubSelfDrawRakeMoney');
 const { buildSelfDrawDisplayMap } = require('../../utils/clubAgentSelfDrawRakeTree');
+const { agentLevelLabelZh } = require('../../lib/agent-level-labels.shared.js');
+const { listClubUpstreamAgentCandidates } = require('../../lib/clubUpstreamAgentCandidates');
 const {
   getAssignableAgentLevels,
   isValidPromotableLevel,
@@ -498,19 +500,6 @@ async function validateUpstreamAssignmentJs(prisma, subjectPlayerDbId, upstreamP
     return { ok: false, error: '指定的上層玩家不存在' };
   }
   return { ok: true };
-}
-
-function agentLevelLabelZh(level) {
-  const map = {
-    super: '總代理',
-    master: '大代理',
-    mid: '中代理',
-    small: '小代理',
-    agent: '代理',
-    vip: '公關代理',
-    normal: '一般代理',
-  };
-  return map[level] || '代理';
 }
 
 function serializeClubInvitationRow(inv) {
@@ -1498,53 +1487,12 @@ router.get('/:clubId/upstream-agent-candidates', async (req, res) => {
       return errorResponse(res, '玩家不是俱樂部成員', null, 403);
     }
 
-    const bindings = await loadClubAgentBindings(prisma, club.id);
-    const seen = new Set();
-    let candidates = [];
-
-    for (const b of bindings) {
-      if (!b.playerId || b.playerId === playerId || seen.has(b.playerId)) continue;
-      seen.add(b.playerId);
-      candidates.push({
-        playerId: b.player.id,
-        userId: b.player.userId,
-        nickname: b.player.nickname,
-        agentLevel: b.agentLevel,
-        agentLevelLabel: agentLevelLabelZh(b.agentLevel),
-      });
-    }
-
-    if (!seen.has(club.creatorId) && club.creatorId !== playerId) {
-      const creator = await prisma.player.findUnique({
-        where: { id: club.creatorId },
-        select: { id: true, userId: true, nickname: true },
-      });
-      if (creator) {
-        const creatorBinding = bindings.find((b) => b.playerId === club.creatorId);
-        candidates.unshift({
-          playerId: creator.id,
-          userId: creator.userId,
-          nickname: creator.nickname,
-          agentLevel: creatorBinding?.agentLevel ?? 'super',
-          agentLevelLabel: agentLevelLabelZh(creatorBinding?.agentLevel ?? 'super'),
-        });
-      }
-    }
-
-    if (searchRaw) {
-      candidates = candidates.filter((c) => {
-        const n = (c.nickname || '').toLowerCase();
-        const u = (c.userId || '').toLowerCase();
-        const pid = (c.playerId || '').toLowerCase();
-        const lab = (c.agentLevelLabel || '').toLowerCase();
-        return (
-          n.includes(searchRaw) ||
-          u.includes(searchRaw) ||
-          pid.includes(searchRaw) ||
-          lab.includes(searchRaw)
-        );
-      });
-    }
+    const candidates = await listClubUpstreamAgentCandidates(prisma, {
+      clubInternalId: club.id,
+      creatorId: club.creatorId,
+      excludePlayerId: playerId,
+      searchRaw,
+    });
 
     return successResponse(res, candidates);
   } catch (error) {

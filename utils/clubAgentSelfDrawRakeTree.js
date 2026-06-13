@@ -1,11 +1,13 @@
 /**
- * 俱樂部成員列表「自摸抽」顯示值（觀看者視角）。
+ * 俱樂部成員列表「自摸抽」欄位顯示值（觀看者 actor 視角）。
  *
- * - 俱樂部 selfDrawRakePercent（後台「俱樂部管理 > 編輯」）決定上繳池 A = 自摸贏分 × %
- * - 代理 agentPercentage 為原始贏分百分點，換算成池內比例後往上分配
- * - 每一列顯示：觀看者（actor）從該成員及其下線自摸活動中「實際收到」的金額
- *   - 玩家列：觀看者為其直屬上線代理時，顯示該代理從此玩家分到的部分
- *   - 代理列：觀看者為其上線時，顯示下線上繳給觀看者的部分（含下線玩家與下線代理自身自摸）
+ * - 俱樂部 selfDrawRakePercent（後台「俱樂部管理 > 編輯」）為 a%，上繳池 A = 自摸贏分 × a%
+ * - 代理 agentPercentage 為原始贏分百分點 z%，換算成池內比例 z/a 後往上分配
+ *
+ * 三種列語意：
+ *   1. 直屬玩家列：該玩家區間自摸 × a%（總池，不拆分）
+ *   2. 看自己（第一列）：本人自摸 × (a−y)% + 直屬玩家 × (a−y)% + 隔代玩家 × z% + 下線代理自摸 × z%
+ *   3. 直屬下線代理列：該下線子樹內所有自摸（含下線本人）× 觀看者替其設定的 z%
  */
 
 const { aggregateSelfDrawStatsByPlayerId } = require('./clubSelfDrawRakeMoney');
@@ -84,6 +86,44 @@ function resolvePoolAmount(win, pool, rakeRate) {
   const poolN = Number(pool) || 0;
   if (winN <= 0 && poolN <= 0) return 0;
   return poolN > 0 ? roundMoney(poolN) : roundMoney(winN * rakeRate);
+}
+
+/** target 是否為 actor 的直屬玩家（非代理，且第一層 upstream 為 actor）。 */
+function isDirectPlayerOf(
+  actorPlayerId,
+  targetPlayerId,
+  bindingByPlayer,
+  upstreamBindingsByPlayer,
+  isAgent
+) {
+  if (isAgent(targetPlayerId)) return false;
+  return (
+    resolveFirstUpstream(
+      targetPlayerId,
+      bindingByPlayer,
+      upstreamBindingsByPlayer
+    ) === actorPlayerId
+  );
+}
+
+/** target 是否為 actor 的直屬下線代理。 */
+function isDirectDownlineAgentOf(actorPlayerId, targetPlayerId, bindingByPlayer) {
+  const binding = bindingByPlayer.get(targetPlayerId);
+  return binding?.upstreamAgentPlayerId === actorPlayerId;
+}
+
+/** 代理本人自摸保留比例（池內 (a−y)%）。 */
+function computeAgentSelfKeepRate(agentId, clubRakePercent, bindingByPlayer) {
+  const path = buildAgentPathFromSelf(agentId, bindingByPlayer);
+  let remitSumRate = 0;
+  for (const id of path) {
+    const binding = bindingByPlayer.get(id);
+    remitSumRate += agentPercentageRate(
+      binding?.agentPercentage,
+      clubRakePercent
+    );
+  }
+  return Math.max(0, 1 - remitSumRate);
 }
 
 /**
@@ -193,6 +233,22 @@ function computeViewerSelfDrawRakeForRow(
     createBindingContext(bindings, upstreamBindings);
   const rakeRate = clampPercent(clubRakePercent) / 100;
 
+  if (
+    isDirectPlayerOf(
+      actorPlayerId,
+      targetPlayerId,
+      bindingByPlayer,
+      upstreamBindingsByPlayer,
+      isAgent
+    )
+  ) {
+    return resolvePoolAmount(
+      winByPlayer.get(targetPlayerId),
+      poolByPlayer.get(targetPlayerId),
+      rakeRate
+    );
+  }
+
   const allSourceIds = new Set([
     ...winByPlayer.keys(),
     ...poolByPlayer.keys(),
@@ -217,6 +273,23 @@ function computeViewerSelfDrawRakeForRow(
       rakeRate
     );
     if (a <= 0) continue;
+
+    if (
+      actorPlayerId === targetPlayerId &&
+      sourceId === actorPlayerId &&
+      isAgent(actorPlayerId)
+    ) {
+      total = roundMoney(
+        total +
+          a *
+            computeAgentSelfKeepRate(
+              actorPlayerId,
+              clubRakePercent,
+              bindingByPlayer
+            )
+      );
+      continue;
+    }
 
     total = roundMoney(
       total +
@@ -306,6 +379,9 @@ module.exports = {
   agentPercentageRate,
   buildAgentPathFromPlayer,
   buildAgentPathFromSelf,
+  isDirectPlayerOf,
+  isDirectDownlineAgentOf,
+  computeAgentSelfKeepRate,
   isWinAttributedToTarget,
   flowFromSourceToViewer,
   computeViewerSelfDrawRakeForRow,

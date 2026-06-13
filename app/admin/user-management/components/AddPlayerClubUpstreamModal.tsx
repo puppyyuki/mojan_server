@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { X, Save } from 'lucide-react'
 import { apiPatch, apiPost } from '@/lib/api-client'
 import { requestAdminOpCode, withAdminOpCodeHeader } from '@/lib/admin-op-code-client'
-import ClubSelect from '@/app/admin/components/ClubSelect'
+import ClubSelect, { type ClubChoice } from '@/app/admin/components/ClubSelect'
 import UpstreamAgentSelect from '@/app/admin/components/UpstreamAgentSelect'
 
 export type PlayerClubUpstreamBindingRow = {
@@ -50,6 +50,14 @@ export default function AddPlayerClubUpstreamModal({
       setUpstreamDbId(null)
     }
   }, [isOpen, editing])
+
+  const handleClubPick = (c: ClubChoice | null) => {
+    const nextId = c ? c.clubDbId : null
+    setClubDbId(nextId)
+    if (nextId !== clubDbId) {
+      setUpstreamDbId(null)
+    }
+  }
 
   const handleSave = async () => {
     if (loading) return
@@ -117,7 +125,7 @@ export default function AddPlayerClubUpstreamModal({
       onClick={onClose}
     >
       <div
-        className="bg-white rounded-lg w-full max-w-md mx-auto shadow-xl relative max-h-[90vh] overflow-y-auto"
+        className="bg-white rounded-lg w-full max-w-md mx-auto shadow-xl relative flex flex-col max-h-[90vh] overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
@@ -132,15 +140,16 @@ export default function AddPlayerClubUpstreamModal({
           </button>
         </div>
 
-        <div className="px-6 py-4 space-y-4">
+        <div className="px-6 py-4 space-y-4 overflow-y-auto overflow-x-visible flex-1 min-h-0">
           <ClubSelect
             valueClubDbId={clubDbId}
-            onPick={(c) => setClubDbId(c ? c.clubDbId : null)}
+            onPick={handleClubPick}
             disabled={loading}
             excludeClubDbIds={excluded}
           />
 
           <UpstreamAgentSelect
+            clubDbId={clubDbId}
             excludePlayerDbId={playerDbId}
             valuePlayerDbId={upstreamDbId}
             onPick={(row) => setUpstreamDbId(row ? row.playerDbId : null)}

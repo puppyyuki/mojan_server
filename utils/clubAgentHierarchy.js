@@ -2,44 +2,13 @@
  * 俱樂部代理樹：層級判定、可任命層級、子樹可見範圍。
  */
 
-const AGENT_LEVEL_ORDER = {
-  agent: 1,
-  normal: 1,
-  small: 2,
-  mid: 3,
-  master: 4,
-  super: 5,
-  vip: 5,
-};
-
-const PROMOTABLE_LEVELS = ['master', 'mid', 'small', 'agent'];
-
-function levelOrder(level) {
-  const raw = String(level ?? '').trim().toLowerCase();
-  return AGENT_LEVEL_ORDER[raw] ?? 0;
-}
-
-function isValidPromotableLevel(level) {
-  return PROMOTABLE_LEVELS.includes(String(level ?? '').trim().toLowerCase());
-}
-
-/**
- * 依上層代理層級回傳會長可授予的代理層級（不含 super）。
- * @param {string|null|undefined} upstreamLevel - 上層 agentLevel；null 表示無上層
- */
-function getAssignableAgentLevels(upstreamLevel) {
-  const up = upstreamLevel == null || upstreamLevel === ''
-    ? null
-    : String(upstreamLevel).trim().toLowerCase();
-  if (!up) {
-    return [...PROMOTABLE_LEVELS];
-  }
-  const upOrder = levelOrder(up);
-  if (upOrder <= 0) {
-    return [...PROMOTABLE_LEVELS];
-  }
-  return PROMOTABLE_LEVELS.filter((lvl) => levelOrder(lvl) < upOrder);
-}
+const {
+  AGENT_LEVEL_ORDER,
+  PROMOTABLE_LEVELS,
+  levelOrder,
+  isValidPromotableLevel,
+  getAssignableAgentLevels,
+} = require('../lib/agent-levels.shared.js');
 
 /**
  * @param {Array<{ playerId: string, upstreamAgentPlayerId: string|null, agentLevel: string }>} bindings

@@ -1,6 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { agentLevelLabelZh } from '@/lib/agent-level-display'
+import {
+  canAssignSuperAgentLevel,
+  findClubSuperAgentBinding,
+} from '@/lib/agent-club-binding-helpers'
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const {
+  listClubUpstreamAgentCandidates,
+} = require('@/lib/clubUpstreamAgentCandidates')
 
 function corsHeaders() {
   return {
@@ -15,51 +22,82 @@ export async function OPTIONS() {
 }
 
 /**
- * 列出可作為「上層代理」的對象：已核准 AgentApplication 的玩家。
- * 選用 ?excludePlayerId= 排除本人（審核／編輯時使用）。
+ * 依俱樂部 AgentClubBinding 列出上層代理候選（八階層級標籤）。
+ * Query: clubId（俱樂部 DB id，必填）、excludePlayerId、search
  */
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
+    const clubDbId = searchParams.get('clubId')?.trim()
     const excludeRaw = searchParams.get('excludePlayerId')?.trim()
-    const limit = Math.min(
-      500,
-      Math.max(1, parseInt(searchParams.get('limit') ?? '200', 10) || 200)
+    const searchRaw = searchParams.get('search')?.trim() ?? ''
+
+    if (!clubDbId) {
+      return NextResponse.json(
+        { success: false, error: '請提供俱樂部 ID' },
+        { status: 400, headers: corsHeaders() }
+      )
+    }
+
+    const club = await prisma.club.findUnique({
+      where: { id: clubDbId },
+      select: { id: true, creatorId: true },
+    })
+
+    if (!club) {
+      return NextResponse.json(
+        { success: false, error: '俱樂部不存在' },
+        { status: 404, headers: corsHeaders() }
+      )
+    }
+
+    const [rows, superBinding] = await Promise.all([
+      listClubUpstreamAgentCandidates(prisma, {
+        clubInternalId: club.id,
+        creatorId: club.creatorId,
+        excludePlayerId: excludeRaw || null,
+        searchRaw,
+      }),
+      findClubSuperAgentBinding(prisma, club.id),
+    ])
+
+    const subjectPlayerDbId = excludeRaw || ''
+    const canAssignSuper = canAssignSuperAgentLevel(
+      superBinding,
+      subjectPlayerDbId
     )
 
-    const playersList = await prisma.player.findMany({
-      where: {
-        agentApplications: { some: { status: 'approved' } },
-        ...(excludeRaw ? { id: { not: excludeRaw } } : {}),
-      },
-      select: {
-        id: true,
-        userId: true,
-        nickname: true,
-        agentApplications: {
-          where: { status: 'approved' },
-          orderBy: { reviewedAt: 'desc' },
-          take: 1,
-          select: { agentLevel: true },
-        },
-      },
-      orderBy: [{ nickname: 'asc' }, { userId: 'asc' }],
-      take: limit,
-    })
-
-    const data = playersList.map((p) => {
-      const level = p.agentApplications[0]?.agentLevel ?? 'normal'
-      return {
-        id: p.id,
-        userId: p.userId,
-        nickname: p.nickname,
-        agentLevel: level,
-        agentLevelLabel: agentLevelLabelZh(level),
-      }
-    })
+    const data = rows.map(
+      (c: {
+        playerId: string
+        userId: string
+        nickname: string
+        agentLevel: string
+        agentLevelLabel: string
+      }) => ({
+        id: c.playerId,
+        userId: c.userId,
+        nickname: c.nickname,
+        agentLevel: c.agentLevel,
+        agentLevelLabel: c.agentLevelLabel,
+      })
+    )
 
     return NextResponse.json(
-      { success: true, data },
+      {
+        success: true,
+        data,
+        meta: {
+          canAssignSuper,
+          superAgent: superBinding
+            ? {
+                playerDbId: superBinding.playerId,
+                userId: superBinding.player.userId,
+                nickname: superBinding.player.nickname,
+              }
+            : null,
+        },
+      },
       { headers: corsHeaders() }
     )
   } catch (error: unknown) {

@@ -8,21 +8,13 @@ function setCorsHeaders(res) {
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 }
 
-const VALID_AGENT_LEVELS = ['super', 'master', 'mid', 'small', 'agent', 'normal', 'vip'];
-const AGENT_LEVEL_ORDER = {
-    agent: 1,
-    normal: 1,
-    small: 2,
-    mid: 3,
-    master: 4,
-    super: 5,
-    vip: 5,
-};
+const {
+  ALL_KNOWN_AGENT_LEVELS,
+  AGENT_LEVEL_ORDER,
+  normalizeAgentLevel,
+} = require('../lib/agent-levels.shared.js');
 
-function normalizeAgentLevel(level) {
-    const raw = String(level || '').trim().toLowerCase();
-    return VALID_AGENT_LEVELS.includes(raw) ? raw : 'normal';
-}
+const VALID_AGENT_LEVELS = ALL_KNOWN_AGENT_LEVELS;
 
 /**
  * POST /api/agents/apply
