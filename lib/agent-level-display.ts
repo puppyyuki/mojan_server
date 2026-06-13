@@ -51,6 +51,7 @@ export function agentLevelBadgeClass(agentLevel: string): string {
     case 'promoter':
       return 'bg-neutral-100 text-neutral-800'
     default:
+      return 'bg-gray-100 text-gray-800'
   }
 }
 

@@ -4,10 +4,7 @@ import {
   canAssignSuperAgentLevel,
   findClubSuperAgentBinding,
 } from '@/lib/agent-club-binding-helpers'
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const {
-  listClubUpstreamAgentCandidates,
-} = require('@/lib/clubUpstreamAgentCandidates')
+import { listClubUpstreamAgentCandidates } from '@/lib/clubUpstreamAgentCandidates'
 
 function corsHeaders() {
   return {

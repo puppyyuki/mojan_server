@@ -149,7 +149,7 @@ export default function UpstreamAgentSelect({
   }, [valuePlayerDbId, candidates])
 
   useLayoutEffect(() => {
-    if (!open) return
+    if (!open) return undefined
     updateDropdownRect()
     const onScrollOrResize = () => updateDropdownRect()
     window.addEventListener('scroll', onScrollOrResize, true)

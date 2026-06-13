@@ -97,7 +97,7 @@ export default function AddAgentClubBindingModal({
   useEffect(() => {
     if (!isOpen || !clubDbId) {
       setCanAssignSuper(true)
-      return
+      return undefined
     }
 
     let cancelled = false
