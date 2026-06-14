@@ -328,6 +328,11 @@ router.post('/', async (req, res) => {
         manual_start: gameSettings.manual_start || false,
         ip_check: gameSettings.ip_check || false,
         gps_lock: gameSettings.gps_lock || false,
+        quick_play:
+          gameSettings.quick_play === true ||
+          gameSettings.quickPlay === true ||
+          gameSettings.fast_hand === true ||
+          gameSettings.fastHand === true,
       };
     }
 

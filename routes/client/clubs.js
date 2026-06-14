@@ -372,6 +372,11 @@ function normalizeRoomGameSettings(raw) {
     manual_start: input.manual_start === true,
     ip_check: input.ip_check === true,
     gps_lock: input.gps_lock === true || input.location_check === true,
+    quick_play:
+      input.quick_play === true ||
+      input.quickPlay === true ||
+      input.fast_hand === true ||
+      input.fastHand === true,
   };
 }
 
