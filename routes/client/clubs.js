@@ -26,6 +26,9 @@ const {
   loadClubAgentBindings,
   loadPlayerClubUpstreamBindings,
 } = require('../../utils/clubAgentHierarchy');
+const {
+  validateAgentBranchQuota,
+} = require('../../utils/clubAgentQuotaAllocation');
 const { listClubRooms } = require('../../lib/clubRoomsList');
 const {
   broadcastClubRoomChange,
@@ -2474,26 +2477,33 @@ router.get('/:clubId/agent-member-list', async (req, res) => {
 
     const rakeSettings = await prisma.club.findUnique({
       where: { id: club.id },
-      select: { selfDrawRakePercent: true },
+      select: { selfDrawRakePercent: true, profitDisplayEnabled: true },
     });
+    const profitDisplayEnabled = rakeSettings?.profitDisplayEnabled !== false;
     const appliedSelfDrawRakePercent = clubSelfDrawRakePercentNumber(
       rakeSettings?.selfDrawRakePercent
     );
-    const clubForRake = {
-      id: club.id,
-      selfDrawRakePercent: rakeSettings?.selfDrawRakePercent,
-    };
+    if (profitDisplayEnabled) {
+      const clubForRake = {
+        id: club.id,
+        selfDrawRakePercent: rakeSettings?.selfDrawRakePercent,
+      };
 
-    const displayMap = await buildSelfDrawDisplayMap(
-      prisma,
-      clubForRake,
-      { startAt: hasDateFilter ? startDate : null, endAt: hasDateFilter ? endDate : null },
-      bindings,
-      upstreamBindings,
-      actorPlayerId
-    );
-    for (const row of rows) {
-      row.selfDrawRake = displayMap.get(row.playerId) ?? 0;
+      const displayMap = await buildSelfDrawDisplayMap(
+        prisma,
+        clubForRake,
+        { startAt: hasDateFilter ? startDate : null, endAt: hasDateFilter ? endDate : null },
+        bindings,
+        upstreamBindings,
+        actorPlayerId
+      );
+      for (const row of rows) {
+        row.selfDrawRake = displayMap.get(row.playerId) ?? 0;
+      }
+    } else {
+      for (const row of rows) {
+        delete row.selfDrawRake;
+      }
     }
 
     rows = rows.filter((r) => visibleIds.has(r.playerId));
@@ -2524,6 +2534,7 @@ router.get('/:clubId/agent-member-list', async (req, res) => {
     return successResponse(res, {
       ...pagedPayload(pageItems, { total, page, pageSize }),
       appliedSelfDrawRakePercent,
+      profitDisplayEnabled,
     });
   } catch (error) {
     console.error('[Clubs API] 獲取代理成員列表失敗:', error);
@@ -2643,10 +2654,24 @@ router.post('/:clubId/members/promote-agent', async (req, res) => {
 
     const pct = agentPercentage !== undefined && agentPercentage !== null
       ? Math.max(0, Number(agentPercentage) || 0)
-      : 2;
+      : 0;
     const fee = agentRoomCardFee !== undefined && agentRoomCardFee !== null
       ? Math.max(0, Number(agentRoomCardFee) || 0)
-      : 2;
+      : 0;
+
+    const quotaBindings = await loadClubAgentBindings(prisma, club.id);
+    const quotaCheck = validateAgentBranchQuota({
+      bindings: quotaBindings,
+      targetPlayerId,
+      upstreamAgentPlayerId: resolvedUpstream,
+      agentPercentage: pct,
+      agentRoomCardFee: fee,
+      totalPercentage: club.selfDrawRakePercent,
+      totalRoomCards: club.cardCount,
+    });
+    if (!quotaCheck.ok) {
+      return errorResponse(res, quotaCheck.message, null, 400);
+    }
 
     const perms = normalizeBoolPermissions(permissions) ?? DEFAULT_CO_LEADER_PERMISSIONS;
 
@@ -2783,9 +2808,21 @@ router.post('/:clubId/members/agent-settings', async (req, res) => {
     }
 
     if (clear === true) {
+      const quotaCheck = validateAgentBranchQuota({
+        bindings,
+        targetPlayerId,
+        agentPercentage: 0,
+        agentRoomCardFee: 0,
+        totalPercentage: club.selfDrawRakePercent,
+        totalRoomCards: club.cardCount,
+      });
+      if (!quotaCheck.ok) {
+        return errorResponse(res, quotaCheck.message, null, 400);
+      }
+
       const updated = await prisma.agentClubBinding.update({
         where: { id: existing.id },
-        data: { agentPercentage: 2, agentRoomCardFee: 2 },
+        data: { agentPercentage: 0, agentRoomCardFee: 0 },
       });
       return successResponse(res, updated, '代理設置已清除');
     }
@@ -2808,6 +2845,18 @@ router.post('/:clubId/members/agent-settings', async (req, res) => {
 
     if (Object.keys(data).length === 0) {
       return errorResponse(res, '請提供要更新的欄位', null, 400);
+    }
+
+    const quotaCheck = validateAgentBranchQuota({
+      bindings,
+      targetPlayerId,
+      agentPercentage: data.agentPercentage,
+      agentRoomCardFee: data.agentRoomCardFee,
+      totalPercentage: club.selfDrawRakePercent,
+      totalRoomCards: club.cardCount,
+    });
+    if (!quotaCheck.ok) {
+      return errorResponse(res, quotaCheck.message, null, 400);
     }
 
     const updated = await prisma.agentClubBinding.update({

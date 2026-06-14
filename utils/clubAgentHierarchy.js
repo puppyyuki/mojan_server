@@ -204,8 +204,8 @@ async function ensureCreatorSuperBinding(prisma, clubInternalId, creatorPlayerId
       clubId: clubInternalId,
       agentLevel: 'super',
       upstreamAgentPlayerId: null,
-      agentRoomCardFee: 2,
-      agentPercentage: 2,
+      agentRoomCardFee: 0,
+      agentPercentage: 0,
     },
   });
 }

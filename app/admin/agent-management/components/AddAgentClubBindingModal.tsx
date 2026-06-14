@@ -48,8 +48,8 @@ export default function AddAgentClubBindingModal({
   const [clubDbId, setClubDbId] = useState<string | null>(null)
   const [upstreamDbId, setUpstreamDbId] = useState<string | null>(null)
   const [agentLevel, setAgentLevel] = useState<AgentLevelValue>('agent')
-  const [agentRoomCardFee, setAgentRoomCardFee] = useState<string>('2')
-  const [agentPercentage, setAgentPercentage] = useState<string>('2')
+  const [agentRoomCardFee, setAgentRoomCardFee] = useState<string>('0')
+  const [agentPercentage, setAgentPercentage] = useState<string>('0')
   const [loading, setLoading] = useState(false)
   const [canAssignSuper, setCanAssignSuper] = useState(true)
 
@@ -63,14 +63,14 @@ export default function AddAgentClubBindingModal({
           ? editing.agentLevel
           : 'agent') as AgentLevelValue
       )
-      setAgentRoomCardFee(String(editing.agentRoomCardFee ?? 2))
-      setAgentPercentage(String(editing.agentPercentage ?? 2))
+      setAgentRoomCardFee(String(editing.agentRoomCardFee ?? 0))
+      setAgentPercentage(String(editing.agentPercentage ?? 0))
     } else {
       setClubDbId(null)
       setUpstreamDbId(null)
       setAgentLevel('agent')
-      setAgentRoomCardFee('2')
-      setAgentPercentage('2')
+      setAgentRoomCardFee('0')
+      setAgentPercentage('0')
     }
   }, [isOpen, editing])
 
@@ -252,13 +252,13 @@ export default function AddAgentClubBindingModal({
               代理房卡費
             </label>
             <p className="text-xs text-gray-500 mb-2">
-              代理房卡費設定；預設 2。目前僅供後台儲存。
+              代理房卡費設定；預設 0。目前僅供後台儲存。
             </p>
             <input
               type="number"
               value={agentRoomCardFee}
               onChange={(e) => setAgentRoomCardFee(e.target.value)}
-              placeholder="2"
+              placeholder="0"
               min={0}
               step="any"
               disabled={loading}
@@ -277,7 +277,7 @@ export default function AddAgentClubBindingModal({
               type="number"
               value={agentPercentage}
               onChange={(e) => setAgentPercentage(e.target.value)}
-              placeholder="2"
+              placeholder="0"
               min={0}
               step="any"
               disabled={loading}

@@ -6,6 +6,7 @@
 const assert = require('assert');
 const {
   buildRoomListItem,
+  sortClubRoomListItems,
   isStaleWaitingRoom,
   shouldListRoom,
   participantsForRoomListDisplay,
@@ -186,12 +187,47 @@ function testShouldListRoom() {
   );
 }
 
+function testClubRoomListSortOrder() {
+  const sorted = sortClubRoomListItems([
+    {
+      roomId: 'playing-old',
+      status: 'PLAYING',
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      updatedAt: new Date('2026-01-01T09:00:00Z'),
+      startedAt: new Date('2026-01-01T01:00:00Z'),
+    },
+    {
+      roomId: 'waiting-old-updated',
+      status: 'WAITING',
+      createdAt: new Date('2026-01-01T02:00:00Z'),
+      updatedAt: new Date('2026-01-01T10:00:00Z'),
+    },
+    {
+      roomId: 'playing-new',
+      status: 'PLAYING',
+      createdAt: new Date('2026-01-01T00:00:00Z'),
+      startedAt: new Date('2026-01-01T03:00:00Z'),
+    },
+    {
+      roomId: 'waiting-new',
+      status: 'WAITING',
+      createdAt: new Date('2026-01-01T04:00:00Z'),
+    },
+  ]);
+
+  assert.deepStrictEqual(
+    sorted.map((room) => room.roomId),
+    ['waiting-new', 'waiting-old-updated', 'playing-new', 'playing-old']
+  );
+}
+
 function main() {
   testBuildRoomListItem();
   testStaleWaitingRoom();
   testPlayingRoomKeepsDisconnectedPlayerInList();
   testWaitingRoomExcludesDisconnectedPlayer();
   testShouldListRoom();
+  testClubRoomListSortOrder();
   console.log('[club_rooms_list_unit_test] all passed');
 }
 

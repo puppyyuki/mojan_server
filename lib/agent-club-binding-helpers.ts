@@ -30,7 +30,7 @@ export function canAssignSuperAgentLevel(
   return superBinding.playerId === subjectPlayerDbId
 }
 
-export function parseNonNegativeFloat(raw: unknown, fallback = 2): number {
+export function parseNonNegativeFloat(raw: unknown, fallback = 0): number {
   const n = Number(raw)
   if (!Number.isFinite(n) || n < 0) return fallback
   return n

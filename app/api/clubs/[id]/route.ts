@@ -35,6 +35,7 @@ export async function GET(
         logoUrl: true,
         venueDrawPercent: true,
         selfDrawRakePercent: true,
+        profitDisplayEnabled: true,
         weeklySettlementEnabled: true,
         roomCardFee: true,
         cardCount: true, // 包含俱樂部房卡數量
@@ -104,6 +105,7 @@ export async function PATCH(
       joinRequiresOwnerApproval,
       venueDrawPercent,
       selfDrawRakePercent,
+      profitDisplayEnabled,
       weeklySettlementEnabled,
       roomCardFee,
     } = body
@@ -114,6 +116,7 @@ export async function PATCH(
       joinRequiresOwnerApproval !== undefined ||
       venueDrawPercent !== undefined ||
       selfDrawRakePercent !== undefined ||
+      profitDisplayEnabled !== undefined ||
       weeklySettlementEnabled !== undefined ||
       roomCardFee !== undefined
 
@@ -169,6 +172,9 @@ export async function PATCH(
         )
       }
       updateData.selfDrawRakePercent = n
+    }
+    if (profitDisplayEnabled !== undefined) {
+      updateData.profitDisplayEnabled = Boolean(profitDisplayEnabled)
     }
     if (weeklySettlementEnabled !== undefined) {
       updateData.weeklySettlementEnabled = Boolean(weeklySettlementEnabled)

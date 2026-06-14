@@ -27,6 +27,7 @@ interface Club {
   avatarUrl?: string
   venueDrawPercent?: number
   selfDrawRakePercent?: number
+  profitDisplayEnabled?: boolean
   weeklySettlementEnabled?: boolean
   roomCardFee?: number
   members: Array<{

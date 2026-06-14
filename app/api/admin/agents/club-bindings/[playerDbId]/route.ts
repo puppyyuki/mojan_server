@@ -89,8 +89,8 @@ export async function POST(
       rawUpstream === null || rawUpstream === undefined || rawUpstream === ''
         ? null
         : String(rawUpstream).trim()
-    const agentRoomCardFee = parseNonNegativeFloat(body.agentRoomCardFee, 2)
-    const agentPercentage = parseNonNegativeFloat(body.agentPercentage, 2)
+    const agentRoomCardFee = parseNonNegativeFloat(body.agentRoomCardFee, 0)
+    const agentPercentage = parseNonNegativeFloat(body.agentPercentage, 0)
 
     if (!clubId) {
       return NextResponse.json(

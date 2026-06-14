@@ -125,6 +125,8 @@ model Club {
   venueDrawPercent Float @default(5)
   /// 後台報表「自摸抽」抽成比例（百分比，例如 8 表示 8%；依自摸局該家當局正分計算）
   selfDrawRakePercent Float @default(8)
+  /// 關閉後，App 俱樂部代理成員列表隱藏「自摸抽」欄位
+  profitDisplayEnabled Boolean @default(true)
   /// 開啟後，App 俱樂部排行榜「積分」為戰績分扣除與報表相同規則計算之自摸抽（依俱樂部自摸抽％）
   weeklySettlementEnabled Boolean @default(false)
   /// 房卡費（後台設定；暫不影響開局扣卡邏輯）
@@ -156,8 +158,8 @@ model AgentClubBinding {
   upstreamAgentPlayerId String?
   upstreamAgent         Player?  @relation("AgentClubBindingUpstream", fields: [upstreamAgentPlayerId], references: [id], onDelete: SetNull)
   agentLevel            String   @default("agent") // super | master | mid | small | agent | dealer | distributor | promoter
-  agentRoomCardFee      Float    @default(2)
-  agentPercentage       Float    @default(2) // 代理%數
+  agentRoomCardFee      Float    @default(0)
+  agentPercentage       Float    @default(0) // 代理%數
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
 

@@ -22,6 +22,7 @@ interface Club {
   avatarUrl?: string
   venueDrawPercent?: number
   selfDrawRakePercent?: number
+  profitDisplayEnabled?: boolean
   weeklySettlementEnabled?: boolean
   roomCardFee?: number
   members: Array<{
@@ -52,6 +53,7 @@ export default function EditClubModal({
   const [cardCount, setCardCount] = useState<string>('0')
   const [venueDrawPercent, setVenueDrawPercent] = useState<string>('5')
   const [selfDrawRakePercent, setSelfDrawRakePercent] = useState<string>('8')
+  const [profitDisplayEnabled, setProfitDisplayEnabled] = useState<boolean>(true)
   const [weeklySettlementEnabled, setWeeklySettlementEnabled] = useState<boolean>(false)
   const [roomCardFee, setRoomCardFee] = useState<string>('2')
   const [avatarUrl, setAvatarUrl] = useState<string>('')
@@ -73,6 +75,7 @@ export default function EditClubModal({
           ? club.selfDrawRakePercent
           : 8
       setSelfDrawRakePercent(String(sdr))
+      setProfitDisplayEnabled(club.profitDisplayEnabled !== false)
       setWeeklySettlementEnabled(club.weeklySettlementEnabled === true)
       const rcf =
         typeof club.roomCardFee === 'number' && Number.isFinite(club.roomCardFee)
@@ -140,6 +143,7 @@ export default function EditClubModal({
         joinRequiresOwnerApproval: joinRequiresApproval,
         venueDrawPercent: venueParsed,
         selfDrawRakePercent: rakeParsed,
+        profitDisplayEnabled,
         weeklySettlementEnabled,
         roomCardFee: roomCardFeeParsed,
       }, {
@@ -296,6 +300,30 @@ export default function EditClubModal({
               step="any"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400"
             />
+          </div>
+
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-2">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-gray-900">利潤顯示</p>
+              <p className="text-xs text-gray-500 mt-0.5">
+                關閉後，App 俱樂部「管理 &gt; 成員列表」會隱藏代理階層的「自摸抽」整欄。
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={profitDisplayEnabled}
+              onClick={() => setProfitDisplayEnabled((v) => !v)}
+              className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                profitDisplayEnabled ? 'bg-blue-600' : 'bg-gray-200'
+              }`}
+            >
+              <span
+                className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                  profitDisplayEnabled ? 'translate-x-5' : 'translate-x-0.5'
+                }`}
+              />
+            </button>
           </div>
 
           <div className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-2">
