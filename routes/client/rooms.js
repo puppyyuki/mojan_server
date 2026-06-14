@@ -28,8 +28,8 @@ function normalizeDeduction(raw) {
 }
 
 /**
- * 本桌房卡總消耗（與開局扣卡一致），再平均分攤到每位參與玩家（俱樂部排行／報表統計）。
- * AA：每人付 rounds 張 → 總計 rounds * 人數；俱樂部／房主扣卡：總計 rounds * 4，由四人分攤。
+ * 本桌房卡總消耗（與開局扣卡一致），並寫入每位已記錄玩家的個人耗卡（俱樂部排行／報表統計）。
+ * AA：每人付 rounds 張；俱樂部／房主扣卡：總計 rounds * 4，但個人耗卡固定按 4 人份額，不把缺失座位攤到其他玩家。
  */
 function buildRoomCardConsumedByPlayerId(deduction, rounds, players) {
   const roomCardConsumedByPlayerId = new Map();
@@ -45,12 +45,9 @@ function buildRoomCardConsumedByPlayerId(deduction, rounds, players) {
   }
   const totalTableCardCost =
     deduction === 'AA_DEDUCTION' ? rounds * players.length : rounds * 4;
-  const base = Math.floor(totalTableCardCost / splitN);
-  let remainder = totalTableCardCost - base * splitN;
+  const perRecordedPlayerCost = rounds;
   for (const playerId of sortedUniqueIds) {
-    const extra = remainder > 0 ? 1 : 0;
-    if (remainder > 0) remainder -= 1;
-    roomCardConsumedByPlayerId.set(playerId, base + extra);
+    roomCardConsumedByPlayerId.set(playerId, perRecordedPlayerCost);
   }
   return { roomCardConsumedByPlayerId, roomCardConsumedTotal: totalTableCardCost };
 }

@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { parseTaipeiDateEnd, parseTaipeiDateStart } from '@/lib/taipei-time'
+import { agentLevelLabelZh } from '@/lib/agent-level-display'
+import { levelOrder } from '@/lib/agent-levels'
 
 const { isV2RoundCompletedForStatistics } = require('../../../../../utils/v2RoundStatistics')
 
@@ -29,6 +31,10 @@ function selfDrawRakeDecimalFromPercent(p: number | null | undefined): number {
   if (p == null || !Number.isFinite(Number(p))) return DEFAULT_SELF_DRAW_RAKE_PERCENT / 100
   const clamped = Math.min(100, Math.max(0, Number(p)))
   return clamped / 100
+}
+
+function roundMoney(n: number): number {
+  return Math.round((Number(n) || 0) * 100) / 100
 }
 
 /** 該局該座位分數變化（與 rooms normalizeScoresBySeat 一致） */
@@ -425,28 +431,221 @@ export async function GET(request: NextRequest) {
       row.completedGames = completedGamesByPlayer.get(row.playerId) || 0
     }
 
-    const rows = Array.from(playerAggMap.values())
-      .map((r) => ({
+    const [agentBindings, upstreamBindings] = await Promise.all([
+      prisma.agentClubBinding.findMany({
+        where: { clubId: club.id },
+        select: {
+          playerId: true,
+          upstreamAgentPlayerId: true,
+          agentLevel: true,
+          player: { select: { id: true, userId: true, nickname: true } },
+        },
+      }),
+      prisma.playerClubUpstreamBinding.findMany({
+        where: { clubId: club.id },
+        select: {
+          playerId: true,
+          upstreamAgentPlayerId: true,
+        },
+      }),
+    ])
+
+    const agentBindingByPlayerId = new Map(agentBindings.map((b) => [b.playerId, b]))
+    const agentPlayerIds = new Set(agentBindings.map((b) => b.playerId))
+
+    // 代理即使區間內沒有戰績，也需要出現在 CSV 供應收/總結核對。
+    for (const binding of agentBindings) {
+      if (playerAggMap.has(binding.playerId)) continue
+      const userId =
+        typeof binding.player?.userId === 'string' && binding.player.userId.trim()
+          ? binding.player.userId.trim()
+          : '—'
+      const nickname =
+        typeof binding.player?.nickname === 'string' && binding.player.nickname.trim()
+          ? binding.player.nickname.trim()
+          : '未知玩家'
+      playerAggMap.set(binding.playerId, {
+        playerId: binding.playerId,
+        userId,
+        nickname,
+        battleScore: 0,
+        bigWinnerCount: 0,
+        selfDrawCount: 0,
+        roomCardConsumed: 0,
+        completedGames: 0,
+        dongMoney: 0,
+        waterMoney: 0,
+        selfDrawRakeMoney: 0,
+      })
+    }
+
+    const directPlayerIdsByAgentId = new Map<string, string[]>()
+    for (const binding of upstreamBindings) {
+      if (agentPlayerIds.has(binding.playerId)) continue
+      const list = directPlayerIdsByAgentId.get(binding.upstreamAgentPlayerId) ?? []
+      list.push(binding.playerId)
+      directPlayerIdsByAgentId.set(binding.upstreamAgentPlayerId, list)
+    }
+
+    const childAgentIdsByAgentId = new Map<string, string[]>()
+    for (const binding of agentBindings) {
+      if (!binding.upstreamAgentPlayerId) continue
+      const list = childAgentIdsByAgentId.get(binding.upstreamAgentPlayerId) ?? []
+      list.push(binding.playerId)
+      childAgentIdsByAgentId.set(binding.upstreamAgentPlayerId, list)
+    }
+
+    const rowBases = Array.from(playerAggMap.values()).map((r) => {
+      const agentBinding = agentBindingByPlayerId.get(r.playerId)
+      const rakeAmount = roundMoney(r.selfDrawRakeMoney)
+      const payment = roundMoney(r.battleScore - rakeAmount)
+      return {
         timeRange: `${startRaw} ~ ${endRaw}`,
         clubSixId: club.clubId,
         clubName: club.name,
         playerDisplay: `${r.nickname} (${r.userId})`,
+        id: r.userId,
+        nickname: r.nickname,
+        title: agentBinding ? agentLevelLabelZh(agentBinding.agentLevel) : '玩家',
+        agentLevel: agentBinding?.agentLevel ?? null,
         playerId: r.playerId,
         playerUserId: r.userId,
         playerNickname: r.nickname,
         battleScore: r.battleScore,
+        payment,
         bigWinnerCount: r.bigWinnerCount,
         selfDrawCount: r.selfDrawCount,
         roomCardConsumed: r.roomCardConsumed,
         completedGames: r.completedGames,
         dongMoney: Math.round(r.dongMoney),
-        selfDrawRakeMoney: Math.round(r.selfDrawRakeMoney * 100) / 100,
-        waterMoney: Math.round(r.waterMoney * 100) / 100,
-      }))
+        rakeAmount,
+        selfDrawRakeMoney: rakeAmount,
+        waterMoney: roundMoney(r.waterMoney),
+        receivable: 0,
+        summary: null as number | null,
+        csvSortOrder: Number.MAX_SAFE_INTEGER,
+      }
+    })
+
+    const rowBaseByPlayerId = new Map(rowBases.map((row) => [row.playerId, row]))
+    const paymentByPlayerId = new Map(rowBases.map((row) => [row.playerId, row.payment]))
+
+    for (const row of rowBases) {
+      const agentBinding = agentBindingByPlayerId.get(row.playerId)
+      if (!agentBinding) {
+        row.receivable = row.payment
+        continue
+      }
+      const directPlayerPayment = (directPlayerIdsByAgentId.get(row.playerId) ?? []).reduce(
+        (sum, playerId) => sum + (paymentByPlayerId.get(playerId) ?? 0),
+        0
+      )
+      row.receivable = roundMoney(row.payment + directPlayerPayment)
+    }
+
+    function collectDescendantAgentIds(rootPlayerId: string): string[] {
+      const descendants: string[] = []
+      const stack = [...(childAgentIdsByAgentId.get(rootPlayerId) ?? [])]
+      const seen = new Set<string>()
+      while (stack.length) {
+        const playerId = stack.pop()
+        if (!playerId || seen.has(playerId)) continue
+        seen.add(playerId)
+        descendants.push(playerId)
+        stack.push(...(childAgentIdsByAgentId.get(playerId) ?? []))
+      }
+      return descendants
+    }
+
+    for (const row of rowBases) {
+      if (row.agentLevel !== 'master') continue
+      const descendantReceivable = collectDescendantAgentIds(row.playerId).reduce(
+        (sum, playerId) => sum + (rowBaseByPlayerId.get(playerId)?.receivable ?? 0),
+        0
+      )
+      row.summary = roundMoney(row.receivable + descendantReceivable)
+    }
+
+    const displaySort = (a: { playerUserId: string; playerNickname: string }, b: { playerUserId: string; playerNickname: string }) => {
+      const nicknameCompare = a.playerNickname.localeCompare(b.playerNickname, 'zh-Hant')
+      if (nicknameCompare !== 0) return nicknameCompare
+      return a.playerUserId.localeCompare(b.playerUserId)
+    }
+    const agentSort = (a: string, b: string) => {
+      const rowA = rowBaseByPlayerId.get(a)
+      const rowB = rowBaseByPlayerId.get(b)
+      if (!rowA || !rowB) return a.localeCompare(b)
+      const levelDiff = levelOrder(rowB.agentLevel) - levelOrder(rowA.agentLevel)
+      if (levelDiff !== 0) return levelDiff
+      return displaySort(rowA, rowB)
+    }
+    const playerSort = (a: string, b: string) => {
+      const rowA = rowBaseByPlayerId.get(a)
+      const rowB = rowBaseByPlayerId.get(b)
+      if (!rowA || !rowB) return a.localeCompare(b)
+      return displaySort(rowA, rowB)
+    }
+    const orderedForCsv: string[] = []
+    const seenForCsv = new Set<string>()
+    const pushForCsv = (playerId: string) => {
+      if (seenForCsv.has(playerId) || !rowBaseByPlayerId.has(playerId)) return
+      seenForCsv.add(playerId)
+      orderedForCsv.push(playerId)
+    }
+    const masterAgentIds = agentBindings
+      .filter((binding) => binding.agentLevel === 'master')
+      .map((binding) => binding.playerId)
+      .sort(agentSort)
+
+    for (const masterPlayerId of masterAgentIds) {
+      pushForCsv(masterPlayerId)
+      const queue = [masterPlayerId]
+      while (queue.length) {
+        const parentPlayerId = queue.shift()
+        if (!parentPlayerId) continue
+
+        const childAgentIds = [...(childAgentIdsByAgentId.get(parentPlayerId) ?? [])].sort(agentSort)
+        for (const childAgentId of childAgentIds) {
+          pushForCsv(childAgentId)
+        }
+
+        const directPlayerIds = [...(directPlayerIdsByAgentId.get(parentPlayerId) ?? [])]
+          .filter((playerId) => !agentPlayerIds.has(playerId))
+          .sort(playerSort)
+        for (const directPlayerId of directPlayerIds) {
+          pushForCsv(directPlayerId)
+        }
+
+        queue.push(...childAgentIds)
+      }
+    }
+
+    const remainingRowIds = rowBases
+      .map((row) => row.playerId)
+      .filter((playerId) => !seenForCsv.has(playerId))
+      .sort((a, b) => {
+        const rowA = rowBaseByPlayerId.get(a)
+        const rowB = rowBaseByPlayerId.get(b)
+        if (!rowA || !rowB) return a.localeCompare(b)
+        if (rowA.agentLevel && rowB.agentLevel) return agentSort(a, b)
+        if (rowA.agentLevel) return -1
+        if (rowB.agentLevel) return 1
+        return playerSort(a, b)
+      })
+    for (const playerId of remainingRowIds) {
+      pushForCsv(playerId)
+    }
+    orderedForCsv.forEach((playerId, index) => {
+      const row = rowBaseByPlayerId.get(playerId)
+      if (row) row.csvSortOrder = index
+    })
+
+    const rows = rowBases
       .sort((a, b) => {
         if (b.battleScore !== a.battleScore) return b.battleScore - a.battleScore
         if (b.completedGames !== a.completedGames) return b.completedGames - a.completedGames
-        return b.bigWinnerCount - a.bigWinnerCount
+        if (b.bigWinnerCount !== a.bigWinnerCount) return b.bigWinnerCount - a.bigWinnerCount
+        return a.playerUserId.localeCompare(b.playerUserId)
       })
 
     const totals = rows.reduce(

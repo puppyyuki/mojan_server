@@ -10,17 +10,26 @@ interface PlayerReportRow {
   clubSixId: string
   clubName: string
   playerDisplay: string
+  id: string
+  nickname: string
+  title: string
+  agentLevel: string | null
   playerId: string
   playerUserId: string
   playerNickname: string
   battleScore: number
+  payment: number
   bigWinnerCount: number
   selfDrawCount: number
   roomCardConsumed: number
   completedGames: number
   dongMoney: number
+  rakeAmount: number
   selfDrawRakeMoney: number
   waterMoney: number
+  receivable: number
+  summary: number | null
+  csvSortOrder?: number
 }
 
 interface SummaryData {
@@ -104,36 +113,35 @@ export default function ReportPage() {
       alert('沒有可匯出的資料')
       return
     }
+    const selfDrawRakePercent =
+      data.club?.selfDrawRakePercent != null && Number.isFinite(data.club.selfDrawRakePercent)
+        ? data.club.selfDrawRakePercent
+        : 8
+    const rakeHeader = `${selfDrawRakePercent}%`
+    const csvEscape = (value: string | number | null | undefined) =>
+      `"${String(value ?? '').replace(/"/g, '""')}"`
     const headers = [
-      '時間區間',
-      '俱樂部 ID',
-      '俱樂部名稱',
-      '玩家暱稱 + ID',
-      '戰績',
-      '大贏家',
-      '自摸次數',
-      '房卡消耗',
-      '場次',
-      '自摸東',
-      '自摸抽',
-      '場抽',
+      'ID',
+      '暱稱',
+      '職稱（代理層級）',
+      '收付',
+      rakeHeader,
+      '應收',
+      '總結',
+      '耗卡量',
     ]
     const lines = [
       headers.join(','),
-      ...data.rows.map((r) =>
+      ...[...data.rows].sort((a, b) => (a.csvSortOrder ?? 0) - (b.csvSortOrder ?? 0)).map((r) =>
         [
-          `"${r.timeRange}"`,
-          r.clubSixId,
-          `"${(r.clubName || '').replace(/"/g, '""')}"`,
-          `"${(r.playerDisplay || '').replace(/"/g, '""')}"`,
-          r.battleScore,
-          r.bigWinnerCount,
-          r.selfDrawCount,
+          csvEscape(r.id),
+          csvEscape(r.nickname),
+          csvEscape(r.title),
+          r.payment,
+          r.rakeAmount,
+          r.receivable,
+          r.summary ?? '',
           r.roomCardConsumed,
-          r.completedGames,
-          r.dongMoney,
-          r.selfDrawRakeMoney,
-          r.waterMoney,
         ].join(',')
       ),
     ]
