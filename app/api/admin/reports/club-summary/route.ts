@@ -5,6 +5,8 @@ import { agentLevelLabelZh } from '@/lib/agent-level-display'
 import { levelOrder } from '@/lib/agent-levels'
 
 const { isV2RoundCompletedForStatistics } = require('../../../../../utils/v2RoundStatistics')
+const { aggregateSelfDrawStatsByPlayerId } = require('../../../../../utils/clubSelfDrawRakeMoney')
+const { computeViewerSelfDrawRakeForRow } = require('../../../../../utils/clubAgentSelfDrawRakeTree')
 
 function corsHeaders() {
   return {
@@ -438,6 +440,7 @@ export async function GET(request: NextRequest) {
           playerId: true,
           upstreamAgentPlayerId: true,
           agentLevel: true,
+          agentPercentage: true,
           player: { select: { id: true, userId: true, nickname: true } },
         },
       }),
@@ -452,6 +455,26 @@ export async function GET(request: NextRequest) {
 
     const agentBindingByPlayerId = new Map(agentBindings.map((b) => [b.playerId, b]))
     const agentPlayerIds = new Set(agentBindings.map((b) => b.playerId))
+    const { winByPlayer, poolByPlayer, rakePercent } = await aggregateSelfDrawStatsByPlayerId(
+      prisma,
+      { id: club.id, selfDrawRakePercent: club.selfDrawRakePercent },
+      { startAt, endAt }
+    )
+    const agentSelfDrawRakeByPlayerId = new Map<string, number>()
+    for (const binding of agentBindings) {
+      agentSelfDrawRakeByPlayerId.set(
+        binding.playerId,
+        computeViewerSelfDrawRakeForRow(
+          binding.playerId,
+          binding.playerId,
+          winByPlayer,
+          poolByPlayer,
+          agentBindings,
+          upstreamBindings,
+          rakePercent
+        )
+      )
+    }
 
     // 代理即使區間內沒有戰績，也需要出現在 CSV 供應收/總結核對。
     for (const binding of agentBindings) {
@@ -497,7 +520,10 @@ export async function GET(request: NextRequest) {
 
     const rowBases = Array.from(playerAggMap.values()).map((r) => {
       const agentBinding = agentBindingByPlayerId.get(r.playerId)
-      const rakeAmount = roundMoney(r.selfDrawRakeMoney)
+      const originalSelfDrawRakeAmount = roundMoney(r.selfDrawRakeMoney)
+      const rakeAmount = roundMoney(
+        agentBinding ? agentSelfDrawRakeByPlayerId.get(r.playerId) ?? 0 : originalSelfDrawRakeAmount
+      )
       const payment = roundMoney(r.battleScore - rakeAmount)
       return {
         timeRange: `${startRaw} ~ ${endRaw}`,
@@ -519,7 +545,7 @@ export async function GET(request: NextRequest) {
         completedGames: r.completedGames,
         dongMoney: Math.round(r.dongMoney),
         rakeAmount,
-        selfDrawRakeMoney: rakeAmount,
+        selfDrawRakeMoney: originalSelfDrawRakeAmount,
         waterMoney: roundMoney(r.waterMoney),
         receivable: 0,
         summary: null as number | null,
@@ -548,14 +574,14 @@ export async function GET(request: NextRequest) {
     for (const row of rowBases) {
       const agentBinding = agentBindingByPlayerId.get(row.playerId)
       if (!agentBinding) {
-        row.receivable = row.payment
+        row.receivable = roundMoney(row.payment + row.rakeAmount)
         continue
       }
       const directPlayerPayment = (directPlayerIdsByAgentId.get(row.playerId) ?? []).reduce(
         (sum, playerId) => sum + (paymentByPlayerId.get(playerId) ?? 0),
         0
       )
-      row.receivable = roundMoney(row.payment + directPlayerPayment)
+      row.receivable = roundMoney(row.payment + directPlayerPayment + row.rakeAmount)
     }
 
     function collectDescendantAgentIds(rootPlayerId: string): string[] {
@@ -607,14 +633,14 @@ export async function GET(request: NextRequest) {
       seenForCsv.add(playerId)
       orderedForCsv.push(playerId)
     }
-    const masterAgentIds = agentBindings
-      .filter((binding) => binding.agentLevel === 'master')
+    const rootAgentIds = agentBindings
+      .filter((binding) => binding.agentLevel === 'super' || !binding.upstreamAgentPlayerId)
       .map((binding) => binding.playerId)
       .sort(agentSort)
 
-    for (const masterPlayerId of masterAgentIds) {
-      pushForCsv(masterPlayerId)
-      const queue = [masterPlayerId]
+    for (const rootPlayerId of rootAgentIds) {
+      pushForCsv(rootPlayerId)
+      const queue = [rootPlayerId]
       while (queue.length) {
         const parentPlayerId = queue.shift()
         if (!parentPlayerId) continue
