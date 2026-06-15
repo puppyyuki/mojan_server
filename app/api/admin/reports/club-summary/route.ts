@@ -523,12 +523,27 @@ export async function GET(request: NextRequest) {
         waterMoney: roundMoney(r.waterMoney),
         receivable: 0,
         summary: null as number | null,
+        upstreamAgent: '',
         csvSortOrder: Number.MAX_SAFE_INTEGER,
       }
     })
 
     const rowBaseByPlayerId = new Map(rowBases.map((row) => [row.playerId, row]))
     const paymentByPlayerId = new Map(rowBases.map((row) => [row.playerId, row.payment]))
+    const upstreamBindingByPlayerId = new Map(upstreamBindings.map((binding) => [binding.playerId, binding]))
+    const upstreamDisplay = (playerId: string | null | undefined): string => {
+      if (!playerId) return ''
+      const row = rowBaseByPlayerId.get(playerId)
+      if (!row) return ''
+      return `${row.nickname} (${row.id})`
+    }
+
+    for (const row of rowBases) {
+      const agentBinding = agentBindingByPlayerId.get(row.playerId)
+      const upstreamPlayerId =
+        agentBinding?.upstreamAgentPlayerId ?? upstreamBindingByPlayerId.get(row.playerId)?.upstreamAgentPlayerId
+      row.upstreamAgent = upstreamDisplay(upstreamPlayerId)
+    }
 
     for (const row of rowBases) {
       const agentBinding = agentBindingByPlayerId.get(row.playerId)

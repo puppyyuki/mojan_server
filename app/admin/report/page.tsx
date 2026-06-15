@@ -29,6 +29,7 @@ interface PlayerReportRow {
   waterMoney: number
   receivable: number
   summary: number | null
+  upstreamAgent?: string
   csvSortOrder?: number
 }
 
@@ -128,6 +129,7 @@ export default function ReportPage() {
       rakeHeader,
       '應收',
       '總結',
+      '上層代理',
       '耗卡量',
     ]
     const lines = [
@@ -141,6 +143,7 @@ export default function ReportPage() {
           r.rakeAmount,
           r.receivable,
           r.summary ?? '',
+          csvEscape(r.upstreamAgent),
           r.roomCardConsumed,
         ].join(',')
       ),
