@@ -628,6 +628,7 @@ export async function GET(request: NextRequest) {
     }
     const orderedForCsv: string[] = []
     const seenForCsv = new Set<string>()
+    const expandedForCsv = new Set<string>()
     const pushForCsv = (playerId: string) => {
       if (seenForCsv.has(playerId) || !rowBaseByPlayerId.has(playerId)) return
       seenForCsv.add(playerId)
@@ -638,27 +639,30 @@ export async function GET(request: NextRequest) {
       .map((binding) => binding.playerId)
       .sort(agentSort)
 
-    for (const rootPlayerId of rootAgentIds) {
-      pushForCsv(rootPlayerId)
-      const queue = [rootPlayerId]
-      while (queue.length) {
-        const parentPlayerId = queue.shift()
-        if (!parentPlayerId) continue
+    const appendCsvSubtree = (parentPlayerId: string) => {
+      if (expandedForCsv.has(parentPlayerId)) return
+      pushForCsv(parentPlayerId)
+      expandedForCsv.add(parentPlayerId)
 
-        const childAgentIds = [...(childAgentIdsByAgentId.get(parentPlayerId) ?? [])].sort(agentSort)
-        for (const childAgentId of childAgentIds) {
-          pushForCsv(childAgentId)
-        }
+      const childAgentIds = [...(childAgentIdsByAgentId.get(parentPlayerId) ?? [])].sort(agentSort)
+      const directPlayerIds = [...(directPlayerIdsByAgentId.get(parentPlayerId) ?? [])]
+        .filter((playerId) => !agentPlayerIds.has(playerId))
+        .sort(playerSort)
 
-        const directPlayerIds = [...(directPlayerIdsByAgentId.get(parentPlayerId) ?? [])]
-          .filter((playerId) => !agentPlayerIds.has(playerId))
-          .sort(playerSort)
-        for (const directPlayerId of directPlayerIds) {
-          pushForCsv(directPlayerId)
-        }
-
-        queue.push(...childAgentIds)
+      for (const childAgentId of childAgentIds) {
+        pushForCsv(childAgentId)
       }
+      for (const directPlayerId of directPlayerIds) {
+        pushForCsv(directPlayerId)
+      }
+      // 同層代理與玩家先貼在上層代理下方，再逐一展開下一層代理子樹。
+      for (const childAgentId of childAgentIds) {
+        appendCsvSubtree(childAgentId)
+      }
+    }
+
+    for (const rootPlayerId of rootAgentIds) {
+      appendCsvSubtree(rootPlayerId)
     }
 
     const remainingRowIds = rowBases
