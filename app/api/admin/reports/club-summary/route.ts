@@ -524,7 +524,7 @@ export async function GET(request: NextRequest) {
       const rakeAmount = roundMoney(
         agentBinding ? agentSelfDrawRakeByPlayerId.get(r.playerId) ?? 0 : originalSelfDrawRakeAmount
       )
-      const payment = roundMoney(r.battleScore - rakeAmount)
+      const payment = roundMoney(r.battleScore - originalSelfDrawRakeAmount)
       return {
         timeRange: `${startRaw} ~ ${endRaw}`,
         clubSixId: club.clubId,
@@ -547,7 +547,7 @@ export async function GET(request: NextRequest) {
         rakeAmount,
         selfDrawRakeMoney: originalSelfDrawRakeAmount,
         waterMoney: roundMoney(r.waterMoney),
-        receivable: 0,
+        receivable: null as number | null,
         summary: null as number | null,
         upstreamAgent: '',
         csvSortOrder: Number.MAX_SAFE_INTEGER,
@@ -574,7 +574,7 @@ export async function GET(request: NextRequest) {
     for (const row of rowBases) {
       const agentBinding = agentBindingByPlayerId.get(row.playerId)
       if (!agentBinding) {
-        row.receivable = roundMoney(row.payment + row.rakeAmount)
+        row.receivable = null
         continue
       }
       const directPlayerPayment = (directPlayerIdsByAgentId.get(row.playerId) ?? []).reduce(

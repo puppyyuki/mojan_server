@@ -27,7 +27,7 @@ interface PlayerReportRow {
   rakeAmount: number
   selfDrawRakeMoney: number
   waterMoney: number
-  receivable: number
+  receivable: number | null
   summary: number | null
   upstreamAgent?: string
   csvSortOrder?: number
@@ -141,7 +141,7 @@ export default function ReportPage() {
           csvEscape(r.title),
           r.payment,
           r.rakeAmount,
-          r.receivable,
+          r.receivable ?? '',
           r.summary ?? '',
           csvEscape(r.upstreamAgent),
           r.roomCardConsumed,
