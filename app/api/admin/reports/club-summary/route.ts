@@ -628,42 +628,52 @@ export async function GET(request: NextRequest) {
     }
     const orderedForCsv: string[] = []
     const seenForCsv = new Set<string>()
-    const expandedForCsv = new Set<string>()
     const pushForCsv = (playerId: string) => {
       if (seenForCsv.has(playerId) || !rowBaseByPlayerId.has(playerId)) return
       seenForCsv.add(playerId)
       orderedForCsv.push(playerId)
     }
+    const insertAfterParentForCsv = (parentPlayerId: string, childPlayerIds: string[]) => {
+      const parentIndex = orderedForCsv.indexOf(parentPlayerId)
+      if (parentIndex < 0) return
+      for (const childPlayerId of [...childPlayerIds].reverse()) {
+        if (seenForCsv.has(childPlayerId) || !rowBaseByPlayerId.has(childPlayerId)) continue
+        seenForCsv.add(childPlayerId)
+        orderedForCsv.splice(parentIndex + 1, 0, childPlayerId)
+      }
+    }
+    const insertGroupedUnderParentsForCsv = (
+      groups: Map<string, string[]>,
+      sortFn: (a: string, b: string) => number
+    ) => {
+      for (const parentPlayerId of [...orderedForCsv].reverse()) {
+        const childPlayerIds = [...(groups.get(parentPlayerId) ?? [])]
+          .filter((playerId) => !seenForCsv.has(playerId))
+          .sort(sortFn)
+        insertAfterParentForCsv(parentPlayerId, childPlayerIds)
+      }
+    }
     const rootAgentIds = agentBindings
       .filter((binding) => binding.agentLevel === 'super' || !binding.upstreamAgentPlayerId)
       .map((binding) => binding.playerId)
       .sort(agentSort)
-
-    const appendCsvSubtree = (parentPlayerId: string) => {
-      if (expandedForCsv.has(parentPlayerId)) return
-      pushForCsv(parentPlayerId)
-      expandedForCsv.add(parentPlayerId)
-
-      const childAgentIds = [...(childAgentIdsByAgentId.get(parentPlayerId) ?? [])].sort(agentSort)
-      const directPlayerIds = [...(directPlayerIdsByAgentId.get(parentPlayerId) ?? [])]
-        .filter((playerId) => !agentPlayerIds.has(playerId))
-        .sort(playerSort)
-
-      for (const childAgentId of childAgentIds) {
-        pushForCsv(childAgentId)
-      }
-      for (const directPlayerId of directPlayerIds) {
-        pushForCsv(directPlayerId)
-      }
-      // 同層代理與玩家先貼在上層代理下方，再逐一展開下一層代理子樹。
-      for (const childAgentId of childAgentIds) {
-        appendCsvSubtree(childAgentId)
-      }
-    }
-
     for (const rootPlayerId of rootAgentIds) {
-      appendCsvSubtree(rootPlayerId)
+      pushForCsv(rootPlayerId)
     }
+
+    const csvAgentLevels = ['master', 'mid', 'small', 'agent', 'dealer', 'distributor', 'promoter']
+    for (const level of csvAgentLevels) {
+      const groups = new Map<string, string[]>()
+      for (const binding of agentBindings) {
+        if (binding.agentLevel !== level || !binding.upstreamAgentPlayerId) continue
+        const list = groups.get(binding.upstreamAgentPlayerId) ?? []
+        list.push(binding.playerId)
+        groups.set(binding.upstreamAgentPlayerId, list)
+      }
+      insertGroupedUnderParentsForCsv(groups, agentSort)
+    }
+
+    insertGroupedUnderParentsForCsv(directPlayerIdsByAgentId, playerSort)
 
     const remainingRowIds = rowBases
       .map((row) => row.playerId)
