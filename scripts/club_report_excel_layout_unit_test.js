@@ -7,6 +7,7 @@ const {
   directPlayerSpanEnd,
   findMidSpans,
   balance,
+  anchorLineSummaryTotal,
   sumLineContribution,
   sumBalance,
   COL,
@@ -79,8 +80,12 @@ assert(secondMasterRow[0] === '300001', 'second master should appear after first
 
 const superLineSummaryRow = layout.rows[1]
 assert(
-  superLineSummaryRow[COL.LINE_SUMMARY] === sumLineContribution(blocks[0].rows),
-  'super line summary should equal super block contribution sum'
+  superLineSummaryRow[COL.LINE_SUMMARY] === anchorLineSummaryTotal(blocks[0].rows, 'super'),
+  'super line summary should equal anchor self + settlement + direct players'
+)
+assert(
+  superLineSummaryRow[COL.LINE_SUMMARY] !== sumLineContribution(blocks[0].rows),
+  'super anchor line summary should not include mid subtree when mids exist'
 )
 
 const totalBeforeFirstMaster = layout.rows.findIndex((sheetRow, index) => index > 0 && sheetRow[0] === '總計')

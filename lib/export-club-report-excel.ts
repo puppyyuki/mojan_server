@@ -1,5 +1,5 @@
 import type ExcelJS from 'exceljs'
-import { buildClubReportSheetLayout, type MergeRange } from './club-report-excel-layout'
+import { buildClubReportSheetLayout, COL, EXCEL_HEADERS, type MergeRange } from './club-report-excel-layout'
 import {
   CELL_BORDER,
   COLUMN_WIDTHS,
@@ -8,8 +8,9 @@ import {
   headerFont,
   isNegativeNumber,
   isNumericColumn,
+  numberFormat,
+  textDisplayWidth,
   totalFill,
-  zebraFill,
 } from './club-report-excel-styles'
 
 export interface ClubReportExportRow {
@@ -69,21 +70,21 @@ function applyHeaderStyle(worksheet: ExcelJS.Worksheet): void {
 
 function applyBodyCellStyle(
   cell: ExcelJS.Cell,
-  rowIndex: number,
   columnIndex: number,
-  isTotalRow: boolean,
-  dataRowIndex: number
+  isTotalRow: boolean
 ): void {
   const value = cell.value
   const negative = isNumericColumn(columnIndex) && isNegativeNumber(value)
-  cell.fill = isTotalRow ? totalFill() : zebraFill(dataRowIndex)
+  if (isTotalRow) {
+    cell.fill = totalFill()
+  }
   cell.font = bodyFont(isTotalRow, negative)
   cell.border = CELL_BORDER
 
   if (isNumericColumn(columnIndex)) {
     cell.alignment = { vertical: 'middle', horizontal: 'center' }
     if (typeof value === 'number' && Number.isFinite(value)) {
-      cell.numFmt = '#,##0.##'
+      cell.numFmt = numberFormat(value)
     }
     return
   }
@@ -98,26 +99,35 @@ function applyBodyCellStyle(
 function applyWorksheetStyles(worksheet: ExcelJS.Worksheet, sheetData: unknown[][]): void {
   applyHeaderStyle(worksheet)
 
-  let dataRowIndex = 0
   for (let rowIndex = 1; rowIndex < sheetData.length; rowIndex += 1) {
     const rowValues = sheetData[rowIndex]
     const isTotalRow = Array.isArray(rowValues) && rowValues[0] === '總計'
-    if (!isTotalRow) {
-      dataRowIndex += 1
-    }
 
     const excelRow = worksheet.getRow(rowIndex + 1)
     excelRow.height = isTotalRow ? 22 : 20
     excelRow.eachCell({ includeEmpty: true }, (cell, columnNumber) => {
-      applyBodyCellStyle(cell, rowIndex, columnNumber - 1, isTotalRow, dataRowIndex)
+      applyBodyCellStyle(cell, columnNumber - 1, isTotalRow)
     })
   }
 }
 
-function applyColumnWidths(worksheet: ExcelJS.Worksheet): void {
+function computeColumnWidth(sheetData: unknown[][], columnIndex: number): number {
+  let maxWidth = textDisplayWidth(EXCEL_HEADERS[columnIndex] ?? '')
+  for (let rowIndex = 1; rowIndex < sheetData.length; rowIndex += 1) {
+    const rowValues = sheetData[rowIndex]
+    if (!Array.isArray(rowValues)) continue
+    const text = String(rowValues[columnIndex] ?? '')
+    maxWidth = Math.max(maxWidth, textDisplayWidth(text))
+  }
+  return Math.min(Math.max(maxWidth + 2, 10), 60)
+}
+
+function applyColumnWidths(worksheet: ExcelJS.Worksheet, sheetData: unknown[][]): void {
   COLUMN_WIDTHS.forEach((width, index) => {
     worksheet.getColumn(index + 1).width = width
   })
+  worksheet.getColumn(COL.NICKNAME + 1).width = computeColumnWidth(sheetData, COL.NICKNAME)
+  worksheet.getColumn(COL.UPSTREAM + 1).width = computeColumnWidth(sheetData, COL.UPSTREAM)
 }
 
 function applyMerges(worksheet: ExcelJS.Worksheet, merges: MergeRange[]): void {
@@ -142,7 +152,7 @@ export async function exportClubReportExcel(data: ClubReportExportData): Promise
   worksheet.addRows(sheetData)
   applyMerges(worksheet, merges)
   applyWorksheetStyles(worksheet, sheetData)
-  applyColumnWidths(worksheet)
+  applyColumnWidths(worksheet, sheetData)
 
   const buffer = await workbook.xlsx.writeBuffer()
   const blob = new Blob([buffer], {

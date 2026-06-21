@@ -4,8 +4,6 @@ import { COL, EXCEL_HEADERS } from './club-report-excel-layout'
 export const REPORT_COLORS = {
   headerBg: 'FF4A7C59',
   headerFont: 'FFFFFFFF',
-  zebraOdd: 'FFF5F5F5',
-  zebraEven: 'FFFFFFFF',
   totalBg: 'FFE2EFDA',
   border: 'FFD0D0D0',
   font: 'FF000000',
@@ -36,8 +34,6 @@ export const COLUMN_WIDTHS: number[] = EXCEL_HEADERS.map((_, index) => {
   switch (index) {
     case COL.ID:
       return 10
-    case COL.NICKNAME:
-      return 14
     case COL.TITLE:
       return 12
     case COL.BALANCE:
@@ -47,8 +43,6 @@ export const COLUMN_WIDTHS: number[] = EXCEL_HEADERS.map((_, index) => {
       return 13
     case COL.ROOM_CARD:
       return 11
-    case COL.UPSTREAM:
-      return 14
     default:
       return 12
   }
@@ -80,10 +74,6 @@ export function headerFill(): Fill {
   return solidFill(REPORT_COLORS.headerBg)
 }
 
-export function zebraFill(dataRowIndex: number): Fill {
-  return solidFill(dataRowIndex % 2 === 0 ? REPORT_COLORS.zebraEven : REPORT_COLORS.zebraOdd)
-}
-
 export function totalFill(): Fill {
   return solidFill(REPORT_COLORS.totalBg)
 }
@@ -94,4 +84,17 @@ export function isNumericColumn(columnIndex: number): boolean {
 
 export function isNegativeNumber(value: unknown): boolean {
   return typeof value === 'number' && Number.isFinite(value) && value < 0
+}
+
+export function numberFormat(value: number): string {
+  const rounded = Math.round(value * 100) / 100
+  return Number.isInteger(rounded) ? '#,##0' : '#,##0.##'
+}
+
+export function textDisplayWidth(text: string): number {
+  let width = 0
+  for (const char of text) {
+    width += char.charCodeAt(0) > 255 ? 2 : 1
+  }
+  return width
 }

@@ -75,6 +75,19 @@ export function sumRoomCardConsumed(rows: ClubReportExportRow[]): number {
   return rows.reduce((sum, row) => sum + row.roomCardConsumed, 0)
 }
 
+export function anchorLineSummaryTotal(
+  blockRows: ClubReportExportRow[],
+  anchorLevel: 'super' | 'master'
+): number {
+  const anchorIndex = blockRows.findIndex((row) => row.agentLevel === anchorLevel)
+  if (anchorIndex < 0) return 0
+  const anchor = blockRows[anchorIndex]
+  const directEnd = directPlayerSpanEnd(blockRows, anchorIndex)
+  const directPlayers = blockRows.slice(anchorIndex + 1, directEnd + 1)
+  const directPlayerSummary = directPlayers.reduce((sum, row) => sum + balance(row), 0)
+  return roundMoney(lineContribution(anchor) + directPlayerSummary)
+}
+
 export function sumAgentSettlement(rows: ClubReportExportRow[]): number {
   return roundMoney(rows.reduce((sum, row) => sum + agentSettlement(row), 0))
 }
@@ -210,13 +223,13 @@ function applyAnchorLineSummaryMerge(
   if (anchorIndex < 0) return
 
   const directEnd = directPlayerSpanEnd(blockRows, anchorIndex)
-  const blockTotal = sumLineContribution(blockRows)
+  const anchorTotal = anchorLineSummaryTotal(blockRows, anchorLevel)
   const sheetAnchorRow = sheetRowStart + anchorIndex
   const sheetDirectEndRow = sheetRowStart + directEnd
 
   const anchorRow = sheetRows[sheetAnchorRow]
   if (Array.isArray(anchorRow)) {
-    anchorRow[COL.LINE_SUMMARY] = blockTotal
+    anchorRow[COL.LINE_SUMMARY] = anchorTotal
   }
   pushVerticalMerge(merges, sheetAnchorRow, sheetDirectEndRow, COL.LINE_SUMMARY)
 }
