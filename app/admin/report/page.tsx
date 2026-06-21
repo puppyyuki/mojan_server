@@ -3,6 +3,7 @@
 import { useCallback, useState } from 'react'
 import { BarChart3, RefreshCw, ExternalLink, FileSpreadsheet } from 'lucide-react'
 import { apiGet } from '@/lib/api-client'
+import { exportClubReportExcel, getSortedReportRows } from '@/lib/export-club-report-excel'
 import Link from 'next/link'
 
 interface PlayerReportRow {
@@ -134,7 +135,7 @@ export default function ReportPage() {
     ]
     const lines = [
       headers.join(','),
-      ...[...data.rows].sort((a, b) => (a.csvSortOrder ?? 0) - (b.csvSortOrder ?? 0)).map((r) =>
+      ...getSortedReportRows(data.rows).map((r) =>
         [
           csvEscape(r.id),
           csvEscape(r.nickname),
@@ -155,6 +156,22 @@ export default function ReportPage() {
     a.download = `club-player-report-${data.filter.startDate}-${data.filter.endDate}-${data.filter.clubId}.csv`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  const handleExportExcel = async () => {
+    if (!data?.rows.length) {
+      alert('沒有可匯出的資料')
+      return
+    }
+    try {
+      await exportClubReportExcel({
+        rows: data.rows,
+        filter: data.filter,
+      })
+    } catch (e) {
+      console.error(e)
+      alert('匯出 Excel 失敗')
+    }
   }
 
   const inputBase =
@@ -242,6 +259,15 @@ export default function ReportPage() {
           >
             <FileSpreadsheet className="w-3.5 h-3.5 text-gray-700" />
             匯出 CSV
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleExportExcel()}
+            disabled={!data?.rows.length}
+            className="flex items-center gap-1 px-3 py-1.5 border border-emerald-300 bg-emerald-50 text-sm text-emerald-900 rounded hover:bg-emerald-100 disabled:opacity-40"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-800" />
+            下載 EXCEL
           </button>
         </div>
         {data?.filter && (

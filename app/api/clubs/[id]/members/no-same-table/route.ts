@@ -48,13 +48,6 @@ export async function POST(
       )
     }
 
-    if (club.creatorId === playerId) {
-      return NextResponse.json(
-        { success: false, error: '不可修改擁有者設定' },
-        { status: 400, headers: corsHeaders() }
-      )
-    }
-
     const targetMember = await prisma.clubMember.findUnique({
       where: { clubId_playerId: { clubId: id, playerId } },
       select: { clubId: true, playerId: true },
@@ -75,10 +68,18 @@ export async function POST(
       })
 
       const perms = actorMember?.coLeaderPermissions as Record<string, unknown> | null
-      const canSetNoSameTable =
+      const canSetNoSameTableAsCoLeader =
         actorMember?.role === 'CO_LEADER' && perms?.banSameTable === true
 
-      if (!canSetNoSameTable) {
+      const agentBinding = await prisma.agentClubBinding.findUnique({
+        where: {
+          playerId_clubId: { playerId: actorPlayerId, clubId: id },
+        },
+        select: { agentLevel: true },
+      })
+      const canSetNoSameTableAsAgent = Boolean(agentBinding?.agentLevel)
+
+      if (!canSetNoSameTableAsCoLeader && !canSetNoSameTableAsAgent) {
         return NextResponse.json(
           { success: false, error: '沒有權限' },
           { status: 403, headers: corsHeaders() }

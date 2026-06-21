@@ -221,7 +221,7 @@ function isDirectPlayerOfUpstreamAgent(actorId, targetPlayerId, bindings, upstre
 }
 
 /**
- * 管理頁：底台、分數上限、禁止遊戲、禁止同桌等是否不可編輯。
+ * 管理頁：底台、分數上限、禁止遊戲等是否不可編輯（禁止同桌不受此限制）。
  */
 function isManageRestrictedMemberEditBlocked(
   actorId,

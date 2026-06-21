@@ -577,6 +577,41 @@ async function requireClubOwnerOrPermission(prisma, clubInternalId, actorPlayerI
   return { ok: true, clubCreatorId: club.creatorId };
 }
 
+/** 禁止同桌：會長、具 banSameTable 副會長、或任一代理階層成員。 */
+async function requireBanSameTablePermission(prisma, clubInternalId, actorPlayerId) {
+  const club = await prisma.club.findUnique({
+    where: { id: clubInternalId },
+    select: { creatorId: true },
+  });
+  if (!club) {
+    return { ok: false, status: 404, error: '俱樂部不存在' };
+  }
+  if (club.creatorId === actorPlayerId) {
+    return { ok: true, clubCreatorId: club.creatorId };
+  }
+
+  const actorMember = await prisma.clubMember.findUnique({
+    where: { clubId_playerId: { clubId: clubInternalId, playerId: actorPlayerId } },
+    select: { role: true, coLeaderPermissions: true },
+  });
+  const perms = getCoLeaderPerms(actorMember);
+  if (actorMember?.role === 'CO_LEADER' && perms?.banSameTable === true) {
+    return { ok: true, clubCreatorId: club.creatorId };
+  }
+
+  const agentBinding = await prisma.agentClubBinding.findUnique({
+    where: {
+      playerId_clubId: { playerId: actorPlayerId, clubId: clubInternalId },
+    },
+    select: { agentLevel: true },
+  });
+  if (agentBinding?.agentLevel) {
+    return { ok: true, clubCreatorId: club.creatorId };
+  }
+
+  return { ok: false, status: 403, error: '沒有權限' };
+}
+
 /**
  * GET /api/client/clubs
  * 獲取所有俱樂部
@@ -2294,8 +2329,9 @@ router.get('/:clubId/members', async (req, res) => {
     });
     const searchRaw = (req.query.search || '').toString().trim();
     const actorPlayerId = (req.query.actorPlayerId || '').toString().trim();
-    const scopeManage =
-      (req.query.scope || '').toString().trim().toLowerCase() === 'manage';
+    const scopeRaw = (req.query.scope || '').toString().trim().toLowerCase();
+    const scopeManage = scopeRaw === 'manage';
+    const scopeBanSameTable = scopeRaw === 'bansametable';
     const profitDisplayEnabled = club.profitDisplayEnabled !== false;
 
     const memberWhere = { clubId: club.id };
@@ -2327,7 +2363,21 @@ router.get('/:clubId/members', async (req, res) => {
       loadClubAgentBindings(prisma, club.id),
       loadPlayerClubUpstreamBindings(prisma, club.id),
     ]);
-    if (scopeManage && actorPlayerId) {
+    if (scopeBanSameTable && actorPlayerId) {
+      const banSameTableAuthz = await requireBanSameTablePermission(
+        prisma,
+        club.id,
+        actorPlayerId
+      );
+      if (!banSameTableAuthz.ok) {
+        return errorResponse(
+          res,
+          banSameTableAuthz.error,
+          null,
+          banSameTableAuthz.status
+        );
+      }
+    } else if (scopeManage && actorPlayerId) {
       const manageVisibleIds = resolveManageMembersVisiblePlayerIds({
         actorPlayerId,
         clubCreatorId: club.creatorId,
@@ -3501,33 +3551,13 @@ router.post('/:clubId/members/no-same-table', async (req, res) => {
       return errorResponse(res, '俱樂部不存在', null, 404);
     }
 
-    if (club.creatorId === playerId) {
-      return errorResponse(res, '不可修改擁有者設定', null, 400);
-    }
-
-    const authz = await requireClubOwnerOrPermission(
+    const authz = await requireBanSameTablePermission(
       prisma,
       club.id,
-      actorPlayerId,
-      'banSameTable'
+      actorPlayerId
     );
     if (!authz.ok) {
       return errorResponse(res, authz.error, null, authz.status);
-    }
-
-    const [bindings, upstreamBindings] = await Promise.all([
-      loadClubAgentBindings(prisma, club.id),
-      loadPlayerClubUpstreamBindings(prisma, club.id),
-    ]);
-    const hierarchyGuard = assertManageRestrictedMemberEditAllowed(
-      actorPlayerId,
-      playerId,
-      authz.clubCreatorId,
-      bindings,
-      upstreamBindings
-    );
-    if (!hierarchyGuard.ok) {
-      return errorResponse(res, hierarchyGuard.error, null, hierarchyGuard.status);
     }
 
     const member = await prisma.clubMember.findUnique({
@@ -3572,33 +3602,13 @@ router.post('/:clubId/members/banned-table-players', async (req, res) => {
       return errorResponse(res, '俱樂部不存在', null, 404);
     }
 
-    if (club.creatorId === playerId) {
-      return errorResponse(res, '不可修改擁有者設定', null, 400);
-    }
-
-    const authz = await requireClubOwnerOrPermission(
+    const authz = await requireBanSameTablePermission(
       prisma,
       club.id,
-      actorPlayerId,
-      'banSameTable'
+      actorPlayerId
     );
     if (!authz.ok) {
       return errorResponse(res, authz.error, null, authz.status);
-    }
-
-    const [bindings, upstreamBindings] = await Promise.all([
-      loadClubAgentBindings(prisma, club.id),
-      loadPlayerClubUpstreamBindings(prisma, club.id),
-    ]);
-    const hierarchyGuard = assertManageRestrictedMemberEditAllowed(
-      actorPlayerId,
-      playerId,
-      authz.clubCreatorId,
-      bindings,
-      upstreamBindings
-    );
-    if (!hierarchyGuard.ok) {
-      return errorResponse(res, hierarchyGuard.error, null, hierarchyGuard.status);
     }
 
     const member = await prisma.clubMember.findUnique({
