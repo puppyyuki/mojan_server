@@ -1,4 +1,16 @@
-import { buildClubReportSheetLayout } from './club-report-excel-layout'
+import type ExcelJS from 'exceljs'
+import { buildClubReportSheetLayout, type MergeRange } from './club-report-excel-layout'
+import {
+  CELL_BORDER,
+  COLUMN_WIDTHS,
+  bodyFont,
+  headerFill,
+  headerFont,
+  isNegativeNumber,
+  isNumericColumn,
+  totalFill,
+  zebraFill,
+} from './club-report-excel-styles'
 
 export interface ClubReportExportRow {
   id: string
@@ -22,17 +34,117 @@ export function getSortedReportRows<T extends { csvSortOrder?: number }>(rows: T
   return [...rows].sort((a, b) => (a.csvSortOrder ?? 0) - (b.csvSortOrder ?? 0))
 }
 
+function toExcelMerge(range: MergeRange): string {
+  const top = range.s.r + 1
+  const left = range.s.c + 1
+  const bottom = range.e.r + 1
+  const right = range.e.c + 1
+  if (top === bottom && left === right) {
+    return `${columnLetter(left)}${top}`
+  }
+  return `${columnLetter(left)}${top}:${columnLetter(right)}${bottom}`
+}
+
+function columnLetter(columnNumber: number): string {
+  let value = columnNumber
+  let letters = ''
+  while (value > 0) {
+    const remainder = (value - 1) % 26
+    letters = String.fromCharCode(65 + remainder) + letters
+    value = Math.floor((value - 1) / 26)
+  }
+  return letters
+}
+
+function applyHeaderStyle(worksheet: ExcelJS.Worksheet): void {
+  const headerRow = worksheet.getRow(1)
+  headerRow.height = 24
+  headerRow.eachCell({ includeEmpty: true }, (cell) => {
+    cell.fill = headerFill()
+    cell.font = headerFont()
+    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+    cell.border = CELL_BORDER
+  })
+}
+
+function applyBodyCellStyle(
+  cell: ExcelJS.Cell,
+  rowIndex: number,
+  columnIndex: number,
+  isTotalRow: boolean,
+  dataRowIndex: number
+): void {
+  const value = cell.value
+  const negative = isNumericColumn(columnIndex) && isNegativeNumber(value)
+  cell.fill = isTotalRow ? totalFill() : zebraFill(dataRowIndex)
+  cell.font = bodyFont(isTotalRow, negative)
+  cell.border = CELL_BORDER
+
+  if (isNumericColumn(columnIndex)) {
+    cell.alignment = { vertical: 'middle', horizontal: 'center' }
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      cell.numFmt = '#,##0.##'
+    }
+    return
+  }
+
+  cell.alignment = {
+    vertical: 'middle',
+    horizontal: columnIndex === 1 ? 'left' : 'center',
+    wrapText: true,
+  }
+}
+
+function applyWorksheetStyles(worksheet: ExcelJS.Worksheet, sheetData: unknown[][]): void {
+  applyHeaderStyle(worksheet)
+
+  let dataRowIndex = 0
+  for (let rowIndex = 1; rowIndex < sheetData.length; rowIndex += 1) {
+    const rowValues = sheetData[rowIndex]
+    const isTotalRow = Array.isArray(rowValues) && rowValues[0] === '總計'
+    if (!isTotalRow) {
+      dataRowIndex += 1
+    }
+
+    const excelRow = worksheet.getRow(rowIndex + 1)
+    excelRow.height = isTotalRow ? 22 : 20
+    excelRow.eachCell({ includeEmpty: true }, (cell, columnNumber) => {
+      applyBodyCellStyle(cell, rowIndex, columnNumber - 1, isTotalRow, dataRowIndex)
+    })
+  }
+}
+
+function applyColumnWidths(worksheet: ExcelJS.Worksheet): void {
+  COLUMN_WIDTHS.forEach((width, index) => {
+    worksheet.getColumn(index + 1).width = width
+  })
+}
+
+function applyMerges(worksheet: ExcelJS.Worksheet, merges: MergeRange[]): void {
+  for (const merge of merges) {
+    worksheet.mergeCells(toExcelMerge(merge))
+  }
+}
+
 export async function exportClubReportExcel(data: ClubReportExportData): Promise<void> {
-  const XLSX = await import('xlsx')
+  const { default: ExcelJSImport } = await import('exceljs')
   const sortedRows = getSortedReportRows(data.rows)
   const { rows: sheetData, merges } = buildClubReportSheetLayout(sortedRows)
-  const worksheet = XLSX.utils.aoa_to_sheet(sheetData)
-  if (merges.length > 0) {
-    worksheet['!merges'] = merges
-  }
-  const workbook = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(workbook, worksheet, '俱樂部報表')
-  const buffer = XLSX.write(workbook, { bookType: 'xlsx', type: 'array' })
+
+  const workbook = new ExcelJSImport.Workbook()
+  workbook.creator = 'Mojan Admin'
+  workbook.created = new Date()
+
+  const worksheet = workbook.addWorksheet('俱樂部報表', {
+    views: [{ state: 'frozen', ySplit: 1, activeCell: 'A2' }],
+  })
+
+  worksheet.addRows(sheetData)
+  applyMerges(worksheet, merges)
+  applyWorksheetStyles(worksheet, sheetData)
+  applyColumnWidths(worksheet)
+
+  const buffer = await workbook.xlsx.writeBuffer()
   const blob = new Blob([buffer], {
     type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
   })
