@@ -21,6 +21,9 @@ const {
   resolveVisiblePlayerIds,
   resolveAgentMemberListVisiblePlayerIds,
   isDirectUpstream,
+  isManageRestrictedMemberEditBlocked,
+  assertManageRestrictedMemberEditAllowed,
+  collectSuperAgentPlayerIds,
   DEFAULT_CO_LEADER_PERMISSIONS,
   ensureCreatorSuperBinding,
   loadClubAgentBindings,
@@ -2264,6 +2267,7 @@ router.get('/players/:playerId/clubs', async (req, res) => {
  * GET /api/client/clubs/:clubId/members
  * 獲取俱樂部成員列表（分頁）
  * Query: page, pageSize, search, actorPlayerId（可選，限制為自身+樹狀下線）
+ *        scope=manage（管理頁：顯示全階層成員，隱藏總代理）
  */
 router.get('/:clubId/members', async (req, res) => {
   try {
@@ -2282,6 +2286,8 @@ router.get('/:clubId/members', async (req, res) => {
     });
     const searchRaw = (req.query.search || '').toString().trim();
     const actorPlayerId = (req.query.actorPlayerId || '').toString().trim();
+    const scopeManage =
+      (req.query.scope || '').toString().trim().toLowerCase() === 'manage';
 
     const memberWhere = { clubId: club.id };
     if (searchRaw) {
@@ -2312,7 +2318,10 @@ router.get('/:clubId/members', async (req, res) => {
       loadClubAgentBindings(prisma, club.id),
       loadPlayerClubUpstreamBindings(prisma, club.id),
     ]);
-    if (actorPlayerId) {
+    if (scopeManage) {
+      const superIds = collectSuperAgentPlayerIds(bindings);
+      allMembers = allMembers.filter((m) => !superIds.has(m.playerId));
+    } else if (actorPlayerId) {
       const vis = resolveVisiblePlayerIds(
         actorPlayerId,
         club.creatorId,
@@ -2334,7 +2343,7 @@ router.get('/:clubId/members', async (req, res) => {
       const binding = bindingByPlayer.get(m.playerId);
       const playerUpstream = upstreamBindingByPlayer.get(m.playerId);
       const upstream = binding?.upstreamAgent ?? playerUpstream?.upstreamAgent ?? null;
-      return {
+      const base = {
         ...m,
         agentLevel: binding?.agentLevel ?? null,
         agentPercentage: binding?.agentPercentage ?? null,
@@ -2347,6 +2356,19 @@ router.get('/:clubId/members', async (req, res) => {
             }
           : null,
       };
+      if (scopeManage && actorPlayerId) {
+        base.manageRestrictedEditBlocked = isManageRestrictedMemberEditBlocked(
+          actorPlayerId,
+          m.playerId,
+          club.creatorId,
+          bindings,
+          upstreamBindingRows
+        );
+        base.manageAgentSettingsAllowed =
+          binding?.agentLevel &&
+          isDirectUpstream(actorPlayerId, m.playerId, bindings);
+      }
+      return base;
     });
 
     return successResponse(res, pagedPayload(enrichedMembers, { total, page, pageSize }));
@@ -3123,6 +3145,21 @@ router.post('/:clubId/members/ban', async (req, res) => {
       return errorResponse(res, authz.error, null, authz.status);
     }
 
+    const [bindings, upstreamBindings] = await Promise.all([
+      loadClubAgentBindings(prisma, club.id),
+      loadPlayerClubUpstreamBindings(prisma, club.id),
+    ]);
+    const hierarchyGuard = assertManageRestrictedMemberEditAllowed(
+      actorPlayerId,
+      playerId,
+      authz.clubCreatorId,
+      bindings,
+      upstreamBindings
+    );
+    if (!hierarchyGuard.ok) {
+      return errorResponse(res, hierarchyGuard.error, null, hierarchyGuard.status);
+    }
+
     const member = await prisma.clubMember.findUnique({
       where: { clubId_playerId: { clubId: club.id, playerId } },
     });
@@ -3180,6 +3217,21 @@ router.post('/:clubId/members/unban', async (req, res) => {
       return errorResponse(res, authz.error, null, authz.status);
     }
 
+    const [bindings, upstreamBindings] = await Promise.all([
+      loadClubAgentBindings(prisma, club.id),
+      loadPlayerClubUpstreamBindings(prisma, club.id),
+    ]);
+    const hierarchyGuard = assertManageRestrictedMemberEditAllowed(
+      actorPlayerId,
+      playerId,
+      authz.clubCreatorId,
+      bindings,
+      upstreamBindings
+    );
+    if (!hierarchyGuard.ok) {
+      return errorResponse(res, hierarchyGuard.error, null, hierarchyGuard.status);
+    }
+
     const member = await prisma.clubMember.findUnique({
       where: { clubId_playerId: { clubId: club.id, playerId } },
     });
@@ -3235,6 +3287,21 @@ router.post('/:clubId/members/score-limit', async (req, res) => {
     );
     if (!authz.ok) {
       return errorResponse(res, authz.error, null, authz.status);
+    }
+
+    const [bindings, upstreamBindings] = await Promise.all([
+      loadClubAgentBindings(prisma, club.id),
+      loadPlayerClubUpstreamBindings(prisma, club.id),
+    ]);
+    const hierarchyGuard = assertManageRestrictedMemberEditAllowed(
+      actorPlayerId,
+      playerId,
+      authz.clubCreatorId,
+      bindings,
+      upstreamBindings
+    );
+    if (!hierarchyGuard.ok) {
+      return errorResponse(res, hierarchyGuard.error, null, hierarchyGuard.status);
     }
 
     const member = await prisma.clubMember.findUnique({
@@ -3317,6 +3384,21 @@ router.post('/:clubId/members/base-tai-limit', async (req, res) => {
     );
     if (!authz.ok) {
       return errorResponse(res, authz.error, null, authz.status);
+    }
+
+    const [bindings, upstreamBindings] = await Promise.all([
+      loadClubAgentBindings(prisma, club.id),
+      loadPlayerClubUpstreamBindings(prisma, club.id),
+    ]);
+    const hierarchyGuard = assertManageRestrictedMemberEditAllowed(
+      actorPlayerId,
+      playerId,
+      authz.clubCreatorId,
+      bindings,
+      upstreamBindings
+    );
+    if (!hierarchyGuard.ok) {
+      return errorResponse(res, hierarchyGuard.error, null, hierarchyGuard.status);
     }
 
     const member = await prisma.clubMember.findUnique({
@@ -3407,6 +3489,21 @@ router.post('/:clubId/members/no-same-table', async (req, res) => {
       return errorResponse(res, authz.error, null, authz.status);
     }
 
+    const [bindings, upstreamBindings] = await Promise.all([
+      loadClubAgentBindings(prisma, club.id),
+      loadPlayerClubUpstreamBindings(prisma, club.id),
+    ]);
+    const hierarchyGuard = assertManageRestrictedMemberEditAllowed(
+      actorPlayerId,
+      playerId,
+      authz.clubCreatorId,
+      bindings,
+      upstreamBindings
+    );
+    if (!hierarchyGuard.ok) {
+      return errorResponse(res, hierarchyGuard.error, null, hierarchyGuard.status);
+    }
+
     const member = await prisma.clubMember.findUnique({
       where: { clubId_playerId: { clubId: club.id, playerId } },
     });
@@ -3461,6 +3558,21 @@ router.post('/:clubId/members/banned-table-players', async (req, res) => {
     );
     if (!authz.ok) {
       return errorResponse(res, authz.error, null, authz.status);
+    }
+
+    const [bindings, upstreamBindings] = await Promise.all([
+      loadClubAgentBindings(prisma, club.id),
+      loadPlayerClubUpstreamBindings(prisma, club.id),
+    ]);
+    const hierarchyGuard = assertManageRestrictedMemberEditAllowed(
+      actorPlayerId,
+      playerId,
+      authz.clubCreatorId,
+      bindings,
+      upstreamBindings
+    );
+    if (!hierarchyGuard.ok) {
+      return errorResponse(res, hierarchyGuard.error, null, hierarchyGuard.status);
     }
 
     const member = await prisma.clubMember.findUnique({

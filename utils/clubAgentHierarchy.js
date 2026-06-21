@@ -8,6 +8,7 @@ const {
   levelOrder,
   isValidPromotableLevel,
   getAssignableAgentLevels,
+  isSuperAgentLevel,
 } = require('../lib/agent-levels.shared.js');
 
 /**
@@ -180,6 +181,102 @@ function isDirectUpstream(actorPlayerId, targetPlayerId, bindings) {
   return target?.upstreamAgentPlayerId === actorPlayerId;
 }
 
+/**
+ * targetId 是否為 actorId 在代理樹上的上層代理（不含自身）。
+ */
+function isAncestorAgent(actorId, targetId, bindings) {
+  if (!actorId || !targetId || actorId === targetId) return false;
+  const byPlayer = new Map(bindings.map((b) => [b.playerId, b]));
+  let cur = byPlayer.get(actorId);
+  while (cur?.upstreamAgentPlayerId) {
+    const up = cur.upstreamAgentPlayerId;
+    if (up === targetId) return true;
+    cur = byPlayer.get(up);
+  }
+  return false;
+}
+
+function resolveMemberUpstreamAgentPlayerId(playerId, bindings, upstreamBindings) {
+  const agentBinding = bindings.find((b) => b.playerId === playerId);
+  if (agentBinding?.upstreamAgentPlayerId) {
+    return agentBinding.upstreamAgentPlayerId;
+  }
+  const playerUpstream = upstreamBindings.find((b) => b.playerId === playerId);
+  return playerUpstream?.upstreamAgentPlayerId ?? null;
+}
+
+/**
+ * 是否為「上層以上代理」的直屬玩家（非代理身分成員）。
+ */
+function isDirectPlayerOfUpstreamAgent(actorId, targetPlayerId, bindings, upstreamBindings) {
+  const upstreamId = resolveMemberUpstreamAgentPlayerId(
+    targetPlayerId,
+    bindings,
+    upstreamBindings
+  );
+  if (!upstreamId) return false;
+  const targetBinding = bindings.find((b) => b.playerId === targetPlayerId);
+  if (targetBinding?.agentLevel) return false;
+  return isAncestorAgent(actorId, upstreamId, bindings);
+}
+
+/**
+ * 管理頁：底台、分數上限、禁止遊戲、禁止同桌等是否不可編輯。
+ */
+function isManageRestrictedMemberEditBlocked(
+  actorId,
+  targetId,
+  clubCreatorId,
+  bindings,
+  upstreamBindings
+) {
+  if (!actorId || !targetId) return false;
+  if (actorId === clubCreatorId) return false;
+  if (isAncestorAgent(actorId, targetId, bindings)) return true;
+  if (isDirectPlayerOfUpstreamAgent(actorId, targetId, bindings, upstreamBindings)) {
+    return true;
+  }
+  return false;
+}
+
+function assertManageRestrictedMemberEditAllowed(
+  actorPlayerId,
+  targetPlayerId,
+  clubCreatorId,
+  bindings,
+  upstreamBindings
+) {
+  if (
+    isManageRestrictedMemberEditBlocked(
+      actorPlayerId,
+      targetPlayerId,
+      clubCreatorId,
+      bindings,
+      upstreamBindings
+    )
+  ) {
+    return {
+      ok: false,
+      status: 403,
+      error: '無法修改上層代理或其直屬玩家的此項設定',
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * 管理頁成員列表：隱藏總代理 playerId 集合。
+ */
+function collectSuperAgentPlayerIds(bindings) {
+  const superIds = new Set();
+  for (const b of bindings) {
+    if (isSuperAgentLevel(b.agentLevel)) {
+      superIds.add(b.playerId);
+    }
+  }
+  return superIds;
+}
+
 const DEFAULT_CO_LEADER_PERMISSIONS = {
   modifyClubRules: true,
   approveJoinRequests: true,
@@ -243,6 +340,11 @@ module.exports = {
   resolveVisiblePlayerIds,
   resolveAgentMemberListVisiblePlayerIds,
   isDirectUpstream,
+  isAncestorAgent,
+  isDirectPlayerOfUpstreamAgent,
+  isManageRestrictedMemberEditBlocked,
+  assertManageRestrictedMemberEditAllowed,
+  collectSuperAgentPlayerIds,
   DEFAULT_CO_LEADER_PERMISSIONS,
   ensureCreatorSuperBinding,
   loadClubAgentBindings,

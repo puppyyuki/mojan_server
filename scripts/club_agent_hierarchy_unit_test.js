@@ -12,6 +12,24 @@ const {
   levelOrder,
 } = require('../lib/agent-levels.shared.js');
 const { agentLevelLabelZh } = require('../lib/agent-level-labels.shared.js');
+const {
+  isAncestorAgent,
+  isDirectPlayerOfUpstreamAgent,
+  isManageRestrictedMemberEditBlocked,
+  collectSuperAgentPlayerIds,
+  isDirectUpstream,
+} = require('../utils/clubAgentHierarchy');
+
+const sampleBindings = [
+  { playerId: 'super', upstreamAgentPlayerId: null, agentLevel: 'super' },
+  { playerId: 'master', upstreamAgentPlayerId: 'super', agentLevel: 'master' },
+  { playerId: 'mid', upstreamAgentPlayerId: 'master', agentLevel: 'mid' },
+  { playerId: 'small', upstreamAgentPlayerId: 'mid', agentLevel: 'small' },
+];
+const sampleUpstreamBindings = [
+  { playerId: 'playerUnderMaster', upstreamAgentPlayerId: 'master' },
+  { playerId: 'playerUnderMid', upstreamAgentPlayerId: 'mid' },
+];
 
 function testPromotableLevelsIncludeNewTiers() {
   assert.strictEqual(PROMOTABLE_LEVELS.length, 7);
@@ -61,6 +79,88 @@ function testAgentLevelLabelZhNewTiers() {
   assert.strictEqual(agentLevelLabelZh('promoter'), '推廣');
 }
 
+function testIsAncestorAgent() {
+  assert.strictEqual(isAncestorAgent('mid', 'master', sampleBindings), true);
+  assert.strictEqual(isAncestorAgent('mid', 'small', sampleBindings), false);
+  assert.strictEqual(isAncestorAgent('mid', 'super', sampleBindings), true);
+}
+
+function testIsDirectPlayerOfUpstreamAgent() {
+  assert.strictEqual(
+    isDirectPlayerOfUpstreamAgent(
+      'mid',
+      'playerUnderMaster',
+      sampleBindings,
+      sampleUpstreamBindings
+    ),
+    true
+  );
+  assert.strictEqual(
+    isDirectPlayerOfUpstreamAgent(
+      'mid',
+      'playerUnderMid',
+      sampleBindings,
+      sampleUpstreamBindings
+    ),
+    false
+  );
+}
+
+function testManageRestrictedMemberEditBlocked() {
+  const creatorId = 'super';
+  assert.strictEqual(
+    isManageRestrictedMemberEditBlocked(
+      'mid',
+      'master',
+      creatorId,
+      sampleBindings,
+      sampleUpstreamBindings
+    ),
+    true
+  );
+  assert.strictEqual(
+    isManageRestrictedMemberEditBlocked(
+      'mid',
+      'playerUnderMaster',
+      creatorId,
+      sampleBindings,
+      sampleUpstreamBindings
+    ),
+    true
+  );
+  assert.strictEqual(
+    isManageRestrictedMemberEditBlocked(
+      'mid',
+      'small',
+      creatorId,
+      sampleBindings,
+      sampleUpstreamBindings
+    ),
+    false
+  );
+  assert.strictEqual(
+    isManageRestrictedMemberEditBlocked(
+      creatorId,
+      'master',
+      creatorId,
+      sampleBindings,
+      sampleUpstreamBindings
+    ),
+    false
+  );
+}
+
+function testCollectSuperAgentPlayerIds() {
+  const superIds = collectSuperAgentPlayerIds(sampleBindings);
+  assert.strictEqual(superIds.has('super'), true);
+  assert.strictEqual(superIds.has('mid'), false);
+}
+
+function testIsDirectUpstream() {
+  assert.strictEqual(isDirectUpstream('mid', 'small', sampleBindings), true);
+  assert.strictEqual(isDirectUpstream('master', 'small', sampleBindings), false);
+}
+
 testPromotableLevelsIncludeNewTiers();
 testGetAssignableAgentLevelsWithoutUpstream();
 testGetAssignableAgentLevelsUnderAgent();
@@ -69,5 +169,10 @@ testIsValidPromotableLevelDealer();
 testIsValidAgentLevelNewSlugs();
 testLevelOrderEightTierChain();
 testAgentLevelLabelZhNewTiers();
+testIsAncestorAgent();
+testIsDirectPlayerOfUpstreamAgent();
+testManageRestrictedMemberEditBlocked();
+testCollectSuperAgentPlayerIds();
+testIsDirectUpstream();
 
 console.log('club_agent_hierarchy_unit_test passed');
