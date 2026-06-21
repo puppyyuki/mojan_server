@@ -265,6 +265,39 @@ function assertManageRestrictedMemberEditAllowed(
 }
 
 /**
+ * 管理頁成員列表可見範圍（scope=manage）。
+ * @returns {Set<string>|null} null 表示不過濾（全俱樂部可見，含總代理）
+ */
+function resolveManageMembersVisiblePlayerIds({
+  actorPlayerId,
+  clubCreatorId,
+  profitDisplayEnabled,
+  bindings,
+  upstreamBindings = [],
+}) {
+  if (profitDisplayEnabled === false) {
+    return null;
+  }
+  if (!actorPlayerId || actorPlayerId === clubCreatorId) {
+    return null;
+  }
+  const actorBinding = bindings.find((b) => b.playerId === actorPlayerId);
+  if (!actorBinding) {
+    return null;
+  }
+  const vis = resolveVisiblePlayerIds(
+    actorPlayerId,
+    clubCreatorId,
+    bindings,
+    upstreamBindings
+  );
+  if (vis.isOwner || !vis.visibleIds) {
+    return null;
+  }
+  return vis.visibleIds;
+}
+
+/**
  * 管理頁成員列表：隱藏總代理 playerId 集合。
  */
 function collectSuperAgentPlayerIds(bindings) {
@@ -339,6 +372,7 @@ module.exports = {
   resolveUpstreamLevel,
   resolveVisiblePlayerIds,
   resolveAgentMemberListVisiblePlayerIds,
+  resolveManageMembersVisiblePlayerIds,
   isDirectUpstream,
   isAncestorAgent,
   isDirectPlayerOfUpstreamAgent,

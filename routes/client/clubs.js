@@ -20,10 +20,10 @@ const {
   resolveUpstreamLevel,
   resolveVisiblePlayerIds,
   resolveAgentMemberListVisiblePlayerIds,
+  resolveManageMembersVisiblePlayerIds,
   isDirectUpstream,
   isManageRestrictedMemberEditBlocked,
   assertManageRestrictedMemberEditAllowed,
-  collectSuperAgentPlayerIds,
   DEFAULT_CO_LEADER_PERMISSIONS,
   ensureCreatorSuperBinding,
   loadClubAgentBindings,
@@ -820,11 +820,18 @@ router.get('/:clubId', async (req, res) => {
       const enrichedMembers = Array.isArray(members)
         ? members.map((m) => enrichClubMemberWeeklyScoreFields(m))
         : members;
+      const actorBinding = await prisma.agentClubBinding.findUnique({
+        where: {
+          playerId_clubId: { playerId: actorPlayerId, clubId: club.id },
+        },
+        select: { agentLevel: true },
+      });
       return successResponse(res, {
         ...rest,
         members: enrichedMembers,
         totalMembers,
         memberCount: totalMembers,
+        myAgentLevel: actorBinding?.agentLevel ?? null,
       });
     }
 
@@ -2267,7 +2274,7 @@ router.get('/players/:playerId/clubs', async (req, res) => {
  * GET /api/client/clubs/:clubId/members
  * 獲取俱樂部成員列表（分頁）
  * Query: page, pageSize, search, actorPlayerId（可選，限制為自身+樹狀下線）
- *        scope=manage（管理頁：顯示全階層成員，隱藏總代理）
+ *        scope=manage（管理頁：依 profitDisplayEnabled 決定全員或子樹可見）
  */
 router.get('/:clubId/members', async (req, res) => {
   try {
@@ -2288,6 +2295,7 @@ router.get('/:clubId/members', async (req, res) => {
     const actorPlayerId = (req.query.actorPlayerId || '').toString().trim();
     const scopeManage =
       (req.query.scope || '').toString().trim().toLowerCase() === 'manage';
+    const profitDisplayEnabled = club.profitDisplayEnabled !== false;
 
     const memberWhere = { clubId: club.id };
     if (searchRaw) {
@@ -2318,9 +2326,17 @@ router.get('/:clubId/members', async (req, res) => {
       loadClubAgentBindings(prisma, club.id),
       loadPlayerClubUpstreamBindings(prisma, club.id),
     ]);
-    if (scopeManage) {
-      const superIds = collectSuperAgentPlayerIds(bindings);
-      allMembers = allMembers.filter((m) => !superIds.has(m.playerId));
+    if (scopeManage && actorPlayerId) {
+      const manageVisibleIds = resolveManageMembersVisiblePlayerIds({
+        actorPlayerId,
+        clubCreatorId: club.creatorId,
+        profitDisplayEnabled,
+        bindings,
+        upstreamBindings: upstreamBindingRows,
+      });
+      if (manageVisibleIds) {
+        allMembers = allMembers.filter((m) => manageVisibleIds.has(m.playerId));
+      }
     } else if (actorPlayerId) {
       const vis = resolveVisiblePlayerIds(
         actorPlayerId,
@@ -2365,13 +2381,18 @@ router.get('/:clubId/members', async (req, res) => {
           upstreamBindingRows
         );
         base.manageAgentSettingsAllowed =
+          profitDisplayEnabled &&
           binding?.agentLevel &&
           isDirectUpstream(actorPlayerId, m.playerId, bindings);
       }
       return base;
     });
 
-    return successResponse(res, pagedPayload(enrichedMembers, { total, page, pageSize }));
+    const payload = pagedPayload(enrichedMembers, { total, page, pageSize });
+    if (scopeManage) {
+      payload.profitDisplayEnabled = profitDisplayEnabled;
+    }
+    return successResponse(res, payload);
   } catch (error) {
     console.error('[Clubs API] 獲取成員列表失敗:', error);
     return errorResponse(res, '獲取成員列表失敗', null, 500);
@@ -2813,6 +2834,10 @@ router.post('/:clubId/members/agent-settings', async (req, res) => {
     const club = await findClub(prisma, clubId);
     if (!club) {
       return errorResponse(res, '俱樂部不存在', null, 404);
+    }
+
+    if (club.profitDisplayEnabled === false) {
+      return errorResponse(res, '俱樂部已關閉利潤顯示，無法設定代理', null, 403);
     }
 
     const bindings = await loadClubAgentBindings(prisma, club.id);

@@ -9,6 +9,60 @@ import { validateUpstreamAssignment, type PrismaLike } from './upstream-agent-va
 
 export { AGENT_LEVELS, isValidAgentLevel, isSuperAgentLevel }
 
+/** 與 clubAgentHierarchy.DEFAULT_CO_LEADER_PERMISSIONS 一致 */
+export const DEFAULT_CO_LEADER_PERMISSIONS = {
+  modifyClubRules: true,
+  approveJoinRequests: true,
+  kickMembers: true,
+  banMembers: true,
+  banSameTable: true,
+  setScoreLimit: true,
+  setBaseTaiLimit: true,
+  manageRoomCards: false,
+} as const
+
+/**
+ * 有 AgentClubBinding 的玩家同步為副會長（會長維持 OWNER）。
+ */
+export async function ensureClubAgentCoLeader(
+  db: PrismaLike,
+  clubId: string,
+  playerId: string
+): Promise<void> {
+  const club = await db.club.findUnique({
+    where: { id: clubId },
+    select: { creatorId: true },
+  })
+  if (!club || club.creatorId === playerId) return
+
+  const member = await db.clubMember.findUnique({
+    where: { clubId_playerId: { clubId, playerId } },
+    select: { role: true, coLeaderPermissions: true },
+  })
+  if (!member) return
+  if (member.role === 'OWNER') return
+
+  if (member.role !== 'CO_LEADER') {
+    await db.clubMember.update({
+      where: { clubId_playerId: { clubId, playerId } },
+      data: {
+        role: 'CO_LEADER',
+        coLeaderPermissions: { ...DEFAULT_CO_LEADER_PERMISSIONS },
+      },
+    })
+    return
+  }
+
+  if (member.coLeaderPermissions == null) {
+    await db.clubMember.update({
+      where: { clubId_playerId: { clubId, playerId } },
+      data: {
+        coLeaderPermissions: { ...DEFAULT_CO_LEADER_PERMISSIONS },
+      },
+    })
+  }
+}
+
 export async function findClubSuperAgentBinding(
   db: PrismaLike,
   clubId: string

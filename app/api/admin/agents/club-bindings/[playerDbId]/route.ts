@@ -4,6 +4,7 @@ import { getCurrentUserId } from '@/lib/auth'
 import { assertAdminOpCode } from '@/lib/admin-op-code-server'
 import {
   buildAgentLegacyContext,
+  ensureClubAgentCoLeader,
   parseNonNegativeFloat,
   serializeAgentClubBinding,
   validateAgentClubBindingInput,
@@ -135,16 +136,20 @@ export async function POST(
       )
     }
 
-    const created = await prisma.agentClubBinding.create({
-      data: {
-        playerId: playerDbId,
-        clubId,
-        upstreamAgentPlayerId,
-        agentLevel: isValidAgentLevel(agentLevel) ? agentLevel : 'agent',
-        agentRoomCardFee,
-        agentPercentage,
-      },
-      include: bindingInclude,
+    const created = await prisma.$transaction(async (tx) => {
+      const binding = await tx.agentClubBinding.create({
+        data: {
+          playerId: playerDbId,
+          clubId,
+          upstreamAgentPlayerId,
+          agentLevel: isValidAgentLevel(agentLevel) ? agentLevel : 'agent',
+          agentRoomCardFee,
+          agentPercentage,
+        },
+        include: bindingInclude,
+      })
+      await ensureClubAgentCoLeader(tx, clubId, playerDbId)
+      return binding
     })
 
     return NextResponse.json(

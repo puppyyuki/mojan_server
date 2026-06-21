@@ -3,6 +3,7 @@ import { prisma } from '@/lib/prisma'
 import { getCurrentUserId } from '@/lib/auth'
 import { assertAdminOpCode } from '@/lib/admin-op-code-server'
 import {
+  ensureClubAgentCoLeader,
   parseNonNegativeFloat,
   serializeAgentClubBinding,
   validateAgentClubBindingInput,
@@ -107,16 +108,20 @@ export async function PATCH(
       }
     }
 
-    const updated = await prisma.agentClubBinding.update({
-      where: { id: bindingId },
-      data: {
-        clubId,
-        agentLevel: isValidAgentLevel(agentLevel) ? agentLevel : existing.agentLevel,
-        upstreamAgentPlayerId,
-        agentRoomCardFee,
-        agentPercentage,
-      },
-      include: bindingInclude,
+    const updated = await prisma.$transaction(async (tx) => {
+      const binding = await tx.agentClubBinding.update({
+        where: { id: bindingId },
+        data: {
+          clubId,
+          agentLevel: isValidAgentLevel(agentLevel) ? agentLevel : existing.agentLevel,
+          upstreamAgentPlayerId,
+          agentRoomCardFee,
+          agentPercentage,
+        },
+        include: bindingInclude,
+      })
+      await ensureClubAgentCoLeader(tx, clubId, playerDbId)
+      return binding
     })
 
     return NextResponse.json(

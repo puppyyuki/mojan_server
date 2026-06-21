@@ -18,6 +18,7 @@ const {
   isManageRestrictedMemberEditBlocked,
   collectSuperAgentPlayerIds,
   isDirectUpstream,
+  resolveManageMembersVisiblePlayerIds,
 } = require('../utils/clubAgentHierarchy');
 
 const sampleBindings = [
@@ -161,6 +162,54 @@ function testIsDirectUpstream() {
   assert.strictEqual(isDirectUpstream('master', 'small', sampleBindings), false);
 }
 
+function testResolveManageMembersVisiblePlayerIds() {
+  const baseArgs = {
+    clubCreatorId: 'super',
+    bindings: sampleBindings,
+    upstreamBindings: sampleUpstreamBindings,
+  };
+
+  assert.strictEqual(
+    resolveManageMembersVisiblePlayerIds({
+      ...baseArgs,
+      actorPlayerId: 'mid',
+      profitDisplayEnabled: false,
+    }),
+    null
+  );
+
+  assert.strictEqual(
+    resolveManageMembersVisiblePlayerIds({
+      ...baseArgs,
+      actorPlayerId: 'super',
+      profitDisplayEnabled: true,
+    }),
+    null
+  );
+
+  assert.strictEqual(
+    resolveManageMembersVisiblePlayerIds({
+      ...baseArgs,
+      actorPlayerId: 'coLeaderNoBinding',
+      profitDisplayEnabled: true,
+    }),
+    null
+  );
+
+  const midVisible = resolveManageMembersVisiblePlayerIds({
+    ...baseArgs,
+    actorPlayerId: 'mid',
+    profitDisplayEnabled: true,
+  });
+  assert(midVisible instanceof Set);
+  assert.strictEqual(midVisible.has('mid'), true);
+  assert.strictEqual(midVisible.has('small'), true);
+  assert.strictEqual(midVisible.has('playerUnderMid'), true);
+  assert.strictEqual(midVisible.has('master'), false);
+  assert.strictEqual(midVisible.has('super'), false);
+  assert.strictEqual(midVisible.has('playerUnderMaster'), false);
+}
+
 testPromotableLevelsIncludeNewTiers();
 testGetAssignableAgentLevelsWithoutUpstream();
 testGetAssignableAgentLevelsUnderAgent();
@@ -174,5 +223,6 @@ testIsDirectPlayerOfUpstreamAgent();
 testManageRestrictedMemberEditBlocked();
 testCollectSuperAgentPlayerIds();
 testIsDirectUpstream();
+testResolveManageMembersVisiblePlayerIds();
 
 console.log('club_agent_hierarchy_unit_test passed');
