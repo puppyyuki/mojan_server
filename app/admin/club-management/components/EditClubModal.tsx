@@ -306,8 +306,8 @@ export default function EditClubModal({
             <div className="min-w-0">
               <p className="text-sm font-medium text-gray-900">利潤顯示</p>
               <p className="text-xs text-gray-500 mt-0.5">
-                關閉：App「管理 &gt; 成員」隱藏自摸抽欄；「管理 &gt; 管理」可見全俱樂部成員（含總代理），但不提供代理設置。
-                開啟：「管理 &gt; 管理」依代理子樹顯示，代理設置僅限直屬下線。
+                關閉：App「管理 &gt; 成員」分頁整頁隱藏；「管理 &gt; 管理」可見全俱樂部成員（含總代理），但不提供代理設置。
+                開啟：顯示「成員」分頁（含自摸抽欄）；「管理 &gt; 管理」依代理子樹顯示，代理設置僅限直屬下線。
               </p>
             </div>
             <button

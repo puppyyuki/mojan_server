@@ -783,6 +783,7 @@ router.get('/:clubId', async (req, res) => {
           avatarUrl: true,
           logoUrl: true,
           description: true,
+          profitDisplayEnabled: true,
           createdAt: true,
           updatedAt: true,
           creator: {
