@@ -3748,7 +3748,7 @@ router.post('/:clubId/table-restrictions/check-join', async (req, res) => {
           res,
           {
             ok: false,
-            message: '您與房內玩家有禁止同桌設定，無法加入',
+            message: '您被禁止與房內某玩家同桌',
           },
           '禁止同桌'
         );
@@ -3769,7 +3769,7 @@ router.post('/:clubId/table-restrictions/check-join', async (req, res) => {
           res,
           {
             ok: false,
-            message: '您與房內玩家有禁止同桌設定，無法加入',
+            message: '您被禁止與房內某玩家同桌',
           },
           '禁止同桌'
         );

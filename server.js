@@ -5785,7 +5785,7 @@ io.on('connection', (socket) => {
             socket.emit('joinTableError', {
               success: false,
               error: 'BANNED_RELATION',
-              message: '您與房內玩家有禁止同桌設定，無法加入'
+              message: '您被禁止與房內某玩家同桌'
             });
             return;
           }
@@ -5811,7 +5811,7 @@ io.on('connection', (socket) => {
              socket.emit('joinTableError', {
               success: false,
               error: 'BANNED_RELATION',
-              message: '您與房內玩家有禁止同桌設定，無法加入'
+              message: '您被禁止與房內某玩家同桌'
              });
              return;
           }
