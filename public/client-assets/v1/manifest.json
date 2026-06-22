@@ -1,9 +1,9 @@
 {
-  "version": 2,
-  "description": "batch_50ms_apng for Flutter V2; paths are relative to this manifest directory",
+  "version": 3,
+  "description": "batch_50ms_apng legacy APNG for login sync; paths relative to this manifest directory",
   "files": [
     "batch_50ms_apng/麻將字體_普通發光麻將_吃_50ms.png",
-    "batch_50ms_apng/麻將字體_普通發光麻將_碰_50ms-spritesheet.png",
+    "batch_50ms_apng/麻將字體_普通發光麻將_碰_50ms.png",
     "batch_50ms_apng/麻將字體_普通發光麻將_槓_50ms.png",
     "batch_50ms_apng/麻將字體_普通發光麻將_聽_50ms.png",
     "batch_50ms_apng/麻將字體_普通發光麻將_補花_50ms.png",

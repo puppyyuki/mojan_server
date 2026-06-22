@@ -18,4 +18,6 @@
 
 ## 更新動畫
 
-替換 `mojan_app/assets/batch_50ms_apng/` 內檔案後，重新執行 sync，並將 `v1/manifest.json` 裡的 **`version`** 整數加 1，以強制客戶端重新下載。
+替換 `mojan_app/assets/batch_50ms_apng/` 內**舊 APNG**（`*_50ms.png`）後，重新執行 sync，並將 `v1/manifest.json` 裡的 **`version`** 整數加 1。
+
+**Sprite Sheet**（`*-spritesheet.png`）隨 App `pubspec.yaml` 打包，不在 manifest 內；manifest 僅保留舊 APNG 供登入下載／比對，現版對局播放使用 bundled spritesheet。
