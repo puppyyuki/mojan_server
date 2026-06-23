@@ -2429,7 +2429,8 @@ router.get('/:clubId/members', async (req, res) => {
           m.playerId,
           club.creatorId,
           bindings,
-          upstreamBindingRows
+          upstreamBindingRows,
+          profitDisplayEnabled
         );
         base.manageAgentSettingsAllowed =
           profitDisplayEnabled &&
@@ -3230,7 +3231,8 @@ router.post('/:clubId/members/ban', async (req, res) => {
       playerId,
       authz.clubCreatorId,
       bindings,
-      upstreamBindings
+      upstreamBindings,
+      club.profitDisplayEnabled !== false
     );
     if (!hierarchyGuard.ok) {
       return errorResponse(res, hierarchyGuard.error, null, hierarchyGuard.status);
@@ -3302,7 +3304,8 @@ router.post('/:clubId/members/unban', async (req, res) => {
       playerId,
       authz.clubCreatorId,
       bindings,
-      upstreamBindings
+      upstreamBindings,
+      club.profitDisplayEnabled !== false
     );
     if (!hierarchyGuard.ok) {
       return errorResponse(res, hierarchyGuard.error, null, hierarchyGuard.status);
@@ -3374,7 +3377,8 @@ router.post('/:clubId/members/score-limit', async (req, res) => {
       playerId,
       authz.clubCreatorId,
       bindings,
-      upstreamBindings
+      upstreamBindings,
+      club.profitDisplayEnabled !== false
     );
     if (!hierarchyGuard.ok) {
       return errorResponse(res, hierarchyGuard.error, null, hierarchyGuard.status);
@@ -3471,7 +3475,8 @@ router.post('/:clubId/members/base-tai-limit', async (req, res) => {
       playerId,
       authz.clubCreatorId,
       bindings,
-      upstreamBindings
+      upstreamBindings,
+      club.profitDisplayEnabled !== false
     );
     if (!hierarchyGuard.ok) {
       return errorResponse(res, hierarchyGuard.error, null, hierarchyGuard.status);

@@ -222,14 +222,17 @@ function isDirectPlayerOfUpstreamAgent(actorId, targetPlayerId, bindings, upstre
 
 /**
  * 管理頁：底台、分數上限、禁止遊戲等是否不可編輯（禁止同桌不受此限制）。
+ * 利潤顯示關閉時：具副會長對應權限者可管理全俱樂部成員，不受代理階層限制。
  */
 function isManageRestrictedMemberEditBlocked(
   actorId,
   targetId,
   clubCreatorId,
   bindings,
-  upstreamBindings
+  upstreamBindings,
+  profitDisplayEnabled = true
 ) {
+  if (profitDisplayEnabled === false) return false;
   if (!actorId || !targetId) return false;
   if (actorId === clubCreatorId) return false;
   if (isAncestorAgent(actorId, targetId, bindings)) return true;
@@ -244,7 +247,8 @@ function assertManageRestrictedMemberEditAllowed(
   targetPlayerId,
   clubCreatorId,
   bindings,
-  upstreamBindings
+  upstreamBindings,
+  profitDisplayEnabled = true
 ) {
   if (
     isManageRestrictedMemberEditBlocked(
@@ -252,7 +256,8 @@ function assertManageRestrictedMemberEditAllowed(
       targetPlayerId,
       clubCreatorId,
       bindings,
-      upstreamBindings
+      upstreamBindings,
+      profitDisplayEnabled
     )
   ) {
     return {

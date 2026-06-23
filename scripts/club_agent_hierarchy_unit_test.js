@@ -149,6 +149,29 @@ function testManageRestrictedMemberEditBlocked() {
     ),
     false
   );
+  // 利潤顯示關閉：副會長等具權限者可管理全員，不受代理階層限制
+  assert.strictEqual(
+    isManageRestrictedMemberEditBlocked(
+      'mid',
+      'master',
+      creatorId,
+      sampleBindings,
+      sampleUpstreamBindings,
+      false
+    ),
+    false
+  );
+  assert.strictEqual(
+    isManageRestrictedMemberEditBlocked(
+      'mid',
+      'playerUnderMaster',
+      creatorId,
+      sampleBindings,
+      sampleUpstreamBindings,
+      false
+    ),
+    false
+  );
 }
 
 function testCollectSuperAgentPlayerIds() {
