@@ -297,7 +297,10 @@ async function resolveRoomCardQuotaLimitForTarget(prisma, {
 }
 
 function computeOwnRoomCardFeeAmount(roomCardConsumed, fee) {
-  return roundMoney(numberOrZero(roomCardConsumed) * Math.max(0, numberOrZero(fee)));
+  const amount = roundMoney(
+    Math.abs(numberOrZero(roomCardConsumed)) * Math.max(0, numberOrZero(fee))
+  );
+  return amount === 0 ? 0 : -amount;
 }
 
 module.exports = {
