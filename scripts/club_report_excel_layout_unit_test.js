@@ -6,10 +6,14 @@ const {
   buildSheetLayout,
   directPlayerSpanEnd,
   findMidSpans,
+  findSmallSpans,
   balance,
+  memberSummary,
+  agentSettlement,
   anchorLineSummaryTotal,
   sumLineContribution,
   sumBalance,
+  sumMemberSummary,
   COL,
 } = require('../lib/club-report-excel-layout.ts')
 
@@ -43,14 +47,18 @@ const sortedRows = [
     payment: 8,
     battleScore: 10,
     rakeAmount: 2,
+    roomCardFeeAmount: -1,
   }),
-  row({ id: '100002', payment: 20, battleScore: 20 }),
-  row({ id: '100003', agentLevel: 'mid', title: '中代理', payment: 30, rakeAmount: 5 }),
-  row({ id: '100004', payment: 40 }),
-  row({ id: '200001', agentLevel: 'master', title: '大代理', payment: 50, rakeAmount: 8 }),
-  row({ id: '200002', payment: 60 }),
-  row({ id: '200003', agentLevel: 'mid', title: '中代理', payment: 70, rakeAmount: 9 }),
-  row({ id: '200004', payment: 80 }),
+  row({ id: '100002', payment: 20, battleScore: 20, roomCardFeeAmount: -2 }),
+  row({ id: '200001', agentLevel: 'master', title: '大代理', payment: 50, rakeAmount: 8, roomCardFeeAmount: -4 }),
+  row({ id: '200002', payment: 60, roomCardFeeAmount: -3 }),
+  row({ id: '200003', agentLevel: 'mid', title: '中代理', payment: 70, rakeAmount: 9, roomCardFeeAmount: -5 }),
+  row({ id: '200004', payment: 80, roomCardFeeAmount: -6 }),
+  row({ id: '200005', agentLevel: 'small', title: '小代理', payment: 90, rakeAmount: 10, roomCardFeeAmount: -7 }),
+  row({ id: '200006', payment: 100, roomCardFeeAmount: -8 }),
+  row({ id: '200007', agentLevel: 'agent', title: '代理', payment: 110, rakeAmount: 11, roomCardFeeAmount: -9 }),
+  row({ id: '200008', payment: 120, roomCardFeeAmount: -10 }),
+  row({ id: '200009', agentLevel: 'small', title: '小代理', payment: 130, rakeAmount: 12, roomCardFeeAmount: -11 }),
   row({ id: '300001', agentLevel: 'master', title: '大代理', payment: 90, rakeAmount: 10 }),
 ]
 
@@ -61,22 +69,44 @@ assert(blocks[1].type === 'master', 'second block should be master')
 
 assert(balance(blocks[0].rows[0]) === 10, 'super balance should use battleScore without rake deduction')
 assert(balance(blocks[1].rows[0]) === 50, 'master balance should use payment')
+assert(memberSummary(blocks[1].rows[0]) === 46, 'member summary should subtract absolute room card fee')
+assert(agentSettlement(blocks[1].rows[0]) === 12, 'agent settlement should add absolute room card fee')
+assert(findMidSpans(blocks[1].rows)[0].end === 3, 'mid total span should include direct players only')
+assert(findSmallSpans(blocks[1].rows)[0].end === 7, 'small total span should include lower subtree')
 
 const layout = buildSheetLayout(blocks)
 assert(layout.rows[0].length === 10, 'header should have 10 columns')
 
-const superTotalRow = layout.rows[5]
+const superTotalRow = layout.rows[3]
 assert(superTotalRow[0] === '總計', 'super block should end with total row')
 assert(superTotalRow[3] === sumBalance(blocks[0].rows), 'super total should sum super segment vertically')
+assert(superTotalRow[6] === sumMemberSummary(blocks[0].rows), 'super total should sum member summary with room card fee')
 
-const firstMasterRow = layout.rows[6]
+const firstMasterRow = layout.rows[4]
 assert(firstMasterRow[0] === '200001', 'first master should appear after super total row')
+assert(firstMasterRow[COL.MEMBER_SUMMARY] === 46, 'master member summary cell should subtract room card fee')
+assert(firstMasterRow[COL.AGENT_SETTLEMENT] === 12, 'master settlement cell should add room card fee abs')
 
-const firstMasterTotalRow = layout.rows[10]
-assert(firstMasterTotalRow[0] === '總計', 'first master block should end with total row')
-assert(firstMasterTotalRow[3] === sumBalance(blocks[1].rows), 'first master total should sum its block')
+const firstMasterTotalRow = layout.rows[6]
+assert(firstMasterTotalRow[0] === '總計', 'first master direct total should appear after direct players')
+assert(firstMasterTotalRow[3] === sumBalance(blocks[1].rows.slice(0, 2)), 'master total should sum direct segment')
+assert(firstMasterTotalRow[6] === sumMemberSummary(blocks[1].rows.slice(0, 2)), 'master total should sum direct member summary')
+assert(firstMasterTotalRow[8] === sumLineContribution(blocks[1].rows.slice(0, 2)), 'master total should sum direct line contribution')
 
-const secondMasterRow = layout.rows[11]
+const midTotalRow = layout.rows[9]
+assert(midTotalRow[0] === '總計', 'mid direct total should appear after mid direct players')
+assert(midTotalRow[3] === sumBalance(blocks[1].rows.slice(2, 4)), 'mid total should sum direct segment')
+
+const firstSmallTotalRow = layout.rows[14]
+assert(firstSmallTotalRow[0] === '總計', 'small subtree total should appear after lower subtree')
+assert(firstSmallTotalRow[3] === sumBalance(blocks[1].rows.slice(4, 8)), 'small total should sum full lower subtree')
+assert(firstSmallTotalRow[8] === sumLineContribution(blocks[1].rows.slice(4, 8)), 'small total should sum subtree line contribution')
+
+const secondSmallTotalRowIndex = 16
+const secondSmallTotalRow = layout.rows[secondSmallTotalRowIndex]
+assert(secondSmallTotalRow[0] === '總計', 'second small total should appear before next master')
+
+const secondMasterRow = layout.rows[17]
 assert(secondMasterRow[0] === '300001', 'second master should appear after first master total row')
 
 const superLineSummaryRow = layout.rows[1]
@@ -85,17 +115,17 @@ assert(
   'super line summary should equal anchor self + settlement + direct players'
 )
 assert(
-  superLineSummaryRow[COL.LINE_SUMMARY] !== sumLineContribution(blocks[0].rows),
-  'super anchor line summary should not include mid subtree when mids exist'
+  superLineSummaryRow[COL.LINE_SUMMARY] === sumLineContribution(blocks[0].rows),
+  'super anchor line summary should include its independent direct segment'
 )
 
 const totalBeforeFirstMaster = layout.rows.findIndex((sheetRow, index) => index > 0 && sheetRow[0] === '總計')
-assert(totalBeforeFirstMaster === 5, 'total row should appear after super segment and before first master')
+assert(totalBeforeFirstMaster === 3, 'total row should appear after super segment and before first master')
 
 const masterTotalBeforeSecond = layout.rows.findIndex(
-  (sheetRow, index) => index > totalBeforeFirstMaster && sheetRow[0] === '總計'
+  (sheetRow, index) => index > secondSmallTotalRowIndex && sheetRow[0] === '總計'
 )
-assert(masterTotalBeforeSecond === 10, 'master total should appear after first master block and before second master')
+assert(masterTotalBeforeSecond === 18, 'second master total should appear after second master row')
 
 const hasTotalAboveSuper = layout.rows[1]?.[0] === '總計'
 assert(!hasTotalAboveSuper, 'super block should not have total row at top')

@@ -71,57 +71,6 @@ function resolveFirstUpstream(playerId, bindingByPlayer, upstreamByPlayer) {
   return binding?.upstreamAgentPlayerId ?? null;
 }
 
-function buildAgentPathFromPlayer(playerId, bindingByPlayer, upstreamByPlayer) {
-  const path = [];
-  const visited = new Set();
-  let current = resolveFirstUpstream(playerId, bindingByPlayer, upstreamByPlayer);
-
-  while (current && !visited.has(current)) {
-    visited.add(current);
-    if (bindingByPlayer.has(current)) path.push(current);
-    const binding = bindingByPlayer.get(current);
-    current = binding?.upstreamAgentPlayerId ?? null;
-  }
-
-  return path;
-}
-
-function buildAgentPathFromSelf(agentId, bindingByPlayer) {
-  const path = [];
-  const visited = new Set();
-  let current = agentId;
-
-  while (current && !visited.has(current)) {
-    visited.add(current);
-    const binding = bindingByPlayer.get(current);
-    if (!binding) break;
-    path.push(current);
-    current = binding.upstreamAgentPlayerId ?? null;
-  }
-
-  return path;
-}
-
-function agentRoomCardFeeRate(agentRoomCardFee, totalRoomCardFee) {
-  const total = Math.max(0, numberOrZero(totalRoomCardFee));
-  if (total <= 0) return 0;
-  const fee = Math.min(total, Math.max(0, numberOrZero(agentRoomCardFee)));
-  return fee / total;
-}
-
-function computeAgentSelfKeepRate(agentId, totalRoomCardFee, bindingByPlayer, branchRoomCardEnabled) {
-  const path = buildAgentPathFromSelf(agentId, bindingByPlayer);
-  let remitSumRate = 0;
-  for (const id of path) {
-    const binding = bindingByPlayer.get(id);
-    remitSumRate += agentRoomCardFeeRate(
-      activeAgentRoomCardFee(binding, branchRoomCardEnabled),
-      totalRoomCardFee
-    );
-  }
-  return Math.max(0, 1 - remitSumRate);
-}
-
 function resolveMasterAgentPlayerId(
   playerId,
   bindings,
@@ -168,24 +117,6 @@ function resolveEffectiveRoomCardFee({
   return buildBranchFeeMap(branchFees).get(masterAgentPlayerId) ?? 0;
 }
 
-function isSourceAttributedToTarget(sourceId, targetId, bindings, upstreamBindings = []) {
-  if (sourceId === targetId) return true;
-  const bindingByPlayer = buildBindingMap(bindings);
-  const upstreamByPlayer = buildUpstreamMap(upstreamBindings);
-  const visited = new Set();
-  let current = sourceId;
-
-  while (current && !visited.has(current)) {
-    visited.add(current);
-    const upstream = resolveFirstUpstream(current, bindingByPlayer, upstreamByPlayer);
-    if (upstream === targetId) return true;
-    if (!upstream) break;
-    current = upstream;
-  }
-
-  return false;
-}
-
 function computeViewerRoomCardFeeForRow({
   targetPlayerId,
   roomCardConsumedByPlayer,
@@ -196,7 +127,6 @@ function computeViewerRoomCardFeeForRow({
   branchFees = [],
 }) {
   const bindingByPlayer = buildBindingMap(bindings);
-  const upstreamByPlayer = buildUpstreamMap(upstreamBindings);
   const agentIds = new Set((bindings || []).map((b) => b.playerId));
 
   if (!agentIds.has(targetPlayerId)) {
@@ -214,77 +144,13 @@ function computeViewerRoomCardFeeForRow({
     );
   }
 
-  let total = 0;
-  for (const [sourceId, consumed] of roomCardConsumedByPlayer.entries()) {
-    if (!isSourceAttributedToTarget(sourceId, targetPlayerId, bindings, upstreamBindings)) {
-      continue;
-    }
-    const sourceTotalFee = resolveEffectiveRoomCardFee({
-      clubRoomCardFee,
-      branchRoomCardEnabled,
-      playerId: sourceId,
-      bindings,
-      upstreamBindings,
-      branchFees,
-    });
-    const sourceAmount = computeOwnRoomCardFeeAmount(consumed, sourceTotalFee);
+  const targetBinding = bindingByPlayer.get(targetPlayerId);
+  if (!targetBinding?.upstreamAgentPlayerId) return 0;
 
-    if (agentIds.has(sourceId)) {
-      if (sourceId === targetPlayerId) {
-        total = roundMoney(
-          total +
-            sourceAmount *
-              computeAgentSelfKeepRate(
-                targetPlayerId,
-                sourceTotalFee,
-                bindingByPlayer,
-                branchRoomCardEnabled
-              )
-        );
-        continue;
-      }
-
-      for (const agentId of buildAgentPathFromSelf(sourceId, bindingByPlayer)) {
-        const binding = bindingByPlayer.get(agentId);
-        if (binding?.upstreamAgentPlayerId !== targetPlayerId) continue;
-        total = roundMoney(
-          total +
-            sourceAmount *
-              agentRoomCardFeeRate(activeAgentRoomCardFee(binding, branchRoomCardEnabled), sourceTotalFee)
-        );
-      }
-      continue;
-    }
-
-    const path = buildAgentPathFromPlayer(sourceId, bindingByPlayer, upstreamByPlayer);
-    if (path.length === 0) continue;
-
-    const leafAgentId = path[0];
-    if (targetPlayerId === leafAgentId) {
-      let parentKeepSumRate = 0;
-      for (const agentId of path) {
-        const binding = bindingByPlayer.get(agentId);
-        parentKeepSumRate += agentRoomCardFeeRate(
-          activeAgentRoomCardFee(binding, branchRoomCardEnabled),
-          sourceTotalFee
-        );
-      }
-      total = roundMoney(total + sourceAmount * Math.max(0, 1 - parentKeepSumRate));
-      continue;
-    }
-
-    for (const agentId of path) {
-      const binding = bindingByPlayer.get(agentId);
-      if (binding?.upstreamAgentPlayerId !== targetPlayerId) continue;
-      total = roundMoney(
-        total +
-          sourceAmount *
-            agentRoomCardFeeRate(activeAgentRoomCardFee(binding, branchRoomCardEnabled), sourceTotalFee)
-      );
-    }
-  }
-
-  return total;
+  return computeOwnRoomCardFeeAmount(
+    roomCardConsumedByPlayer.get(targetPlayerId) ?? 0,
+    activeAgentRoomCardFee(targetBinding, branchRoomCardEnabled)
+  );
 }
 
 async function resolveRoomCardQuotaLimitForTarget(prisma, {

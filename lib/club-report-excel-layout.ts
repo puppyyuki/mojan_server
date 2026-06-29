@@ -45,6 +45,10 @@ function roundMoney(value: number): number {
   return Math.round(value * 100) / 100
 }
 
+function roomCardFeeAbs(row: ClubReportExportRow): number {
+  return Math.abs(row.roomCardFeeAmount)
+}
+
 /** 總代理餘額不扣區間自摸抽，其餘成員使用 payment（戰績 − 自摸抽）。 */
 export function balance(row: ClubReportExportRow): number {
   if (row.agentLevel === 'super') {
@@ -54,15 +58,15 @@ export function balance(row: ClubReportExportRow): number {
 }
 
 export function memberSummary(row: ClubReportExportRow): number {
-  return balance(row)
+  return roundMoney(balance(row) + row.roomCardFeeAmount)
 }
 
 export function agentSettlement(row: ClubReportExportRow): number {
-  return row.agentLevel != null ? row.rakeAmount : 0
+  return row.agentLevel != null ? roundMoney(row.rakeAmount + roomCardFeeAbs(row)) : 0
 }
 
 export function lineContribution(row: ClubReportExportRow): number {
-  return memberSummary(row) + agentSettlement(row)
+  return roundMoney(memberSummary(row) + agentSettlement(row))
 }
 
 export function sumLineContribution(rows: ClubReportExportRow[]): number {
@@ -71,6 +75,10 @@ export function sumLineContribution(rows: ClubReportExportRow[]): number {
 
 export function sumBalance(rows: ClubReportExportRow[]): number {
   return roundMoney(rows.reduce((sum, row) => sum + balance(row), 0))
+}
+
+export function sumMemberSummary(rows: ClubReportExportRow[]): number {
+  return roundMoney(rows.reduce((sum, row) => sum + memberSummary(row), 0))
 }
 
 export function sumRoomCardConsumed(rows: ClubReportExportRow[]): number {
@@ -86,7 +94,7 @@ export function anchorLineSummaryTotal(
   const anchor = blockRows[anchorIndex]
   const directEnd = directPlayerSpanEnd(blockRows, anchorIndex)
   const directPlayers = blockRows.slice(anchorIndex + 1, directEnd + 1)
-  const directPlayerSummary = directPlayers.reduce((sum, row) => sum + balance(row), 0)
+  const directPlayerSummary = directPlayers.reduce((sum, row) => sum + memberSummary(row), 0)
   return roundMoney(lineContribution(anchor) + directPlayerSummary)
 }
 
@@ -108,12 +116,28 @@ export function findMidSpans(
   const spans: Array<{ start: number; end: number }> = []
   for (let i = 0; i < rows.length; i += 1) {
     if (rows[i].agentLevel !== 'mid') continue
-    let end = i
-    for (let j = i + 1; j < rows.length; j += 1) {
-      if (rows[j].agentLevel === 'mid') break
-      end = j
-    }
-    spans.push({ start: i, end })
+    spans.push({ start: i, end: directPlayerSpanEnd(rows, i) })
+  }
+  return spans
+}
+
+export function smallSubtreeSpanEnd(rows: ClubReportExportRow[], smallIndex: number): number {
+  let end = smallIndex
+  for (let i = smallIndex + 1; i < rows.length; i += 1) {
+    const level = rows[i].agentLevel
+    if (level === 'master' || level === 'mid' || level === 'small' || level === 'super') break
+    end = i
+  }
+  return end
+}
+
+export function findSmallSpans(
+  rows: ClubReportExportRow[]
+): Array<{ start: number; end: number }> {
+  const spans: Array<{ start: number; end: number }> = []
+  for (let i = 0; i < rows.length; i += 1) {
+    if (rows[i].agentLevel !== 'small') continue
+    spans.push({ start: i, end: smallSubtreeSpanEnd(rows, i) })
   }
   return spans
 }
@@ -166,8 +190,8 @@ function rowToCells(row: ClubReportExportRow): unknown[] {
     rowBalance,
     row.roomCardConsumed,
     row.roomCardFeeAmount,
-    rowBalance,
-    row.agentLevel != null ? row.rakeAmount : '',
+    memberSummary(row),
+    row.agentLevel != null ? agentSettlement(row) : '',
     '',
     row.upstreamAgent ?? '',
   ]
@@ -182,7 +206,7 @@ function appendTotalRow(
     balance: sumBalance(blockRows),
     roomCard: sumRoomCardConsumed(blockRows),
     roomCardFee: roundMoney(blockRows.reduce((sum, row) => sum + row.roomCardFeeAmount, 0)),
-    memberSummary: sumBalance(blockRows),
+    memberSummary: sumMemberSummary(blockRows),
     agentSettlement: sumAgentSettlement(blockRows),
     lineContribution: sumLineContribution(blockRows),
   }
@@ -220,17 +244,18 @@ function pushVerticalMerge(
 function applyAnchorLineSummaryMerge(
   sheetRows: unknown[][],
   merges: MergeRange[],
-  sheetRowStart: number,
   blockRows: ClubReportExportRow[],
-  anchorLevel: 'super' | 'master'
+  anchorLevel: 'super' | 'master',
+  dataSheetRowByBlockIndex: Map<number, number>
 ): void {
   const anchorIndex = blockRows.findIndex((row) => row.agentLevel === anchorLevel)
   if (anchorIndex < 0) return
 
   const directEnd = directPlayerSpanEnd(blockRows, anchorIndex)
   const anchorTotal = anchorLineSummaryTotal(blockRows, anchorLevel)
-  const sheetAnchorRow = sheetRowStart + anchorIndex
-  const sheetDirectEndRow = sheetRowStart + directEnd
+  const sheetAnchorRow = dataSheetRowByBlockIndex.get(anchorIndex)
+  const sheetDirectEndRow = dataSheetRowByBlockIndex.get(directEnd)
+  if (sheetAnchorRow == null || sheetDirectEndRow == null) return
 
   const anchorRow = sheetRows[sheetAnchorRow]
   if (Array.isArray(anchorRow)) {
@@ -242,13 +267,33 @@ function applyAnchorLineSummaryMerge(
 function applyMidLineSummaryMerges(
   sheetRows: unknown[][],
   merges: MergeRange[],
-  sheetRowStart: number,
-  blockRows: ClubReportExportRow[]
+  blockRows: ClubReportExportRow[],
+  dataSheetRowByBlockIndex: Map<number, number>
 ): void {
   for (const { start, end } of findMidSpans(blockRows)) {
     const spanTotal = sumLineContribution(blockRows.slice(start, end + 1))
-    const sheetStartRow = sheetRowStart + start
-    const sheetEndRow = sheetRowStart + end
+    const sheetStartRow = dataSheetRowByBlockIndex.get(start)
+    const sheetEndRow = dataSheetRowByBlockIndex.get(end)
+    if (sheetStartRow == null || sheetEndRow == null) continue
+    const startRow = sheetRows[sheetStartRow]
+    if (Array.isArray(startRow)) {
+      startRow[COL.LINE_SUMMARY] = spanTotal
+    }
+    pushVerticalMerge(merges, sheetStartRow, sheetEndRow, COL.LINE_SUMMARY)
+  }
+}
+
+function applySmallLineSummaryMerges(
+  sheetRows: unknown[][],
+  merges: MergeRange[],
+  blockRows: ClubReportExportRow[],
+  dataSheetRowByBlockIndex: Map<number, number>
+): void {
+  for (const { start, end } of findSmallSpans(blockRows)) {
+    const spanTotal = sumLineContribution(blockRows.slice(start, end + 1))
+    const sheetStartRow = dataSheetRowByBlockIndex.get(start)
+    const sheetEndRow = dataSheetRowByBlockIndex.get(end)
+    if (sheetStartRow == null || sheetEndRow == null) continue
     const startRow = sheetRows[sheetStartRow]
     if (Array.isArray(startRow)) {
       startRow[COL.LINE_SUMMARY] = spanTotal
@@ -260,17 +305,39 @@ function applyMidLineSummaryMerges(
 function applyLineSummaryMerges(
   sheetRows: unknown[][],
   merges: MergeRange[],
-  sheetRowStart: number,
-  block: LineBlock
+  block: LineBlock,
+  dataSheetRowByBlockIndex: Map<number, number>
 ): void {
   if (block.type === 'super') {
-    applyAnchorLineSummaryMerge(sheetRows, merges, sheetRowStart, block.rows, 'super')
+    applyAnchorLineSummaryMerge(sheetRows, merges, block.rows, 'super', dataSheetRowByBlockIndex)
   } else if (block.type === 'master') {
-    applyAnchorLineSummaryMerge(sheetRows, merges, sheetRowStart, block.rows, 'master')
+    applyAnchorLineSummaryMerge(sheetRows, merges, block.rows, 'master', dataSheetRowByBlockIndex)
+    applyMidLineSummaryMerges(sheetRows, merges, block.rows, dataSheetRowByBlockIndex)
+    applySmallLineSummaryMerges(sheetRows, merges, block.rows, dataSheetRowByBlockIndex)
   } else {
-    return
+    applyMidLineSummaryMerges(sheetRows, merges, block.rows, dataSheetRowByBlockIndex)
+    applySmallLineSummaryMerges(sheetRows, merges, block.rows, dataSheetRowByBlockIndex)
   }
-  applyMidLineSummaryMerges(sheetRows, merges, sheetRowStart, block.rows)
+}
+
+function totalSpansForBlock(block: LineBlock): Array<{ end: number; rows: ClubReportExportRow[] }> {
+  if (block.type === 'super') {
+    return [{ end: block.rows.length - 1, rows: block.rows }]
+  }
+
+  const spans: Array<{ end: number; rows: ClubReportExportRow[] }> = []
+  const masterIndex = block.rows.findIndex((row) => row.agentLevel === 'master')
+  if (masterIndex >= 0) {
+    const end = directPlayerSpanEnd(block.rows, masterIndex)
+    spans.push({ end, rows: block.rows.slice(masterIndex, end + 1) })
+  }
+  for (const { start, end } of findMidSpans(block.rows)) {
+    spans.push({ end, rows: block.rows.slice(start, end + 1) })
+  }
+  for (const { start, end } of findSmallSpans(block.rows)) {
+    spans.push({ end, rows: block.rows.slice(start, end + 1) })
+  }
+  return spans
 }
 
 export function buildSheetLayout(blocks: LineBlock[]): SheetLayout {
@@ -278,16 +345,23 @@ export function buildSheetLayout(blocks: LineBlock[]): SheetLayout {
   const merges: MergeRange[] = []
 
   for (const block of blocks) {
-    const sheetRowStart = sheetRows.length
-    for (const row of block.rows) {
-      sheetRows.push(rowToCells(row))
+    const dataSheetRowByBlockIndex = new Map<number, number>()
+    const spansByEnd = new Map<number, ClubReportExportRow[][]>()
+    for (const span of totalSpansForBlock(block)) {
+      const spans = spansByEnd.get(span.end) ?? []
+      spans.push(span.rows)
+      spansByEnd.set(span.end, spans)
     }
 
-    applyLineSummaryMerges(sheetRows, merges, sheetRowStart, block)
-
-    if (block.type === 'super' || block.type === 'master') {
-      appendTotalRow(sheetRows, merges, block.rows)
+    for (let i = 0; i < block.rows.length; i += 1) {
+      dataSheetRowByBlockIndex.set(i, sheetRows.length)
+      sheetRows.push(rowToCells(block.rows[i]))
+      for (const totalRows of spansByEnd.get(i) ?? []) {
+        appendTotalRow(sheetRows, merges, totalRows)
+      }
     }
+
+    applyLineSummaryMerges(sheetRows, merges, block, dataSheetRowByBlockIndex)
   }
 
   return { rows: sheetRows, merges }
