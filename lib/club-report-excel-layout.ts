@@ -125,7 +125,7 @@ export function smallSubtreeSpanEnd(rows: ClubReportExportRow[], smallIndex: num
   let end = smallIndex
   for (let i = smallIndex + 1; i < rows.length; i += 1) {
     const level = rows[i].agentLevel
-    if (level === 'master' || level === 'mid' || level === 'small' || level === 'super') break
+    if (level === 'super' || level === 'master' || level === 'mid' || level === 'small') break
     end = i
   }
   return end
@@ -320,48 +320,22 @@ function applyLineSummaryMerges(
   }
 }
 
-function totalSpansForBlock(block: LineBlock): Array<{ end: number; rows: ClubReportExportRow[] }> {
-  if (block.type === 'super') {
-    return [{ end: block.rows.length - 1, rows: block.rows }]
-  }
-
-  const spans: Array<{ end: number; rows: ClubReportExportRow[] }> = []
-  const masterIndex = block.rows.findIndex((row) => row.agentLevel === 'master')
-  if (masterIndex >= 0) {
-    const end = directPlayerSpanEnd(block.rows, masterIndex)
-    spans.push({ end, rows: block.rows.slice(masterIndex, end + 1) })
-  }
-  for (const { start, end } of findMidSpans(block.rows)) {
-    spans.push({ end, rows: block.rows.slice(start, end + 1) })
-  }
-  for (const { start, end } of findSmallSpans(block.rows)) {
-    spans.push({ end, rows: block.rows.slice(start, end + 1) })
-  }
-  return spans
-}
-
 export function buildSheetLayout(blocks: LineBlock[]): SheetLayout {
   const sheetRows: unknown[][] = [[...EXCEL_HEADERS]]
   const merges: MergeRange[] = []
 
   for (const block of blocks) {
     const dataSheetRowByBlockIndex = new Map<number, number>()
-    const spansByEnd = new Map<number, ClubReportExportRow[][]>()
-    for (const span of totalSpansForBlock(block)) {
-      const spans = spansByEnd.get(span.end) ?? []
-      spans.push(span.rows)
-      spansByEnd.set(span.end, spans)
-    }
-
     for (let i = 0; i < block.rows.length; i += 1) {
       dataSheetRowByBlockIndex.set(i, sheetRows.length)
       sheetRows.push(rowToCells(block.rows[i]))
-      for (const totalRows of spansByEnd.get(i) ?? []) {
-        appendTotalRow(sheetRows, merges, totalRows)
-      }
     }
 
     applyLineSummaryMerges(sheetRows, merges, block, dataSheetRowByBlockIndex)
+
+    if (block.type === 'super' || block.type === 'master') {
+      appendTotalRow(sheetRows, merges, block.rows)
+    }
   }
 
   return { rows: sheetRows, merges }

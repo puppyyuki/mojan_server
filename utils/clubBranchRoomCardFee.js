@@ -126,30 +126,17 @@ function computeViewerRoomCardFeeForRow({
   branchRoomCardEnabled,
   branchFees = [],
 }) {
-  const bindingByPlayer = buildBindingMap(bindings);
-  const agentIds = new Set((bindings || []).map((b) => b.playerId));
-
-  if (!agentIds.has(targetPlayerId)) {
-    const fee = resolveEffectiveRoomCardFee({
-      clubRoomCardFee,
-      branchRoomCardEnabled,
-      playerId: targetPlayerId,
-      bindings,
-      upstreamBindings,
-      branchFees,
-    });
-    return computeOwnRoomCardFeeAmount(
-      roomCardConsumedByPlayer.get(targetPlayerId) ?? 0,
-      fee
-    );
-  }
-
-  const targetBinding = bindingByPlayer.get(targetPlayerId);
-  if (!targetBinding?.upstreamAgentPlayerId) return 0;
-
+  const fee = resolveEffectiveRoomCardFee({
+    clubRoomCardFee,
+    branchRoomCardEnabled,
+    playerId: targetPlayerId,
+    bindings,
+    upstreamBindings,
+    branchFees,
+  });
   return computeOwnRoomCardFeeAmount(
     roomCardConsumedByPlayer.get(targetPlayerId) ?? 0,
-    activeAgentRoomCardFee(targetBinding, branchRoomCardEnabled)
+    fee
   );
 }
 

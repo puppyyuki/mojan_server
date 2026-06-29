@@ -46,8 +46,8 @@ assert(
     ...baseArgs,
     targetPlayerId: 'master',
     branchRoomCardEnabled: false,
-  }) === -10,
-  'normal agent row should use own consumed cards times agentRoomCardFee'
+  }) === -30,
+  'normal agent row should use own consumed cards times club room card fee'
 )
 
 assert(
@@ -55,17 +55,17 @@ assert(
     ...baseArgs,
     targetPlayerId: 'master',
     branchRoomCardEnabled: true,
-  }) === -15,
-  'branch agent row should use own consumed cards times branchAgentRoomCardFee'
+  }) === -40,
+  'branch agent row should use own consumed cards times effective branch room card fee'
 )
 
 assert(
   computeViewerRoomCardFeeForRow({
     ...baseArgs,
     targetPlayerId: 'super',
-    branchRoomCardEnabled: true,
-  }) === 0,
-  'super agent row should be zero because no upstream sets its room card fee'
+    branchRoomCardEnabled: false,
+  }) === -60,
+  'normal super row should use club room card fee like players'
 )
 
 assert(
