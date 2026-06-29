@@ -7,12 +7,14 @@ export type ClubChoice = {
   clubDbId: string
   clubId: string
   name: string
+  branchRoomCardEnabled?: boolean
 }
 
 type Candidate = {
   id: string
   clubId: string
   name: string
+  branchRoomCardEnabled?: boolean
 }
 
 type ClubSelectProps = {
@@ -127,7 +129,12 @@ export default function ClubSelect({
   }
 
   const pickCandidate = (c: Candidate) => {
-    onPick({ clubDbId: c.id, clubId: c.clubId, name: c.name })
+    onPick({
+      clubDbId: c.id,
+      clubId: c.clubId,
+      name: c.name,
+      branchRoomCardEnabled: c.branchRoomCardEnabled === true,
+    })
     setText(canonDisplay(c))
     setOpen(false)
   }

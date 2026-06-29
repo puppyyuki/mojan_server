@@ -354,6 +354,7 @@ async function loadClubAgentBindings(prisma, clubInternalId) {
       upstreamAgentPlayerId: true,
       agentLevel: true,
       agentRoomCardFee: true,
+      branchAgentRoomCardFee: true,
       agentPercentage: true,
       upstreamAgent: {
         select: { id: true, userId: true, nickname: true },

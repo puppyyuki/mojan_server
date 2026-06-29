@@ -28,6 +28,20 @@ function buildBranchFeeMap(branchFees) {
   );
 }
 
+function activeAgentRoomCardFee(binding, branchRoomCardEnabled) {
+  if (branchRoomCardEnabled === true) {
+    return Math.max(0, numberOrZero(binding?.branchAgentRoomCardFee));
+  }
+  return Math.max(0, numberOrZero(binding?.agentRoomCardFee));
+}
+
+function projectActiveAgentRoomCardFees(bindings, branchRoomCardEnabled) {
+  return (bindings || []).map((binding) => ({
+    ...binding,
+    agentRoomCardFee: activeAgentRoomCardFee(binding, branchRoomCardEnabled),
+  }));
+}
+
 function applyTargetBinding(bindings, targetPlayerId, updates = {}) {
   if (!targetPlayerId) return bindings || [];
   const byPlayer = buildBindingMap(bindings);
@@ -95,13 +109,13 @@ function agentRoomCardFeeRate(agentRoomCardFee, totalRoomCardFee) {
   return fee / total;
 }
 
-function computeAgentSelfKeepRate(agentId, totalRoomCardFee, bindingByPlayer) {
+function computeAgentSelfKeepRate(agentId, totalRoomCardFee, bindingByPlayer, branchRoomCardEnabled) {
   const path = buildAgentPathFromSelf(agentId, bindingByPlayer);
   let remitSumRate = 0;
   for (const id of path) {
     const binding = bindingByPlayer.get(id);
     remitSumRate += agentRoomCardFeeRate(
-      binding?.agentRoomCardFee,
+      activeAgentRoomCardFee(binding, branchRoomCardEnabled),
       totalRoomCardFee
     );
   }
@@ -220,7 +234,12 @@ function computeViewerRoomCardFeeForRow({
         total = roundMoney(
           total +
             sourceAmount *
-              computeAgentSelfKeepRate(targetPlayerId, sourceTotalFee, bindingByPlayer)
+              computeAgentSelfKeepRate(
+                targetPlayerId,
+                sourceTotalFee,
+                bindingByPlayer,
+                branchRoomCardEnabled
+              )
         );
         continue;
       }
@@ -231,7 +250,7 @@ function computeViewerRoomCardFeeForRow({
         total = roundMoney(
           total +
             sourceAmount *
-              agentRoomCardFeeRate(binding?.agentRoomCardFee, sourceTotalFee)
+              agentRoomCardFeeRate(activeAgentRoomCardFee(binding, branchRoomCardEnabled), sourceTotalFee)
         );
       }
       continue;
@@ -246,7 +265,7 @@ function computeViewerRoomCardFeeForRow({
       for (const agentId of path) {
         const binding = bindingByPlayer.get(agentId);
         parentKeepSumRate += agentRoomCardFeeRate(
-          binding?.agentRoomCardFee,
+          activeAgentRoomCardFee(binding, branchRoomCardEnabled),
           sourceTotalFee
         );
       }
@@ -260,7 +279,7 @@ function computeViewerRoomCardFeeForRow({
       total = roundMoney(
         total +
           sourceAmount *
-            agentRoomCardFeeRate(binding?.agentRoomCardFee, sourceTotalFee)
+            agentRoomCardFeeRate(activeAgentRoomCardFee(binding, branchRoomCardEnabled), sourceTotalFee)
       );
     }
   }
@@ -305,8 +324,10 @@ function computeOwnRoomCardFeeAmount(roomCardConsumed, fee) {
 
 module.exports = {
   buildBranchFeeMap,
+  activeAgentRoomCardFee,
   computeViewerRoomCardFeeForRow,
   computeOwnRoomCardFeeAmount,
+  projectActiveAgentRoomCardFees,
   resolveEffectiveRoomCardFee,
   resolveMasterAgentPlayerId,
   resolveRoomCardQuotaLimitForTarget,

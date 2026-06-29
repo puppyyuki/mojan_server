@@ -24,7 +24,7 @@ export async function OPTIONS() {
 }
 
 const bindingInclude = {
-  club: { select: { id: true, clubId: true, name: true } },
+  club: { select: { id: true, clubId: true, name: true, branchRoomCardEnabled: true } },
   upstreamAgent: {
     select: { id: true, userId: true, nickname: true },
   },
@@ -91,6 +91,7 @@ export async function POST(
         ? null
         : String(rawUpstream).trim()
     const agentRoomCardFee = parseNonNegativeFloat(body.agentRoomCardFee, 0)
+    const branchAgentRoomCardFee = parseNonNegativeFloat(body.branchAgentRoomCardFee, 0)
     const agentPercentage = parseNonNegativeFloat(body.agentPercentage, 0)
 
     if (!clubId) {
@@ -117,6 +118,7 @@ export async function POST(
       agentLevel,
       upstreamAgentPlayerId,
       agentRoomCardFee,
+      branchAgentRoomCardFee,
       agentPercentage,
     })
     if (validation.ok === false) {
@@ -144,6 +146,7 @@ export async function POST(
           upstreamAgentPlayerId,
           agentLevel: isValidAgentLevel(agentLevel) ? agentLevel : 'agent',
           agentRoomCardFee,
+          branchAgentRoomCardFee,
           agentPercentage,
         },
         include: bindingInclude,

@@ -179,6 +179,7 @@ model AgentClubBinding {
   upstreamAgent         Player?  @relation("AgentClubBindingUpstream", fields: [upstreamAgentPlayerId], references: [id], onDelete: SetNull)
   agentLevel            String   @default("agent") // super | master | mid | small | agent | dealer | distributor | promoter
   agentRoomCardFee      Float    @default(0)
+  branchAgentRoomCardFee Float   @default(0)
   agentPercentage       Float    @default(0) // 代理%數
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt

@@ -455,6 +455,7 @@ export async function GET(request: NextRequest) {
           agentLevel: true,
           agentPercentage: true,
           agentRoomCardFee: true,
+          branchAgentRoomCardFee: true,
           player: { select: { id: true, userId: true, nickname: true } },
         },
       }),

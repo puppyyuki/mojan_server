@@ -33,6 +33,8 @@ const {
   validateAgentBranchQuota,
 } = require('../../utils/clubAgentQuotaAllocation');
 const {
+  activeAgentRoomCardFee,
+  projectActiveAgentRoomCardFees,
   resolveRoomCardQuotaLimitForTarget,
 } = require('../../utils/clubBranchRoomCardFee');
 const { listClubRooms } = require('../../lib/clubRoomsList');
@@ -2417,7 +2419,9 @@ router.get('/:clubId/members', async (req, res) => {
         ...m,
         agentLevel: binding?.agentLevel ?? null,
         agentPercentage: binding?.agentPercentage ?? null,
-        agentRoomCardFee: binding?.agentRoomCardFee ?? null,
+        agentRoomCardFee: binding
+          ? activeAgentRoomCardFee(binding, club.branchRoomCardEnabled)
+          : null,
         upstreamAgent: upstream
           ? {
               playerId: upstream.id,
@@ -2536,7 +2540,9 @@ router.get('/:clubId/agent-member-list', async (req, res) => {
         roomCardConsumed: m.roomCardConsumed ?? 0,
         agentLevel: binding?.agentLevel ?? null,
         agentPercentage: binding?.agentPercentage ?? null,
-        agentRoomCardFee: binding?.agentRoomCardFee ?? null,
+        agentRoomCardFee: binding
+          ? activeAgentRoomCardFee(binding, club.branchRoomCardEnabled)
+          : null,
         upstreamAgent: upstream
           ? {
               playerId: upstream.id,
@@ -2778,15 +2784,19 @@ router.post('/:clubId/members/promote-agent', async (req, res) => {
       : 0;
 
     const quotaBindings = await loadClubAgentBindings(prisma, club.id);
+    const activeQuotaBindings = projectActiveAgentRoomCardFees(
+      quotaBindings,
+      club.branchRoomCardEnabled
+    );
     const totalRoomCards = await resolveRoomCardQuotaLimitForTarget(prisma, {
       club,
-      bindings: quotaBindings,
+      bindings: activeQuotaBindings,
       targetPlayerId,
       targetAgentLevel: level,
       upstreamAgentPlayerId: resolvedUpstream,
     });
     const quotaCheck = validateAgentBranchQuota({
-      bindings: quotaBindings,
+      bindings: activeQuotaBindings,
       targetPlayerId,
       upstreamAgentPlayerId: resolvedUpstream,
       agentPercentage: pct,
@@ -2846,13 +2856,17 @@ router.post('/:clubId/members/promote-agent', async (req, res) => {
           agentLevel: level,
           upstreamAgentPlayerId: resolvedUpstream,
           agentPercentage: pct,
-          agentRoomCardFee: fee,
+          ...(club.branchRoomCardEnabled === true
+            ? { branchAgentRoomCardFee: fee }
+            : { agentRoomCardFee: fee }),
         },
         update: {
           agentLevel: level,
           upstreamAgentPlayerId: resolvedUpstream,
           agentPercentage: pct,
-          agentRoomCardFee: fee,
+          ...(club.branchRoomCardEnabled === true
+            ? { branchAgentRoomCardFee: fee }
+            : { agentRoomCardFee: fee }),
         },
       });
 
@@ -2923,12 +2937,16 @@ router.post('/:clubId/members/agent-settings', async (req, res) => {
     }
 
     const bindings = await loadClubAgentBindings(prisma, club.id);
+    const activeBindings = projectActiveAgentRoomCardFees(
+      bindings,
+      club.branchRoomCardEnabled
+    );
     if (!isDirectUpstream(actorPlayerId, targetPlayerId, bindings)) {
       return errorResponse(res, '僅可設定直屬下線代理', null, 403);
     }
     const totalRoomCards = await resolveRoomCardQuotaLimitForTarget(prisma, {
       club,
-      bindings,
+      bindings: activeBindings,
       targetPlayerId,
     });
 
@@ -2943,7 +2961,7 @@ router.post('/:clubId/members/agent-settings', async (req, res) => {
 
     if (clear === true) {
       const quotaCheck = validateAgentBranchQuota({
-        bindings,
+        bindings: activeBindings,
         targetPlayerId,
         agentPercentage: 0,
         agentRoomCardFee: 0,
@@ -2956,7 +2974,12 @@ router.post('/:clubId/members/agent-settings', async (req, res) => {
 
       const updated = await prisma.agentClubBinding.update({
         where: { id: existing.id },
-        data: { agentPercentage: 0, agentRoomCardFee: 0 },
+        data: {
+          agentPercentage: 0,
+          ...(club.branchRoomCardEnabled === true
+            ? { branchAgentRoomCardFee: 0 }
+            : { agentRoomCardFee: 0 }),
+        },
       });
       return successResponse(res, updated, '代理設置已清除');
     }
@@ -2974,7 +2997,11 @@ router.post('/:clubId/members/agent-settings', async (req, res) => {
       if (!Number.isFinite(fee) || fee < 0) {
         return errorResponse(res, '代理房卡費須為非負數', null, 400);
       }
-      data.agentRoomCardFee = fee;
+      if (club.branchRoomCardEnabled === true) {
+        data.branchAgentRoomCardFee = fee;
+      } else {
+        data.agentRoomCardFee = fee;
+      }
     }
 
     if (Object.keys(data).length === 0) {
@@ -2982,10 +3009,13 @@ router.post('/:clubId/members/agent-settings', async (req, res) => {
     }
 
     const quotaCheck = validateAgentBranchQuota({
-      bindings,
+      bindings: activeBindings,
       targetPlayerId,
       agentPercentage: data.agentPercentage,
-      agentRoomCardFee: data.agentRoomCardFee,
+      agentRoomCardFee:
+        club.branchRoomCardEnabled === true
+          ? data.branchAgentRoomCardFee
+          : data.agentRoomCardFee,
       totalPercentage: club.selfDrawRakePercent,
       totalRoomCards,
     });

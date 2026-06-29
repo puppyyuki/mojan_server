@@ -20,7 +20,9 @@ export type AgentClubBindingRow = {
   agentLevel: string
   agentLevelLabel: string
   agentRoomCardFee: number
+  branchAgentRoomCardFee: number
   agentPercentage: number
+  branchRoomCardEnabled?: boolean
   upstreamAgent: {
     playerDbId: string
     userId: string
@@ -49,7 +51,9 @@ export default function AddAgentClubBindingModal({
   const [upstreamDbId, setUpstreamDbId] = useState<string | null>(null)
   const [agentLevel, setAgentLevel] = useState<AgentLevelValue>('agent')
   const [agentRoomCardFee, setAgentRoomCardFee] = useState<string>('0')
+  const [branchAgentRoomCardFee, setBranchAgentRoomCardFee] = useState<string>('0')
   const [agentPercentage, setAgentPercentage] = useState<string>('0')
+  const [branchRoomCardEnabled, setBranchRoomCardEnabled] = useState<boolean>(false)
   const [loading, setLoading] = useState(false)
   const [canAssignSuper, setCanAssignSuper] = useState(true)
 
@@ -64,12 +68,16 @@ export default function AddAgentClubBindingModal({
           : 'agent') as AgentLevelValue
       )
       setAgentRoomCardFee(String(editing.agentRoomCardFee ?? 0))
+      setBranchAgentRoomCardFee(String(editing.branchAgentRoomCardFee ?? 0))
+      setBranchRoomCardEnabled(editing.branchRoomCardEnabled === true)
       setAgentPercentage(String(editing.agentPercentage ?? 0))
     } else {
       setClubDbId(null)
       setUpstreamDbId(null)
       setAgentLevel('agent')
       setAgentRoomCardFee('0')
+      setBranchAgentRoomCardFee('0')
+      setBranchRoomCardEnabled(false)
       setAgentPercentage('0')
     }
   }, [isOpen, editing])
@@ -77,6 +85,7 @@ export default function AddAgentClubBindingModal({
   const handleClubPick = (c: ClubChoice | null) => {
     const nextId = c ? c.clubDbId : null
     setClubDbId(nextId)
+    setBranchRoomCardEnabled(c?.branchRoomCardEnabled === true)
     if (nextId !== clubDbId) {
       setUpstreamDbId(null)
     }
@@ -146,6 +155,12 @@ export default function AddAgentClubBindingModal({
       return
     }
 
+    const branchFeeParsed = Number.parseFloat(branchAgentRoomCardFee)
+    if (!Number.isFinite(branchFeeParsed) || branchFeeParsed < 0) {
+      alert('分支代理房卡費須為非負數')
+      return
+    }
+
     const percentageParsed = Number.parseFloat(agentPercentage)
     if (!Number.isFinite(percentageParsed) || percentageParsed < 0) {
       alert('代理自摸抽須為非負數')
@@ -164,6 +179,7 @@ export default function AddAgentClubBindingModal({
         agentLevel,
         upstreamAgentPlayerId: isSuperAgentLevel(agentLevel) ? null : upstreamDbId,
         agentRoomCardFee: feeParsed,
+        branchAgentRoomCardFee: branchFeeParsed,
         agentPercentage: percentageParsed,
         adminOpCode: opCode,
       }
@@ -252,7 +268,7 @@ export default function AddAgentClubBindingModal({
               代理房卡費
             </label>
             <p className="text-xs text-gray-500 mb-2">
-              代理房卡費設定；預設 0。目前僅供後台儲存。
+              分支房卡關閉時使用；資料會保留，不會因切換分支房卡被清除。
             </p>
             <input
               type="number"
@@ -261,8 +277,35 @@ export default function AddAgentClubBindingModal({
               placeholder="0"
               min={0}
               step="any"
-              disabled={loading}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400"
+              disabled={loading || branchRoomCardEnabled}
+              className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm placeholder-gray-400 ${
+                branchRoomCardEnabled
+                  ? 'bg-gray-100 text-gray-500 cursor-not-allowed'
+                  : 'bg-white text-gray-900'
+              }`}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              分支代理房卡費
+            </label>
+            <p className="text-xs text-gray-500 mb-2">
+              分支房卡開啟時使用；初始值 0，與代理房卡費互不覆蓋。
+            </p>
+            <input
+              type="number"
+              value={branchAgentRoomCardFee}
+              onChange={(e) => setBranchAgentRoomCardFee(e.target.value)}
+              placeholder="0"
+              min={0}
+              step="any"
+              disabled={loading || !branchRoomCardEnabled}
+              className={`w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm placeholder-gray-400 ${
+                branchRoomCardEnabled
+                  ? 'bg-white text-gray-900'
+                  : 'bg-gray-100 text-gray-500 cursor-not-allowed'
+              }`}
             />
           </div>
 

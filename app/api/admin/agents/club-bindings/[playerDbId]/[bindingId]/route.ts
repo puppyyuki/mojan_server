@@ -23,7 +23,7 @@ export async function OPTIONS() {
 }
 
 const bindingInclude = {
-  club: { select: { id: true, clubId: true, name: true } },
+  club: { select: { id: true, clubId: true, name: true, branchRoomCardEnabled: true } },
   upstreamAgent: {
     select: { id: true, userId: true, nickname: true },
   },
@@ -76,6 +76,10 @@ export async function PATCH(
       body.agentRoomCardFee !== undefined
         ? parseNonNegativeFloat(body.agentRoomCardFee, existing.agentRoomCardFee)
         : existing.agentRoomCardFee
+    const branchAgentRoomCardFee =
+      body.branchAgentRoomCardFee !== undefined
+        ? parseNonNegativeFloat(body.branchAgentRoomCardFee, existing.branchAgentRoomCardFee)
+        : existing.branchAgentRoomCardFee
     const agentPercentage =
       body.agentPercentage !== undefined
         ? parseNonNegativeFloat(body.agentPercentage, existing.agentPercentage)
@@ -87,6 +91,7 @@ export async function PATCH(
       agentLevel,
       upstreamAgentPlayerId,
       agentRoomCardFee,
+      branchAgentRoomCardFee,
       agentPercentage,
     })
     if (validation.ok === false) {
@@ -116,6 +121,7 @@ export async function PATCH(
           agentLevel: isValidAgentLevel(agentLevel) ? agentLevel : existing.agentLevel,
           upstreamAgentPlayerId,
           agentRoomCardFee,
+          branchAgentRoomCardFee,
           agentPercentage,
         },
         include: bindingInclude,

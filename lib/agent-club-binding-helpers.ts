@@ -218,6 +218,7 @@ export async function validateAgentClubBindingInput(
     agentLevel: string
     upstreamAgentPlayerId: string | null
     agentRoomCardFee: number
+    branchAgentRoomCardFee?: number
     agentPercentage: number
   }
 ): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -227,6 +228,7 @@ export async function validateAgentClubBindingInput(
     agentLevel,
     upstreamAgentPlayerId,
     agentRoomCardFee,
+    branchAgentRoomCardFee,
     agentPercentage,
   } = opts
 
@@ -236,6 +238,13 @@ export async function validateAgentClubBindingInput(
 
   if (agentRoomCardFee < 0 || !Number.isFinite(agentRoomCardFee)) {
     return { ok: false, error: '代理房卡費須為非負數' }
+  }
+
+  if (
+    branchAgentRoomCardFee !== undefined &&
+    (branchAgentRoomCardFee < 0 || !Number.isFinite(branchAgentRoomCardFee))
+  ) {
+    return { ok: false, error: '分支代理房卡費須為非負數' }
   }
 
   if (agentPercentage < 0 || !Number.isFinite(agentPercentage)) {
@@ -278,8 +287,9 @@ export function serializeAgentClubBinding(row: {
   upstreamAgentPlayerId: string | null
   agentLevel: string
   agentRoomCardFee: number
+  branchAgentRoomCardFee?: number
   agentPercentage: number
-  club: { id: string; clubId: string; name: string }
+  club: { id: string; clubId: string; name: string; branchRoomCardEnabled?: boolean }
   upstreamAgent: { id: string; userId: string; nickname: string } | null
 }) {
   return {
@@ -290,7 +300,9 @@ export function serializeAgentClubBinding(row: {
     agentLevel: row.agentLevel,
     agentLevelLabel: agentLevelLabelZh(row.agentLevel),
     agentRoomCardFee: row.agentRoomCardFee,
+    branchAgentRoomCardFee: row.branchAgentRoomCardFee ?? 0,
     agentPercentage: row.agentPercentage,
+    branchRoomCardEnabled: row.club.branchRoomCardEnabled === true,
     upstreamAgent: row.upstreamAgent
       ? {
           playerDbId: row.upstreamAgent.id,

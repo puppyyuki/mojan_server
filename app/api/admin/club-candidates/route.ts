@@ -30,7 +30,7 @@ export async function GET(request: NextRequest) {
     const limit = Math.min(Math.max(1, Number.isFinite(limitRaw) ? limitRaw : 200), 500)
 
     const clubs = await prisma.club.findMany({
-      select: { id: true, clubId: true, name: true },
+      select: { id: true, clubId: true, name: true, branchRoomCardEnabled: true },
       orderBy: { createdAt: 'desc' },
       take: 500,
     })
