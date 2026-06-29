@@ -44,6 +44,7 @@ type UpstreamAgentSelectProps = {
   onPick: (choice: UpstreamAgentChoice | null) => void
   disabled?: boolean
   showLabel?: boolean
+  agentLevelFilter?: string | string[]
 }
 
 function shortId(dbId: string) {
@@ -61,6 +62,7 @@ export default function UpstreamAgentSelect({
   onPick,
   disabled = false,
   showLabel = true,
+  agentLevelFilter,
 }: UpstreamAgentSelectProps) {
   const anchorRef = useRef<HTMLDivElement>(null)
   const dropdownRef = useRef<HTMLUListElement>(null)
@@ -115,7 +117,15 @@ export default function UpstreamAgentSelect({
         return
       }
       if (json.success && Array.isArray(json.data)) {
-        setCandidates(json.data)
+        const allowedLevels =
+          agentLevelFilter == null
+            ? null
+            : new Set(Array.isArray(agentLevelFilter) ? agentLevelFilter : [agentLevelFilter])
+        setCandidates(
+          allowedLevels
+            ? json.data.filter((row: Candidate) => allowedLevels.has(row.agentLevel))
+            : json.data
+        )
       } else {
         setCandidates([])
       }
@@ -125,7 +135,7 @@ export default function UpstreamAgentSelect({
     } finally {
       setLoading(false)
     }
-  }, [clubDbId, excludePlayerDbId])
+  }, [clubDbId, excludePlayerDbId, agentLevelFilter])
 
   useEffect(() => {
     void load()

@@ -38,6 +38,7 @@ export async function GET(
         profitDisplayEnabled: true,
         weeklySettlementEnabled: true,
         roomCardFee: true,
+        branchRoomCardEnabled: true,
         cardCount: true, // 包含俱樂部房卡數量
         avatarUrl: true, // 包含俱樂部頭像 URL
         creator: {
@@ -108,6 +109,7 @@ export async function PATCH(
       profitDisplayEnabled,
       weeklySettlementEnabled,
       roomCardFee,
+      branchRoomCardEnabled,
     } = body
 
     const needsSensitiveGuard =
@@ -118,7 +120,8 @@ export async function PATCH(
       selfDrawRakePercent !== undefined ||
       profitDisplayEnabled !== undefined ||
       weeklySettlementEnabled !== undefined ||
-      roomCardFee !== undefined
+      roomCardFee !== undefined ||
+      branchRoomCardEnabled !== undefined
 
     if (needsSensitiveGuard) {
       const opCodeGuard = assertAdminOpCode(request, body)
@@ -188,6 +191,9 @@ export async function PATCH(
         )
       }
       updateData.roomCardFee = n
+    }
+    if (branchRoomCardEnabled !== undefined) {
+      updateData.branchRoomCardEnabled = Boolean(branchRoomCardEnabled)
     }
     if (bodyClubId !== undefined) {
       const trimmed = String(bodyClubId).trim()

@@ -28,6 +28,7 @@ function row(overrides) {
     payment,
     battleScore,
     roomCardConsumed: 0,
+    roomCardFeeAmount: 0,
     rakeAmount: 0,
     upstreamAgent: '',
     ...overrides,
@@ -62,7 +63,7 @@ assert(balance(blocks[0].rows[0]) === 10, 'super balance should use battleScore 
 assert(balance(blocks[1].rows[0]) === 50, 'master balance should use payment')
 
 const layout = buildSheetLayout(blocks)
-assert(layout.rows[0].length === 9, 'header should have 9 columns')
+assert(layout.rows[0].length === 10, 'header should have 10 columns')
 
 const superTotalRow = layout.rows[5]
 assert(superTotalRow[0] === '總計', 'super block should end with total row')

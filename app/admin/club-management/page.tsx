@@ -30,6 +30,7 @@ interface Club {
   profitDisplayEnabled?: boolean
   weeklySettlementEnabled?: boolean
   roomCardFee?: number
+  branchRoomCardEnabled?: boolean
   members: Array<{
     id: string
     player: {

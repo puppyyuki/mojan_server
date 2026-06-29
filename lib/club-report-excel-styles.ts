@@ -25,6 +25,7 @@ export const CELL_BORDER = {
 export const NUMERIC_COLUMNS = [
   COL.BALANCE,
   COL.ROOM_CARD,
+  COL.ROOM_CARD_FEE,
   COL.MEMBER_SUMMARY,
   COL.AGENT_SETTLEMENT,
   COL.LINE_SUMMARY,
@@ -37,6 +38,7 @@ export const COLUMN_WIDTHS: number[] = EXCEL_HEADERS.map((_, index) => {
     case COL.TITLE:
       return 12
     case COL.BALANCE:
+    case COL.ROOM_CARD_FEE:
     case COL.MEMBER_SUMMARY:
     case COL.AGENT_SETTLEMENT:
     case COL.LINE_SUMMARY:

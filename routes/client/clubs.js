@@ -32,6 +32,9 @@ const {
 const {
   validateAgentBranchQuota,
 } = require('../../utils/clubAgentQuotaAllocation');
+const {
+  resolveRoomCardQuotaLimitForTarget,
+} = require('../../utils/clubBranchRoomCardFee');
 const { listClubRooms } = require('../../lib/clubRoomsList');
 const {
   broadcastClubRoomChange,
@@ -2406,12 +2409,28 @@ router.get('/:clubId/members', async (req, res) => {
     const upstreamBindingByPlayer = new Map(
       upstreamBindingRows.map((b) => [b.playerId, b])
     );
+    let selfDrawRakeByPlayer = null;
+    if (club.weeklySettlementEnabled === true) {
+      try {
+        selfDrawRakeByPlayer = await sumSelfDrawRakeMoneyByPlayerId(prisma, club, {
+          startAt: null,
+          endAt: null,
+        });
+      } catch (rakeErr) {
+        console.error('[Clubs API] 成員列表週結自摸抽扣除失敗:', rakeErr);
+      }
+    }
+
     const enrichedMembers = members.map((m) => {
       const binding = bindingByPlayer.get(m.playerId);
       const playerUpstream = upstreamBindingByPlayer.get(m.playerId);
       const upstream = binding?.upstreamAgent ?? playerUpstream?.upstreamAgent ?? null;
+      const rawClubScore = Number(m.clubScore ?? 0) || 0;
+      const selfDrawRakeRaw = selfDrawRakeByPlayer?.get(m.playerId) || 0;
+      const selfDrawRake = Math.round(selfDrawRakeRaw * 100) / 100;
       const base = {
         ...m,
+        clubScore: Math.round((rawClubScore - selfDrawRake) * 100) / 100,
         agentLevel: binding?.agentLevel ?? null,
         agentPercentage: binding?.agentPercentage ?? null,
         agentRoomCardFee: binding?.agentRoomCardFee ?? null,
@@ -2755,6 +2774,13 @@ router.post('/:clubId/members/promote-agent', async (req, res) => {
       : 0;
 
     const quotaBindings = await loadClubAgentBindings(prisma, club.id);
+    const totalRoomCards = await resolveRoomCardQuotaLimitForTarget(prisma, {
+      club,
+      bindings: quotaBindings,
+      targetPlayerId,
+      targetAgentLevel: level,
+      upstreamAgentPlayerId: resolvedUpstream,
+    });
     const quotaCheck = validateAgentBranchQuota({
       bindings: quotaBindings,
       targetPlayerId,
@@ -2762,7 +2788,7 @@ router.post('/:clubId/members/promote-agent', async (req, res) => {
       agentPercentage: pct,
       agentRoomCardFee: fee,
       totalPercentage: club.selfDrawRakePercent,
-      totalRoomCards: club.cardCount,
+      totalRoomCards,
     });
     if (!quotaCheck.ok) {
       return errorResponse(res, quotaCheck.message, null, 400);
@@ -2896,6 +2922,11 @@ router.post('/:clubId/members/agent-settings', async (req, res) => {
     if (!isDirectUpstream(actorPlayerId, targetPlayerId, bindings)) {
       return errorResponse(res, '僅可設定直屬下線代理', null, 403);
     }
+    const totalRoomCards = await resolveRoomCardQuotaLimitForTarget(prisma, {
+      club,
+      bindings,
+      targetPlayerId,
+    });
 
     const existing = await prisma.agentClubBinding.findUnique({
       where: {
@@ -2913,7 +2944,7 @@ router.post('/:clubId/members/agent-settings', async (req, res) => {
         agentPercentage: 0,
         agentRoomCardFee: 0,
         totalPercentage: club.selfDrawRakePercent,
-        totalRoomCards: club.cardCount,
+        totalRoomCards,
       });
       if (!quotaCheck.ok) {
         return errorResponse(res, quotaCheck.message, null, 400);
@@ -2952,7 +2983,7 @@ router.post('/:clubId/members/agent-settings', async (req, res) => {
       agentPercentage: data.agentPercentage,
       agentRoomCardFee: data.agentRoomCardFee,
       totalPercentage: club.selfDrawRakePercent,
-      totalRoomCards: club.cardCount,
+      totalRoomCards,
     });
     if (!quotaCheck.ok) {
       return errorResponse(res, quotaCheck.message, null, 400);

@@ -6,6 +6,7 @@ export const EXCEL_HEADERS = [
   '代理層級',
   '餘額',
   '房卡消耗',
+  '房卡費用',
   '會員總結',
   '代理銷帳',
   '代理線總結',
@@ -18,10 +19,11 @@ export const COL = {
   TITLE: 2,
   BALANCE: 3,
   ROOM_CARD: 4,
-  MEMBER_SUMMARY: 5,
-  AGENT_SETTLEMENT: 6,
-  LINE_SUMMARY: 7,
-  UPSTREAM: 8,
+  ROOM_CARD_FEE: 5,
+  MEMBER_SUMMARY: 6,
+  AGENT_SETTLEMENT: 7,
+  LINE_SUMMARY: 8,
+  UPSTREAM: 9,
 } as const
 
 export interface MergeRange {
@@ -163,6 +165,7 @@ function rowToCells(row: ClubReportExportRow): unknown[] {
     row.title,
     rowBalance,
     row.roomCardConsumed,
+    row.roomCardFeeAmount,
     rowBalance,
     row.agentLevel != null ? row.rakeAmount : '',
     '',
@@ -178,6 +181,7 @@ function appendTotalRow(
   const totals = {
     balance: sumBalance(blockRows),
     roomCard: sumRoomCardConsumed(blockRows),
+    roomCardFee: roundMoney(blockRows.reduce((sum, row) => sum + row.roomCardFeeAmount, 0)),
     memberSummary: sumBalance(blockRows),
     agentSettlement: sumAgentSettlement(blockRows),
     lineContribution: sumLineContribution(blockRows),
@@ -188,6 +192,7 @@ function appendTotalRow(
     '',
     totals.balance,
     totals.roomCard,
+    totals.roomCardFee,
     totals.memberSummary,
     totals.agentSettlement,
     totals.lineContribution,

@@ -81,6 +81,7 @@ model Player {
   agentClubBindingsAsUpstream AgentClubBinding[] @relation("AgentClubBindingUpstream")
   playerClubUpstreamBindings PlayerClubUpstreamBinding[] @relation("PlayerClubUpstreamBindingPlayer")
   playerClubUpstreamBindingsAsUpstream PlayerClubUpstreamBinding[] @relation("PlayerClubUpstreamBindingUpstream")
+  clubRoomCardBranchFeesAsMaster ClubRoomCardBranchFee[] @relation("ClubRoomCardBranchMaster")
 
   @@map("players")
 }
@@ -131,6 +132,8 @@ model Club {
   weeklySettlementEnabled Boolean @default(false)
   /// 房卡費（後台設定；暫不影響開局扣卡邏輯）
   roomCardFee  Float    @default(2)
+  /// 開啟後，App 代理房卡配額與後台報表依大代理分支房卡費計算
+  branchRoomCardEnabled Boolean @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -144,8 +147,25 @@ model Club {
   adminCardRechargeRecords ClubAdminCardRechargeRecord[]
   agentClubBindings AgentClubBinding[]
   playerClubUpstreamBindings PlayerClubUpstreamBinding[]
+  roomCardBranchFees ClubRoomCardBranchFee[]
 
   @@map("clubs")
+}
+
+/// 俱樂部按大代理分支設定獨立房卡費
+model ClubRoomCardBranchFee {
+  id                  String   @id @default(cuid())
+  clubId              String
+  club                Club     @relation(fields: [clubId], references: [id], onDelete: Cascade)
+  masterAgentPlayerId String
+  masterAgent         Player   @relation("ClubRoomCardBranchMaster", fields: [masterAgentPlayerId], references: [id], onDelete: Cascade)
+  branchRoomCardFee   Float    @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@unique([clubId, masterAgentPlayerId])
+  @@index([masterAgentPlayerId])
+  @@map("club_room_card_branch_fees")
 }
 
 /// 代理按俱樂部綁定（上層代理、層級、代理房卡費）

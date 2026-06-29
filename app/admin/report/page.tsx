@@ -23,6 +23,8 @@ interface PlayerReportRow {
   bigWinnerCount: number
   selfDrawCount: number
   roomCardConsumed: number
+  effectiveRoomCardFee?: number
+  roomCardFeeAmount: number
   completedGames: number
   dongMoney: number
   rakeAmount: number
@@ -41,6 +43,7 @@ interface SummaryData {
     totalBattleScore: number
     totalSelfDrawCount: number
     totalRoomCardConsumed: number
+    totalRoomCardFeeAmount: number
     totalCompletedGames: number
     totalDongMoney: number
     totalSelfDrawRakeMoney: number
@@ -53,6 +56,8 @@ interface SummaryData {
     clubName: string
     venueDrawPercent?: number
     selfDrawRakePercent?: number
+    roomCardFee?: number
+    branchRoomCardEnabled?: boolean
   }
 }
 
@@ -281,12 +286,16 @@ export default function ReportPage() {
             {data.club?.selfDrawRakePercent != null && Number.isFinite(data.club.selfDrawRakePercent)
               ? ` · 自摸抽 ${data.club.selfDrawRakePercent}%`
               : ''}
+            {data.club?.roomCardFee != null && Number.isFinite(data.club.roomCardFee)
+              ? ` · 房卡費 ${data.club.roomCardFee}`
+              : ''}
+            {` · 分支房卡${data.club?.branchRoomCardEnabled ? '開啟' : '關閉'}`}
           </p>
         )}
       </div>
 
       {data && queried && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-7 gap-4 mb-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-8 gap-4 mb-4">
           <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
             <div className="text-xs text-gray-500 uppercase">玩家數</div>
             <div className="text-2xl font-semibold text-gray-900 mt-1">{data.totals.playerCount}</div>
@@ -298,6 +307,10 @@ export default function ReportPage() {
           <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
             <div className="text-xs text-gray-500 uppercase">房卡消耗加總</div>
             <div className="text-2xl font-semibold text-gray-900 mt-1">{data.totals.totalRoomCardConsumed}</div>
+          </div>
+          <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
+            <div className="text-xs text-gray-500 uppercase">房卡費用加總</div>
+            <div className="text-2xl font-semibold text-emerald-900 mt-1">{data.totals.totalRoomCardFeeAmount}</div>
           </div>
           <div className="bg-white rounded-lg border border-gray-200 p-4 shadow-sm">
             <div className="text-xs text-gray-500 uppercase">完整場次加總</div>
@@ -320,7 +333,7 @@ export default function ReportPage() {
 
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1700px] table-fixed divide-y divide-gray-200 text-sm">
+          <table className="w-full min-w-[1800px] table-fixed divide-y divide-gray-200 text-sm">
             <thead className="bg-gray-50">
               <tr>
                 <th className="w-1/8 px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase whitespace-nowrap border-r border-gray-200">時間區間</th>
@@ -331,6 +344,7 @@ export default function ReportPage() {
                 <th className="w-1/8 px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap border-r border-gray-200">大贏家</th>
                 <th className="w-1/8 px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap border-r border-gray-200">自摸次數</th>
                 <th className="w-1/8 px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap border-r border-gray-200">房卡消耗</th>
+                <th className="w-1/8 px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap border-r border-gray-200">房卡費用</th>
                 <th className="w-1/8 px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap border-r border-gray-200">場次</th>
                 <th className="w-1/8 px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap border-r border-gray-200">自摸東</th>
                 <th className="w-1/8 px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase whitespace-nowrap border-r border-gray-200">自摸抽</th>
@@ -340,20 +354,20 @@ export default function ReportPage() {
             <tbody className="divide-y divide-gray-200">
               {!queried ? (
                 <tr>
-                  <td colSpan={12} className="px-4 py-12 text-center text-gray-500">
+                  <td colSpan={13} className="px-4 py-12 text-center text-gray-500">
                     請先設定時間區間與俱樂部 ID，再按「查詢」
                   </td>
                 </tr>
               ) : loading ? (
                 <tr>
-                  <td colSpan={12} className="px-4 py-12 text-center text-gray-500">
+                  <td colSpan={13} className="px-4 py-12 text-center text-gray-500">
                     <RefreshCw className="w-6 h-6 animate-spin inline mr-2" />
                     載入中…
                   </td>
                 </tr>
               ) : !data?.rows.length ? (
                 <tr>
-                  <td colSpan={12} className="px-4 py-12 text-center text-gray-500">
+                  <td colSpan={13} className="px-4 py-12 text-center text-gray-500">
                     此條件下無符合資料
                   </td>
                 </tr>
@@ -368,6 +382,7 @@ export default function ReportPage() {
                     <td className="px-4 py-2 text-center text-gray-700 border-r border-gray-200">{r.bigWinnerCount}</td>
                     <td className="px-4 py-2 text-center text-gray-700 border-r border-gray-200">{r.selfDrawCount}</td>
                     <td className="px-4 py-2 text-center text-emerald-800 font-medium border-r border-gray-200">{r.roomCardConsumed}</td>
+                    <td className="px-4 py-2 text-center text-emerald-900 font-medium border-r border-gray-200">{r.roomCardFeeAmount}</td>
                     <td className="px-4 py-2 text-center text-gray-700 border-r border-gray-200">{r.completedGames}</td>
                     <td className="px-4 py-2 text-center text-gray-900 font-medium border-r border-gray-200">{r.dongMoney}</td>
                     <td className="px-4 py-2 text-center text-violet-900 font-medium border-r border-gray-200">{r.selfDrawRakeMoney}</td>

@@ -7,6 +7,10 @@ import { levelOrder } from '@/lib/agent-levels'
 const { isV2RoundCompletedForStatistics } = require('../../../../../utils/v2RoundStatistics')
 const { aggregateSelfDrawStatsByPlayerId } = require('../../../../../utils/clubSelfDrawRakeMoney')
 const { computeViewerSelfDrawRakeForRow } = require('../../../../../utils/clubAgentSelfDrawRakeTree')
+const {
+  computeViewerRoomCardFeeForRow,
+  resolveEffectiveRoomCardFee,
+} = require('../../../../../utils/clubBranchRoomCardFee')
 
 function corsHeaders() {
   return {
@@ -123,7 +127,15 @@ export async function GET(request: NextRequest) {
 
     const club = await prisma.club.findFirst({
       where: { clubId: clubSixId },
-      select: { id: true, clubId: true, name: true, venueDrawPercent: true, selfDrawRakePercent: true },
+      select: {
+        id: true,
+        clubId: true,
+        name: true,
+        venueDrawPercent: true,
+        selfDrawRakePercent: true,
+        roomCardFee: true,
+        branchRoomCardEnabled: true,
+      },
     })
     if (!club) {
       return NextResponse.json(
@@ -136,6 +148,7 @@ export async function GET(request: NextRequest) {
               totalBattleScore: 0,
               totalSelfDrawCount: 0,
               totalRoomCardConsumed: 0,
+              totalRoomCardFeeAmount: 0,
               totalCompletedGames: 0,
               totalDongMoney: 0,
               totalWaterMoney: 0,
@@ -433,7 +446,7 @@ export async function GET(request: NextRequest) {
       row.completedGames = completedGamesByPlayer.get(row.playerId) || 0
     }
 
-    const [agentBindings, upstreamBindings] = await Promise.all([
+    const [agentBindings, upstreamBindings, branchFees] = await Promise.all([
       prisma.agentClubBinding.findMany({
         where: { clubId: club.id },
         select: {
@@ -449,6 +462,13 @@ export async function GET(request: NextRequest) {
         select: {
           playerId: true,
           upstreamAgentPlayerId: true,
+        },
+      }),
+      prisma.clubRoomCardBranchFee.findMany({
+        where: { clubId: club.id },
+        select: {
+          masterAgentPlayerId: true,
+          branchRoomCardFee: true,
         },
       }),
     ])
@@ -502,6 +522,10 @@ export async function GET(request: NextRequest) {
       })
     }
 
+    const roomCardConsumedByPlayer = new Map(
+      Array.from(playerAggMap.values()).map((row) => [row.playerId, row.roomCardConsumed])
+    )
+
     const directPlayerIdsByAgentId = new Map<string, string[]>()
     for (const binding of upstreamBindings) {
       if (agentPlayerIds.has(binding.playerId)) continue
@@ -524,6 +548,23 @@ export async function GET(request: NextRequest) {
       const rakeAmount = roundMoney(
         agentBinding ? agentSelfDrawRakeByPlayerId.get(r.playerId) ?? 0 : originalSelfDrawRakeAmount
       )
+      const effectiveRoomCardFee = resolveEffectiveRoomCardFee({
+        clubRoomCardFee: club.roomCardFee,
+        branchRoomCardEnabled: club.branchRoomCardEnabled,
+        playerId: r.playerId,
+        bindings: agentBindings,
+        upstreamBindings,
+        branchFees,
+      })
+      const roomCardFeeAmount = computeViewerRoomCardFeeForRow({
+        targetPlayerId: r.playerId,
+        roomCardConsumedByPlayer,
+        bindings: agentBindings,
+        upstreamBindings,
+        clubRoomCardFee: club.roomCardFee,
+        branchRoomCardEnabled: club.branchRoomCardEnabled,
+        branchFees,
+      })
       const payment = roundMoney(r.battleScore - originalSelfDrawRakeAmount)
       return {
         timeRange: `${startRaw} ~ ${endRaw}`,
@@ -542,6 +583,8 @@ export async function GET(request: NextRequest) {
         bigWinnerCount: r.bigWinnerCount,
         selfDrawCount: r.selfDrawCount,
         roomCardConsumed: r.roomCardConsumed,
+        effectiveRoomCardFee,
+        roomCardFeeAmount,
         completedGames: r.completedGames,
         dongMoney: Math.round(r.dongMoney),
         rakeAmount,
@@ -709,6 +752,7 @@ export async function GET(request: NextRequest) {
         acc.totalBattleScore += row.battleScore
         acc.totalSelfDrawCount += row.selfDrawCount
         acc.totalRoomCardConsumed += row.roomCardConsumed
+        acc.totalRoomCardFeeAmount += row.roomCardFeeAmount
         acc.totalCompletedGames += row.completedGames
         acc.totalDongMoney += row.dongMoney
         acc.totalSelfDrawRakeMoney += row.selfDrawRakeMoney
@@ -720,6 +764,7 @@ export async function GET(request: NextRequest) {
         totalBattleScore: 0,
         totalSelfDrawCount: 0,
         totalRoomCardConsumed: 0,
+        totalRoomCardFeeAmount: 0,
         totalCompletedGames: 0,
         totalDongMoney: 0,
         totalSelfDrawRakeMoney: 0,
@@ -746,6 +791,11 @@ export async function GET(request: NextRequest) {
               typeof club.selfDrawRakePercent === 'number' && Number.isFinite(club.selfDrawRakePercent)
                 ? club.selfDrawRakePercent
                 : DEFAULT_SELF_DRAW_RAKE_PERCENT,
+            roomCardFee:
+              typeof club.roomCardFee === 'number' && Number.isFinite(club.roomCardFee)
+                ? club.roomCardFee
+                : 2,
+            branchRoomCardEnabled: club.branchRoomCardEnabled === true,
           },
         },
       },

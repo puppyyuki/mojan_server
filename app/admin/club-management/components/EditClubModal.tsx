@@ -1,10 +1,11 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { X, Save } from 'lucide-react'
 import RemoteAvatar from '@/app/admin/components/RemoteAvatar'
-import { apiPatch } from '@/lib/api-client'
+import { apiFetch, apiGet, apiPatch } from '@/lib/api-client'
 import { requestAdminOpCode, withAdminOpCodeHeader } from '@/lib/admin-op-code-client'
+import RoomCardBranchModal from './RoomCardBranchModal'
 
 interface Club {
   id: string
@@ -25,6 +26,7 @@ interface Club {
   profitDisplayEnabled?: boolean
   weeklySettlementEnabled?: boolean
   roomCardFee?: number
+  branchRoomCardEnabled?: boolean
   members: Array<{
     player: {
       id: string
@@ -32,6 +34,17 @@ interface Club {
       nickname: string
     }
   }>
+}
+
+interface RoomCardBranch {
+  id: string
+  masterAgentPlayerId: string
+  branchRoomCardFee: number
+  masterAgent: {
+    id: string
+    userId: string
+    nickname: string
+  } | null
 }
 
 interface EditClubModalProps {
@@ -56,8 +69,31 @@ export default function EditClubModal({
   const [profitDisplayEnabled, setProfitDisplayEnabled] = useState<boolean>(true)
   const [weeklySettlementEnabled, setWeeklySettlementEnabled] = useState<boolean>(false)
   const [roomCardFee, setRoomCardFee] = useState<string>('2')
+  const [branchRoomCardEnabled, setBranchRoomCardEnabled] = useState<boolean>(false)
+  const [branchModalOpen, setBranchModalOpen] = useState<boolean>(false)
+  const [roomCardBranches, setRoomCardBranches] = useState<RoomCardBranch[]>([])
+  const [branchesLoading, setBranchesLoading] = useState<boolean>(false)
   const [avatarUrl, setAvatarUrl] = useState<string>('')
   const [loading, setLoading] = useState<boolean>(false)
+
+  const fetchRoomCardBranches = useCallback(async () => {
+    if (!club?.id) return
+    setBranchesLoading(true)
+    try {
+      const res = await apiGet(`/api/clubs/${club.id}/room-card-branches`)
+      const json = await res.json().catch(() => ({}))
+      if (res.ok && json.success && Array.isArray(json.data)) {
+        setRoomCardBranches(json.data)
+      } else {
+        setRoomCardBranches([])
+      }
+    } catch (error) {
+      console.error('載入分支房卡設定失敗:', error)
+      setRoomCardBranches([])
+    } finally {
+      setBranchesLoading(false)
+    }
+  }, [club?.id])
 
   useEffect(() => {
     if (isOpen && club) {
@@ -82,13 +118,42 @@ export default function EditClubModal({
           ? club.roomCardFee
           : 2
       setRoomCardFee(String(rcf))
+      setBranchRoomCardEnabled(club.branchRoomCardEnabled === true)
+      setBranchModalOpen(false)
+      void fetchRoomCardBranches()
       setAvatarUrl(club.avatarUrl || club.creator?.avatarUrl || '')
     }
-  }, [isOpen, club])
+  }, [isOpen, club, fetchRoomCardBranches])
 
   const handleClubIdChange = (raw: string) => {
     const digits = raw.replace(/\D/g, '').slice(0, 6)
     setEditClubId(digits)
+  }
+
+  const handleDeleteBranch = async (branch: RoomCardBranch) => {
+    if (loading || !club) return
+    const label = branch.masterAgent
+      ? `${branch.masterAgent.nickname} (${branch.masterAgent.userId})`
+      : '此大代理'
+    const opCode = await requestAdminOpCode(`確定要移除「${label}」的分支房卡設定嗎？`)
+    if (!opCode) return
+
+    try {
+      const response = await apiFetch(`/api/clubs/${club.id}/room-card-branches`, {
+        method: 'DELETE',
+        headers: withAdminOpCodeHeader(opCode),
+        body: JSON.stringify({ masterAgentPlayerId: branch.masterAgentPlayerId }),
+      })
+      const result = await response.json().catch(() => ({}))
+      if (!response.ok || result.success === false) {
+        alert(result.error || '移除分支房卡設定失敗')
+        return
+      }
+      await fetchRoomCardBranches()
+    } catch (error) {
+      console.error('移除分支房卡設定失敗:', error)
+      alert('移除分支房卡設定失敗')
+    }
   }
 
   const handleSave = async () => {
@@ -146,6 +211,7 @@ export default function EditClubModal({
         profitDisplayEnabled,
         weeklySettlementEnabled,
         roomCardFee: roomCardFeeParsed,
+        branchRoomCardEnabled,
       }, {
         headers: withAdminOpCodeHeader(opCode),
       })
@@ -170,6 +236,7 @@ export default function EditClubModal({
   if (!isOpen || !club) return null
 
   return (
+    <>
     <div
       className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
       onClick={onClose}
@@ -369,6 +436,75 @@ export default function EditClubModal({
             />
           </div>
 
+          <div className="space-y-3 rounded-lg border border-gray-200 px-3 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-gray-900">分支房卡</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  開啟後，依各大代理分支套用獨立房卡費；未設定分支預設 0。
+                </p>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={branchRoomCardEnabled}
+                onClick={() => setBranchRoomCardEnabled((v) => !v)}
+                className={`relative inline-flex h-7 w-12 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                  branchRoomCardEnabled ? 'bg-blue-600' : 'bg-gray-200'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-6 w-6 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    branchRoomCardEnabled ? 'translate-x-5' : 'translate-x-0.5'
+                  }`}
+                />
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setBranchModalOpen(true)}
+              className="w-full rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 transition-colors duration-200 hover:bg-blue-100"
+            >
+              添加房卡分支
+            </button>
+
+            <div className="rounded-md bg-gray-50 p-2">
+              {branchesLoading ? (
+                <p className="text-xs text-gray-500">載入分支設定中...</p>
+              ) : roomCardBranches.length === 0 ? (
+                <p className="text-xs text-gray-500">尚未設定分支房卡費。</p>
+              ) : (
+                <div className="space-y-2">
+                  {roomCardBranches.map((branch) => (
+                    <div
+                      key={branch.id}
+                      className="flex items-center justify-between gap-2 rounded border border-gray-200 bg-white px-2 py-1.5"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-xs font-medium text-gray-900">
+                          {branch.masterAgent
+                            ? `${branch.masterAgent.nickname} (${branch.masterAgent.userId})`
+                            : branch.masterAgentPlayerId}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          分支房卡費：{branch.branchRoomCardFee}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteBranch(branch)}
+                        className="shrink-0 rounded px-2 py-1 text-xs text-red-600 hover:bg-red-50"
+                      >
+                        移除
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               俱樂部頭像 URL
@@ -423,6 +559,13 @@ export default function EditClubModal({
         </div>
       </div>
     </div>
+    <RoomCardBranchModal
+      isOpen={branchModalOpen}
+      clubId={club.id}
+      onClose={() => setBranchModalOpen(false)}
+      onSaved={() => void fetchRoomCardBranches()}
+    />
+    </>
   )
 }
 
