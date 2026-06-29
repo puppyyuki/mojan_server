@@ -2409,28 +2409,12 @@ router.get('/:clubId/members', async (req, res) => {
     const upstreamBindingByPlayer = new Map(
       upstreamBindingRows.map((b) => [b.playerId, b])
     );
-    let selfDrawRakeByPlayer = null;
-    if (club.weeklySettlementEnabled === true) {
-      try {
-        selfDrawRakeByPlayer = await sumSelfDrawRakeMoneyByPlayerId(prisma, club, {
-          startAt: null,
-          endAt: null,
-        });
-      } catch (rakeErr) {
-        console.error('[Clubs API] 成員列表週結自摸抽扣除失敗:', rakeErr);
-      }
-    }
-
     const enrichedMembers = members.map((m) => {
       const binding = bindingByPlayer.get(m.playerId);
       const playerUpstream = upstreamBindingByPlayer.get(m.playerId);
       const upstream = binding?.upstreamAgent ?? playerUpstream?.upstreamAgent ?? null;
-      const rawClubScore = Number(m.clubScore ?? 0) || 0;
-      const selfDrawRakeRaw = selfDrawRakeByPlayer?.get(m.playerId) || 0;
-      const selfDrawRake = Math.round(selfDrawRakeRaw * 100) / 100;
       const base = {
         ...m,
-        clubScore: Math.round((rawClubScore - selfDrawRake) * 100) / 100,
         agentLevel: binding?.agentLevel ?? null,
         agentPercentage: binding?.agentPercentage ?? null,
         agentRoomCardFee: binding?.agentRoomCardFee ?? null,
@@ -2547,6 +2531,7 @@ router.get('/:clubId/agent-member-list', async (req, res) => {
         playerId: m.playerId,
         userId: m.player?.userId ?? null,
         nickname: m.player?.nickname ?? '',
+        clubScore: m.clubScore ?? 0,
         scoreLimit: m.scoreLimit,
         roomCardConsumed: m.roomCardConsumed ?? 0,
         agentLevel: binding?.agentLevel ?? null,
@@ -2565,6 +2550,7 @@ router.get('/:clubId/agent-member-list', async (req, res) => {
 
     if (hasDateFilter) {
       for (const row of rows) {
+        row.clubScore = 0;
         row.roomCardConsumed = 0;
       }
       const where = { clubId: club.id };
@@ -2584,6 +2570,7 @@ router.get('/:clubId/agent-member-list', async (req, res) => {
           const pid = p?.playerId?.toString?.() ?? '';
           if (!pid || !rowByPid.has(pid)) continue;
           const row = rowByPid.get(pid);
+          row.clubScore += Number(p?.score ?? 0) || 0;
           row.roomCardConsumed += Number(p?.roomCardConsumed ?? 0) || 0;
         }
       }
@@ -2617,6 +2604,23 @@ router.get('/:clubId/agent-member-list', async (req, res) => {
     } else {
       for (const row of rows) {
         delete row.selfDrawRake;
+      }
+    }
+
+    if (club.weeklySettlementEnabled === true) {
+      try {
+        const rakeByPlayer = await sumSelfDrawRakeMoneyByPlayerId(prisma, club, {
+          startAt: hasDateFilter ? startDate : null,
+          endAt: hasDateFilter ? endDate : null,
+        });
+        for (const row of rows) {
+          const rakeRaw = rakeByPlayer.get(row.playerId) || 0;
+          const rake = Math.round(rakeRaw * 100) / 100;
+          const rawScore = Number(row.clubScore) || 0;
+          row.clubScore = Math.round((rawScore - rake) * 100) / 100;
+        }
+      } catch (rakeErr) {
+        console.error('[Clubs API] 代理成員列表週結自摸抽扣除失敗:', rakeErr);
       }
     }
 
