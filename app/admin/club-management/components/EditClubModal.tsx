@@ -27,6 +27,7 @@ interface Club {
   weeklySettlementEnabled?: boolean
   roomCardFee?: number
   branchRoomCardEnabled?: boolean
+  gameSettings?: Record<string, unknown> | null
   members: Array<{
     player: {
       id: string
@@ -74,6 +75,7 @@ export default function EditClubModal({
   const [roomCardBranches, setRoomCardBranches] = useState<RoomCardBranch[]>([])
   const [branchesLoading, setBranchesLoading] = useState<boolean>(false)
   const [avatarUrl, setAvatarUrl] = useState<string>('')
+  const [maxSameIpConcurrent, setMaxSameIpConcurrent] = useState<string>('')
   const [loading, setLoading] = useState<boolean>(false)
 
   const fetchRoomCardBranches = useCallback(async () => {
@@ -122,6 +124,12 @@ export default function EditClubModal({
       setBranchModalOpen(false)
       void fetchRoomCardBranches()
       setAvatarUrl(club.avatarUrl || club.creator?.avatarUrl || '')
+      const rawSameIpLimit = club.gameSettings?.max_same_ip_concurrent
+      const sameIpLimit =
+        typeof rawSameIpLimit === 'number' && Number.isFinite(rawSameIpLimit) && rawSameIpLimit > 0
+          ? Math.trunc(rawSameIpLimit)
+          : null
+      setMaxSameIpConcurrent(sameIpLimit ? String(sameIpLimit) : '')
     }
   }, [isOpen, club, fetchRoomCardBranches])
 
@@ -191,6 +199,17 @@ export default function EditClubModal({
       return
     }
 
+    const sameIpLimitText = maxSameIpConcurrent.trim()
+    const sameIpLimit =
+      sameIpLimitText.length === 0 ? null : Number.parseInt(sameIpLimitText, 10)
+    if (
+      sameIpLimitText.length > 0 &&
+      (!Number.isFinite(sameIpLimit) || sameIpLimit < 1 || String(sameIpLimit) !== sameIpLimitText)
+    ) {
+      alert('允許同時相同IP數須為正整數，留空則不限制')
+      return
+    }
+
     const opCode = await requestAdminOpCode(
       '確定要儲存俱樂部資料嗎？（含公開 ID、房卡、加入審核設定時須驗證）'
     )
@@ -212,6 +231,7 @@ export default function EditClubModal({
         weeklySettlementEnabled,
         roomCardFee: roomCardFeeParsed,
         branchRoomCardEnabled,
+        maxSameIpConcurrent: sameIpLimit,
       }, {
         headers: withAdminOpCodeHeader(opCode),
       })
@@ -313,6 +333,24 @@ export default function EditClubModal({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="請輸入俱樂部名稱"
+              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              允許同時相同IP數
+            </label>
+            <p className="text-xs text-gray-500 mb-2">
+              留空則不限制；設定後會限制同一俱樂部內相同 IP 在等待大廳或對局中的同時在線人數。
+            </p>
+            <input
+              type="number"
+              value={maxSameIpConcurrent}
+              onChange={(e) => setMaxSameIpConcurrent(e.target.value)}
+              placeholder="不限制"
+              min="1"
+              step="1"
               className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400"
             />
           </div>

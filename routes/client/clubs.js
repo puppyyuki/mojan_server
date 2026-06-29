@@ -4054,11 +4054,26 @@ router.put('/:clubId/game-settings', async (req, res) => {
       return errorResponse(res, authz.error, null, authz.status);
     }
 
+    const existingSettings = club.gameSettings && typeof club.gameSettings === 'object'
+      ? club.gameSettings
+      : {};
+    const nextSettings = gameSettings && typeof gameSettings === 'object'
+      ? { ...gameSettings }
+      : gameSettings;
+    if (
+      nextSettings &&
+      typeof nextSettings === 'object' &&
+      nextSettings.max_same_ip_concurrent === undefined &&
+      existingSettings.max_same_ip_concurrent !== undefined
+    ) {
+      nextSettings.max_same_ip_concurrent = existingSettings.max_same_ip_concurrent;
+    }
+
     // 更新遊戲設定
     const updatedClub = await prisma.club.update({
       where: { id: club.id },
       data: {
-        gameSettings: gameSettings,
+        gameSettings: nextSettings,
       },
       select: {
         id: true,

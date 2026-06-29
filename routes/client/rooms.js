@@ -506,6 +506,11 @@ router.get('/:roomId', async (req, res) => {
         multiplayerVersion: true,
         gameSettings: true,
         createdAt: true,
+        club: {
+          select: {
+            gameSettings: true,
+          },
+        },
       },
     });
 
@@ -578,6 +583,7 @@ router.get('/:roomId', async (req, res) => {
       res,
       {
         ...room,
+        clubGameSettings: room.club?.gameSettings || null,
         joinable,
         joinBlockReason: joinable
           ? null

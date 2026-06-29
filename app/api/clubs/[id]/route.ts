@@ -39,6 +39,7 @@ export async function GET(
         weeklySettlementEnabled: true,
         roomCardFee: true,
         branchRoomCardEnabled: true,
+        gameSettings: true,
         cardCount: true, // 包含俱樂部房卡數量
         avatarUrl: true, // 包含俱樂部頭像 URL
         creator: {
@@ -110,6 +111,7 @@ export async function PATCH(
       weeklySettlementEnabled,
       roomCardFee,
       branchRoomCardEnabled,
+      maxSameIpConcurrent,
     } = body
 
     const needsSensitiveGuard =
@@ -121,7 +123,8 @@ export async function PATCH(
       profitDisplayEnabled !== undefined ||
       weeklySettlementEnabled !== undefined ||
       roomCardFee !== undefined ||
-      branchRoomCardEnabled !== undefined
+      branchRoomCardEnabled !== undefined ||
+      maxSameIpConcurrent !== undefined
 
     if (needsSensitiveGuard) {
       const opCodeGuard = assertAdminOpCode(request, body)
@@ -194,6 +197,41 @@ export async function PATCH(
     }
     if (branchRoomCardEnabled !== undefined) {
       updateData.branchRoomCardEnabled = Boolean(branchRoomCardEnabled)
+    }
+    if (maxSameIpConcurrent !== undefined) {
+      const raw =
+        maxSameIpConcurrent === null || maxSameIpConcurrent === ''
+          ? null
+          : Number(maxSameIpConcurrent)
+      if (raw !== null && (!Number.isInteger(raw) || raw < 1)) {
+        return NextResponse.json(
+          { success: false, error: '允許同時相同IP數須為正整數，留空則不限制' },
+          { status: 400, headers: corsHeaders() }
+        )
+      }
+
+      const existing = await prisma.club.findUnique({
+        where: { id },
+        select: { gameSettings: true },
+      })
+      if (!existing) {
+        return NextResponse.json(
+          { success: false, error: '俱樂部不存在' },
+          { status: 404, headers: corsHeaders() }
+        )
+      }
+      const current =
+        existing.gameSettings &&
+        typeof existing.gameSettings === 'object' &&
+        !Array.isArray(existing.gameSettings)
+          ? { ...(existing.gameSettings as Record<string, unknown>) }
+          : {}
+      if (raw === null) {
+        delete current.max_same_ip_concurrent
+      } else {
+        current.max_same_ip_concurrent = raw
+      }
+      updateData.gameSettings = current
     }
     if (bodyClubId !== undefined) {
       const trimmed = String(bodyClubId).trim()
