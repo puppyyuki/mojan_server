@@ -57,6 +57,57 @@ function resolveFirstUpstream(playerId, bindingByPlayer, upstreamByPlayer) {
   return binding?.upstreamAgentPlayerId ?? null;
 }
 
+function buildAgentPathFromPlayer(playerId, bindingByPlayer, upstreamByPlayer) {
+  const path = [];
+  const visited = new Set();
+  let current = resolveFirstUpstream(playerId, bindingByPlayer, upstreamByPlayer);
+
+  while (current && !visited.has(current)) {
+    visited.add(current);
+    if (bindingByPlayer.has(current)) path.push(current);
+    const binding = bindingByPlayer.get(current);
+    current = binding?.upstreamAgentPlayerId ?? null;
+  }
+
+  return path;
+}
+
+function buildAgentPathFromSelf(agentId, bindingByPlayer) {
+  const path = [];
+  const visited = new Set();
+  let current = agentId;
+
+  while (current && !visited.has(current)) {
+    visited.add(current);
+    const binding = bindingByPlayer.get(current);
+    if (!binding) break;
+    path.push(current);
+    current = binding.upstreamAgentPlayerId ?? null;
+  }
+
+  return path;
+}
+
+function agentRoomCardFeeRate(agentRoomCardFee, totalRoomCardFee) {
+  const total = Math.max(0, numberOrZero(totalRoomCardFee));
+  if (total <= 0) return 0;
+  const fee = Math.min(total, Math.max(0, numberOrZero(agentRoomCardFee)));
+  return fee / total;
+}
+
+function computeAgentSelfKeepRate(agentId, totalRoomCardFee, bindingByPlayer) {
+  const path = buildAgentPathFromSelf(agentId, bindingByPlayer);
+  let remitSumRate = 0;
+  for (const id of path) {
+    const binding = bindingByPlayer.get(id);
+    remitSumRate += agentRoomCardFeeRate(
+      binding?.agentRoomCardFee,
+      totalRoomCardFee
+    );
+  }
+  return Math.max(0, 1 - remitSumRate);
+}
+
 function resolveMasterAgentPlayerId(
   playerId,
   bindings,
@@ -130,6 +181,8 @@ function computeViewerRoomCardFeeForRow({
   branchRoomCardEnabled,
   branchFees = [],
 }) {
+  const bindingByPlayer = buildBindingMap(bindings);
+  const upstreamByPlayer = buildUpstreamMap(upstreamBindings);
   const agentIds = new Set((bindings || []).map((b) => b.playerId));
 
   if (!agentIds.has(targetPlayerId)) {
@@ -152,7 +205,7 @@ function computeViewerRoomCardFeeForRow({
     if (!isSourceAttributedToTarget(sourceId, targetPlayerId, bindings, upstreamBindings)) {
       continue;
     }
-    const fee = resolveEffectiveRoomCardFee({
+    const sourceTotalFee = resolveEffectiveRoomCardFee({
       clubRoomCardFee,
       branchRoomCardEnabled,
       playerId: sourceId,
@@ -160,7 +213,56 @@ function computeViewerRoomCardFeeForRow({
       upstreamBindings,
       branchFees,
     });
-    total = roundMoney(total + computeOwnRoomCardFeeAmount(consumed, fee));
+    const sourceAmount = computeOwnRoomCardFeeAmount(consumed, sourceTotalFee);
+
+    if (agentIds.has(sourceId)) {
+      if (sourceId === targetPlayerId) {
+        total = roundMoney(
+          total +
+            sourceAmount *
+              computeAgentSelfKeepRate(targetPlayerId, sourceTotalFee, bindingByPlayer)
+        );
+        continue;
+      }
+
+      for (const agentId of buildAgentPathFromSelf(sourceId, bindingByPlayer)) {
+        const binding = bindingByPlayer.get(agentId);
+        if (binding?.upstreamAgentPlayerId !== targetPlayerId) continue;
+        total = roundMoney(
+          total +
+            sourceAmount *
+              agentRoomCardFeeRate(binding?.agentRoomCardFee, sourceTotalFee)
+        );
+      }
+      continue;
+    }
+
+    const path = buildAgentPathFromPlayer(sourceId, bindingByPlayer, upstreamByPlayer);
+    if (path.length === 0) continue;
+
+    const leafAgentId = path[0];
+    if (targetPlayerId === leafAgentId) {
+      let parentKeepSumRate = 0;
+      for (const agentId of path) {
+        const binding = bindingByPlayer.get(agentId);
+        parentKeepSumRate += agentRoomCardFeeRate(
+          binding?.agentRoomCardFee,
+          sourceTotalFee
+        );
+      }
+      total = roundMoney(total + sourceAmount * Math.max(0, 1 - parentKeepSumRate));
+      continue;
+    }
+
+    for (const agentId of path) {
+      const binding = bindingByPlayer.get(agentId);
+      if (binding?.upstreamAgentPlayerId !== targetPlayerId) continue;
+      total = roundMoney(
+        total +
+          sourceAmount *
+            agentRoomCardFeeRate(binding?.agentRoomCardFee, sourceTotalFee)
+      );
+    }
   }
 
   return total;
