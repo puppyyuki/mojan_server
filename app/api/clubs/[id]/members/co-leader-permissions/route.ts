@@ -50,10 +50,24 @@ export async function POST(
     }
 
     if (club.creatorId !== actorPlayerId) {
-      return NextResponse.json(
-        { success: false, error: '沒有權限' },
-        { status: 403, headers: corsHeaders() }
-      )
+      const actorMember = await prisma.clubMember.findUnique({
+        where: {
+          clubId_playerId: {
+            clubId: id,
+            playerId: actorPlayerId,
+          },
+        },
+        select: { role: true, coLeaderPermissions: true },
+      })
+      const perms = actorMember?.coLeaderPermissions as Record<string, unknown> | null
+      const hasAllPermissions =
+        actorMember?.role === 'CO_LEADER' && perms?.allPermissions === true
+      if (!hasAllPermissions) {
+        return NextResponse.json(
+          { success: false, error: '沒有權限' },
+          { status: 403, headers: corsHeaders() }
+        )
+      }
     }
 
     if (club.creatorId === playerId) {
@@ -89,11 +103,27 @@ export async function POST(
 
     let normalized: Record<string, boolean> | null = null
     if (permissionsRaw && typeof permissionsRaw === 'object') {
+      const allowedKeys = [
+        'allPermissions',
+        'modifyClubRules',
+        'manageRoomCards',
+        'approveJoinRequests',
+        'kickMembers',
+        'banMembers',
+        'banSameTable',
+        'setScoreLimit',
+        'setBaseTaiLimit',
+      ]
       normalized = {}
-      for (const [key, value] of Object.entries(permissionsRaw as Record<string, unknown>)) {
-        normalized[key] = value === true
+      for (const key of allowedKeys) {
+        normalized[key] = (permissionsRaw as Record<string, unknown>)[key] === true
       }
-      if (Object.keys(normalized).length === 0) {
+      if (normalized.allPermissions === true) {
+        for (const key of allowedKeys) {
+          if (key !== 'allPermissions') normalized[key] = true
+        }
+      }
+      if (!allowedKeys.some((k) => normalized![k] === true)) {
         normalized = null
       }
     }

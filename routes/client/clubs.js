@@ -285,6 +285,7 @@ function buildV2ReplayCodeSummaryFromRounds(rounds) {
 function normalizeBoolPermissions(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const allowedKeys = [
+    'allPermissions',
     'modifyClubRules',
     'manageRoomCards',
     'approveJoinRequests',
@@ -298,6 +299,11 @@ function normalizeBoolPermissions(raw) {
   for (const key of allowedKeys) {
     out[key] = raw[key] === true;
   }
+  if (out.allPermissions === true) {
+    for (const key of allowedKeys) {
+      if (key !== 'allPermissions') out[key] = true;
+    }
+  }
   const anyTrue = allowedKeys.some(k => out[k] === true);
   return anyTrue ? out : null;
 }
@@ -306,6 +312,17 @@ function getCoLeaderPerms(member) {
   const perms = member?.coLeaderPermissions;
   if (!perms || typeof perms !== 'object') return null;
   return perms;
+}
+
+function coLeaderHasAllPermissions(member) {
+  const perms = getCoLeaderPerms(member);
+  return member?.role === 'CO_LEADER' && perms?.allPermissions === true;
+}
+
+function coLeaderHasPermission(member, permissionKey) {
+  if (coLeaderHasAllPermissions(member)) return true;
+  const perms = getCoLeaderPerms(member);
+  return member?.role === 'CO_LEADER' && perms?.[permissionKey] === true;
 }
 
 function parseNonNegativeIntOrNull(raw) {
@@ -536,6 +553,27 @@ function serializeClubInvitationRow(inv) {
   };
 }
 
+async function requireClubOwnerOrAllPermissionsCoLeader(prisma, clubInternalId, actorPlayerId) {
+  const club = await prisma.club.findUnique({
+    where: { id: clubInternalId },
+    select: { creatorId: true },
+  });
+  if (!club) {
+    return { ok: false, status: 404, error: '俱樂部不存在' };
+  }
+  if (club.creatorId === actorPlayerId) {
+    return { ok: true, clubCreatorId: club.creatorId };
+  }
+  const actorMember = await prisma.clubMember.findUnique({
+    where: { clubId_playerId: { clubId: clubInternalId, playerId: actorPlayerId } },
+    select: { role: true, coLeaderPermissions: true },
+  });
+  if (coLeaderHasAllPermissions(actorMember)) {
+    return { ok: true, clubCreatorId: club.creatorId };
+  }
+  return { ok: false, status: 403, error: '沒有權限' };
+}
+
 async function requireClubOwnerOrCoLeader(prisma, clubInternalId, actorPlayerId) {
   const club = await prisma.club.findUnique({
     where: { id: clubInternalId },
@@ -567,19 +605,20 @@ async function requireClubOwnerOrPermission(prisma, clubInternalId, actorPlayerI
   }
   const isOwner = club.creatorId === actorPlayerId;
   if (isOwner) {
-    return { ok: true, clubCreatorId: club.creatorId };
+    return { ok: true, clubCreatorId: club.creatorId, actorHasAllPermissions: false };
   }
 
   const actorMember = await prisma.clubMember.findUnique({
     where: { clubId_playerId: { clubId: clubInternalId, playerId: actorPlayerId } },
     select: { role: true, coLeaderPermissions: true },
   });
-  const perms = getCoLeaderPerms(actorMember);
-  const allowed = actorMember?.role === 'CO_LEADER' && perms?.[permissionKey] === true;
+  const actorHasAllPermissions = coLeaderHasAllPermissions(actorMember);
+  const allowed =
+    actorHasAllPermissions || coLeaderHasPermission(actorMember, permissionKey);
   if (!allowed) {
     return { ok: false, status: 403, error: '沒有權限' };
   }
-  return { ok: true, clubCreatorId: club.creatorId };
+  return { ok: true, clubCreatorId: club.creatorId, actorHasAllPermissions };
 }
 
 /** 禁止同桌：會長、具 banSameTable 副會長、或任一代理階層成員。 */
@@ -599,8 +638,7 @@ async function requireBanSameTablePermission(prisma, clubInternalId, actorPlayer
     where: { clubId_playerId: { clubId: clubInternalId, playerId: actorPlayerId } },
     select: { role: true, coLeaderPermissions: true },
   });
-  const perms = getCoLeaderPerms(actorMember);
-  if (actorMember?.role === 'CO_LEADER' && perms?.banSameTable === true) {
+  if (coLeaderHasPermission(actorMember, 'banSameTable')) {
     return { ok: true, clubCreatorId: club.creatorId };
   }
 
@@ -1199,8 +1237,7 @@ router.get('/:clubId/join-requests', async (req, res) => {
       where: { clubId_playerId: { clubId: club.id, playerId: actorPlayerId } },
       select: { role: true, coLeaderPermissions: true },
     });
-    const perms = getCoLeaderPerms(actorMember);
-    const canReview = actorMember?.role === 'CO_LEADER' && perms?.approveJoinRequests === true;
+    const canReview = coLeaderHasPermission(actorMember, 'approveJoinRequests');
     if (!canReview) {
       return errorResponse(res, '沒有權限', null, 403);
     }
@@ -1257,8 +1294,7 @@ router.post('/:clubId/join-requests/:requestId', async (req, res) => {
         where: { clubId_playerId: { clubId: club.id, playerId: actorPlayerId } },
         select: { role: true, coLeaderPermissions: true },
       });
-      const perms = getCoLeaderPerms(actorMember);
-      const canReview = actorMember?.role === 'CO_LEADER' && perms?.approveJoinRequests === true;
+      const canReview = coLeaderHasPermission(actorMember, 'approveJoinRequests');
       if (!canReview) {
         return errorResponse(res, '沒有權限', null, 403);
       }
@@ -2368,6 +2404,7 @@ router.get('/:clubId/members', async (req, res) => {
       loadClubAgentBindings(prisma, club.id),
       loadPlayerClubUpstreamBindings(prisma, club.id),
     ]);
+    let manageScopeActorHasAllPermissions = false;
     if (scopeBanSameTable && actorPlayerId) {
       const banSameTableAuthz = await requireBanSameTablePermission(
         prisma,
@@ -2383,12 +2420,24 @@ router.get('/:clubId/members', async (req, res) => {
         );
       }
     } else if (scopeManage && actorPlayerId) {
+      let actorHasAllPermissions = false;
+      if (actorPlayerId !== club.creatorId) {
+        const actorMember = await prisma.clubMember.findUnique({
+          where: {
+            clubId_playerId: { clubId: club.id, playerId: actorPlayerId },
+          },
+          select: { role: true, coLeaderPermissions: true },
+        });
+        actorHasAllPermissions = coLeaderHasAllPermissions(actorMember);
+      }
+      manageScopeActorHasAllPermissions = actorHasAllPermissions;
       const manageVisibleIds = resolveManageMembersVisiblePlayerIds({
         actorPlayerId,
         clubCreatorId: club.creatorId,
         profitDisplayEnabled,
         bindings,
         upstreamBindings: upstreamBindingRows,
+        actorHasAllPermissions,
       });
       if (manageVisibleIds) {
         allMembers = allMembers.filter((m) => manageVisibleIds.has(m.playerId));
@@ -2437,7 +2486,8 @@ router.get('/:clubId/members', async (req, res) => {
           club.creatorId,
           bindings,
           upstreamBindingRows,
-          profitDisplayEnabled
+          profitDisplayEnabled,
+          manageScopeActorHasAllPermissions
         );
         base.manageAgentSettingsAllowed =
           profitDisplayEnabled &&
@@ -2685,8 +2735,13 @@ router.get('/:clubId/members/assignable-agent-levels', async (req, res) => {
     if (!club) {
       return errorResponse(res, '俱樂部不存在', null, 404);
     }
-    if (club.creatorId !== actorPlayerId) {
-      return errorResponse(res, '沒有權限', null, 403);
+    const authz = await requireClubOwnerOrAllPermissionsCoLeader(
+      prisma,
+      club.id,
+      actorPlayerId
+    );
+    if (!authz.ok) {
+      return errorResponse(res, authz.error, null, authz.status);
     }
 
     const upstreamLevel = await resolveUpstreamLevel(prisma, club.id, targetPlayerId);
@@ -2729,8 +2784,13 @@ router.post('/:clubId/members/promote-agent', async (req, res) => {
     if (!club) {
       return errorResponse(res, '俱樂部不存在', null, 404);
     }
-    if (club.creatorId !== actorPlayerId) {
-      return errorResponse(res, '沒有權限', null, 403);
+    const authz = await requireClubOwnerOrAllPermissionsCoLeader(
+      prisma,
+      club.id,
+      actorPlayerId
+    );
+    if (!authz.ok) {
+      return errorResponse(res, authz.error, null, authz.status);
     }
     if (club.creatorId === targetPlayerId) {
       return errorResponse(res, '不可修改擁有者設定', null, 400);
@@ -3227,8 +3287,13 @@ router.post('/:clubId/members/role', async (req, res) => {
       return errorResponse(res, '俱樂部不存在', null, 404);
     }
 
-    if (club.creatorId !== actorPlayerId) {
-      return errorResponse(res, '沒有權限', null, 403);
+    const authz = await requireClubOwnerOrAllPermissionsCoLeader(
+      prisma,
+      club.id,
+      actorPlayerId
+    );
+    if (!authz.ok) {
+      return errorResponse(res, authz.error, null, authz.status);
     }
 
     if (club.creatorId === playerId) {
@@ -3297,7 +3362,8 @@ router.post('/:clubId/members/ban', async (req, res) => {
       authz.clubCreatorId,
       bindings,
       upstreamBindings,
-      club.profitDisplayEnabled !== false
+      club.profitDisplayEnabled !== false,
+      authz.actorHasAllPermissions === true
     );
     if (!hierarchyGuard.ok) {
       return errorResponse(res, hierarchyGuard.error, null, hierarchyGuard.status);
@@ -3370,7 +3436,8 @@ router.post('/:clubId/members/unban', async (req, res) => {
       authz.clubCreatorId,
       bindings,
       upstreamBindings,
-      club.profitDisplayEnabled !== false
+      club.profitDisplayEnabled !== false,
+      authz.actorHasAllPermissions === true
     );
     if (!hierarchyGuard.ok) {
       return errorResponse(res, hierarchyGuard.error, null, hierarchyGuard.status);
@@ -3443,7 +3510,8 @@ router.post('/:clubId/members/score-limit', async (req, res) => {
       authz.clubCreatorId,
       bindings,
       upstreamBindings,
-      club.profitDisplayEnabled !== false
+      club.profitDisplayEnabled !== false,
+      authz.actorHasAllPermissions === true
     );
     if (!hierarchyGuard.ok) {
       return errorResponse(res, hierarchyGuard.error, null, hierarchyGuard.status);
@@ -3541,7 +3609,8 @@ router.post('/:clubId/members/base-tai-limit', async (req, res) => {
       authz.clubCreatorId,
       bindings,
       upstreamBindings,
-      club.profitDisplayEnabled !== false
+      club.profitDisplayEnabled !== false,
+      authz.actorHasAllPermissions === true
     );
     if (!hierarchyGuard.ok) {
       return errorResponse(res, hierarchyGuard.error, null, hierarchyGuard.status);
@@ -3876,8 +3945,13 @@ router.post('/:clubId/members/co-leader-permissions', async (req, res) => {
       return errorResponse(res, '俱樂部不存在', null, 404);
     }
 
-    if (club.creatorId !== actorPlayerId) {
-      return errorResponse(res, '沒有權限', null, 403);
+    const authz = await requireClubOwnerOrAllPermissionsCoLeader(
+      prisma,
+      club.id,
+      actorPlayerId
+    );
+    if (!authz.ok) {
+      return errorResponse(res, authz.error, null, authz.status);
     }
 
     if (club.creatorId === playerId) {
@@ -3943,15 +4017,14 @@ router.put('/:clubId', async (req, res) => {
         where: { clubId_playerId: { clubId: club.id, playerId: actorPlayerId } },
         select: { role: true, coLeaderPermissions: true },
       });
-      const perms = getCoLeaderPerms(actorMember);
       const needsModifyRules = name !== undefined || description !== undefined || logoUrl !== undefined;
       const needsManageCards = cardCount !== undefined;
       if (needsModifyRules) {
-        const canModify = actorMember?.role === 'CO_LEADER' && perms?.modifyClubRules === true;
+        const canModify = coLeaderHasPermission(actorMember, 'modifyClubRules');
         if (!canModify) return errorResponse(res, '沒有權限', null, 403);
       }
       if (needsManageCards) {
-        const canManage = actorMember?.role === 'CO_LEADER' && perms?.manageRoomCards === true;
+        const canManage = coLeaderHasPermission(actorMember, 'manageRoomCards');
         if (!canManage) return errorResponse(res, '沒有權限', null, 403);
       }
     }

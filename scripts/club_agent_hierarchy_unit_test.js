@@ -231,6 +231,16 @@ function testResolveManageMembersVisiblePlayerIds() {
   assert.strictEqual(midVisible.has('master'), false);
   assert.strictEqual(midVisible.has('super'), false);
   assert.strictEqual(midVisible.has('playerUnderMaster'), false);
+
+  assert.strictEqual(
+    resolveManageMembersVisiblePlayerIds({
+      ...baseArgs,
+      actorPlayerId: 'mid',
+      profitDisplayEnabled: true,
+      actorHasAllPermissions: true,
+    }),
+    null
+  );
 }
 
 testPromotableLevelsIncludeNewTiers();

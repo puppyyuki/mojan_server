@@ -230,8 +230,10 @@ function isManageRestrictedMemberEditBlocked(
   clubCreatorId,
   bindings,
   upstreamBindings,
-  profitDisplayEnabled = true
+  profitDisplayEnabled = true,
+  actorHasAllPermissions = false
 ) {
+  if (actorHasAllPermissions) return false;
   if (profitDisplayEnabled === false) return false;
   if (!actorId || !targetId) return false;
   if (actorId === clubCreatorId) return false;
@@ -248,7 +250,8 @@ function assertManageRestrictedMemberEditAllowed(
   clubCreatorId,
   bindings,
   upstreamBindings,
-  profitDisplayEnabled = true
+  profitDisplayEnabled = true,
+  actorHasAllPermissions = false
 ) {
   if (
     isManageRestrictedMemberEditBlocked(
@@ -257,7 +260,8 @@ function assertManageRestrictedMemberEditAllowed(
       clubCreatorId,
       bindings,
       upstreamBindings,
-      profitDisplayEnabled
+      profitDisplayEnabled,
+      actorHasAllPermissions
     )
   ) {
     return {
@@ -279,7 +283,11 @@ function resolveManageMembersVisiblePlayerIds({
   profitDisplayEnabled,
   bindings,
   upstreamBindings = [],
+  actorHasAllPermissions = false,
 }) {
+  if (actorHasAllPermissions) {
+    return null;
+  }
   if (profitDisplayEnabled === false) {
     return null;
   }
