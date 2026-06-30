@@ -2492,7 +2492,9 @@ router.get('/:clubId/members', async (req, res) => {
         base.manageAgentSettingsAllowed =
           profitDisplayEnabled &&
           binding?.agentLevel &&
-          isDirectUpstream(actorPlayerId, m.playerId, bindings);
+          m.playerId !== club.creatorId &&
+          (manageScopeActorHasAllPermissions ||
+            isDirectUpstream(actorPlayerId, m.playerId, bindings));
       }
       return base;
     });
@@ -2996,12 +2998,28 @@ router.post('/:clubId/members/agent-settings', async (req, res) => {
       return errorResponse(res, '俱樂部已關閉利潤顯示，無法設定代理', null, 403);
     }
 
+    if (club.creatorId === targetPlayerId) {
+      return errorResponse(res, '不可修改擁有者設定', null, 400);
+    }
+
     const bindings = await loadClubAgentBindings(prisma, club.id);
     const activeBindings = projectActiveAgentRoomCardFees(
       bindings,
       club.branchRoomCardEnabled
     );
-    if (!isDirectUpstream(actorPlayerId, targetPlayerId, bindings)) {
+
+    const actorMember = await prisma.clubMember.findUnique({
+      where: {
+        clubId_playerId: { clubId: club.id, playerId: actorPlayerId },
+      },
+      select: { role: true, coLeaderPermissions: true },
+    });
+    const canManageAnyAgent = coLeaderHasAllPermissions(actorMember);
+
+    if (
+      !canManageAnyAgent &&
+      !isDirectUpstream(actorPlayerId, targetPlayerId, bindings)
+    ) {
       return errorResponse(res, '僅可設定直屬下線代理', null, 403);
     }
     const totalRoomCards = await resolveRoomCardQuotaLimitForTarget(prisma, {
