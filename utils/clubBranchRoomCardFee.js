@@ -201,18 +201,6 @@ function computeDownlineRoomCardFeeForAgent({
   const directPlayersByAgent = buildDirectPlayerChildrenMap(bindings, upstreamBindings);
   let total = 0;
 
-  for (const playerId of directPlayersByAgent.get(targetPlayerId) || []) {
-    const fee = resolveEffectiveRoomCardFee({
-      clubRoomCardFee,
-      branchRoomCardEnabled,
-      playerId,
-      bindings,
-      upstreamBindings,
-      branchFees,
-    });
-    total += Math.abs(numberOrZero(roomCardConsumedByPlayer.get(playerId))) * fee;
-  }
-
   for (const childAgentId of agentChildrenByPlayer.get(targetPlayerId) || []) {
     const childBinding = bindingByPlayer.get(childAgentId);
     const fee = activeAgentRoomCardFee(childBinding, branchRoomCardEnabled);

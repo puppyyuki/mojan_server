@@ -93,8 +93,8 @@ assert(
     ...baseArgs,
     targetPlayerId: 'master',
     branchRoomCardEnabled: false,
-  }) === 34,
-  'normal downline room card fee should include direct players and child agent subtree'
+  }) === 10,
+  'normal downline room card fee should use direct child agent fee only'
 )
 
 assert(
@@ -102,8 +102,8 @@ assert(
     ...baseArgs,
     targetPlayerId: 'master',
     branchRoomCardEnabled: true,
-  }) === 52,
-  'branch downline room card fee should use active child agent fee'
+  }) === 20,
+  'branch downline room card fee should use direct child agent fee only'
 )
 
 assert(
@@ -113,6 +113,15 @@ assert(
     branchRoomCardEnabled: true,
   }) === 57,
   'upstream agent should receive the direct child agent full subtree at that child fee'
+)
+
+assert(
+  computeDownlineRoomCardFeeForAgent({
+    ...baseArgs,
+    targetPlayerId: 'mid',
+    branchRoomCardEnabled: true,
+  }) === 0,
+  'agent direct players should not create room card settlement for that same agent'
 )
 
 console.log('club_branch_room_card_fee_unit_test passed')
