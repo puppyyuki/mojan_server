@@ -18,6 +18,7 @@ interface Player {
   cardCount: number
   maxJoinClubCount?: number
   bio?: string | null
+  allowVpn?: boolean
   avatarUrl?: string | null
   phoneE164?: string | null
   upstreamAgent?: {
@@ -44,6 +45,7 @@ export default function EditUserModal({
   const [cardCount, setCardCount] = useState<string>('0')
   const [maxJoinClubCount, setMaxJoinClubCount] = useState<string>('3')
   const [bio, setBio] = useState<string>('')
+  const [allowVpn, setAllowVpn] = useState<boolean>(false)
   const [avatarUrl, setAvatarUrl] = useState<string>('')
   const [pendingAvatarFile, setPendingAvatarFile] = useState<File | null>(null)
   const [loading, setLoading] = useState<boolean>(false)
@@ -87,6 +89,7 @@ export default function EditUserModal({
         Math.max(Number(player.maxJoinClubCount ?? 3) || 3, 1).toString()
       )
       setBio(player.bio || '')
+      setAllowVpn(player.allowVpn === true)
       setAvatarUrl(player.avatarUrl || '')
       setPendingAvatarFile(null)
       void loadBindings()
@@ -170,6 +173,7 @@ export default function EditUserModal({
           cardCount: parseInt(cardCount),
           maxJoinClubCount: parsedMaxJoinClubCount,
           bio: bio.trim() || null,
+          allowVpn,
           avatarUrl: finalAvatarUrl,
         },
         { headers: withAdminOpCodeHeader(opCode) }
@@ -357,6 +361,21 @@ export default function EditUserModal({
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm text-gray-900 bg-white placeholder-gray-400"
               />
             </div>
+
+            <label className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 px-3 py-2">
+              <div>
+                <p className="text-sm font-medium text-gray-700">允許 VPN</p>
+                <p className="text-xs text-gray-500">
+                  開啟後，此玩家可在 VPN 環境登入與遊玩。
+                </p>
+              </div>
+              <input
+                type="checkbox"
+                checked={allowVpn}
+                onChange={(e) => setAllowVpn(e.target.checked)}
+                className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+            </label>
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">

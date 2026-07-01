@@ -1,0 +1,1 @@
+ALTER TABLE "players" ADD COLUMN "allowVpn" BOOLEAN NOT NULL DEFAULT false;

@@ -65,7 +65,7 @@ export async function PATCH(
   try {
     const { id } = await params
     const body = await request.json()
-    const { nickname, cardCount, bio, maxJoinClubCount, avatarUrl } = body
+    const { nickname, cardCount, bio, maxJoinClubCount, avatarUrl, allowVpn } = body
     const hasUpstreamKey =
       typeof body === 'object' && body !== null && 'upstreamAgentPlayerId' in body
 
@@ -119,6 +119,9 @@ export async function PATCH(
     }
     if (bio !== undefined) {
       updateData.bio = bio === null || bio === '' ? null : bio.trim()
+    }
+    if (allowVpn !== undefined) {
+      updateData.allowVpn = allowVpn === true
     }
     if (maxJoinClubCount !== undefined) {
       const parsedMaxJoin = parseInt(String(maxJoinClubCount), 10)

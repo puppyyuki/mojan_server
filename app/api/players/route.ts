@@ -154,6 +154,7 @@ export async function GET(request: NextRequest) {
         cardCount: player.cardCount,
         maxJoinClubCount: player.maxJoinClubCount,
         bio: player.bio,
+        allowVpn: player.allowVpn,
         avatarUrl: player.avatarUrl,
         lineUserId: player.lineUserId,
         lastLoginAt: player.lastLoginAt,

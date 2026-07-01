@@ -34,6 +34,7 @@ interface Player {
   cardCount: number
   maxJoinClubCount: number
   bio?: string | null
+  allowVpn?: boolean
   avatarUrl?: string | null
   lineUserId?: string | null
   lastLoginAt?: string | null

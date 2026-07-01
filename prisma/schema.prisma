@@ -30,6 +30,7 @@ model Player {
   cardCount        Int       @default(0)
   avatarUrl        String? // 頭像URL
   bio              String? // 備註
+  allowVpn         Boolean   @default(false) // 是否允許使用 VPN 登入遊玩
   lineUserId       String?   @unique // LINE 使用者 ID
   appleUserId      String?   @unique // Sign in with Apple 使用者識別碼（sub）
   lastLoginAt      DateTime? // 最後登入時間
