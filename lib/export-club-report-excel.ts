@@ -22,6 +22,7 @@ export interface ClubReportExportRow {
   battleScore: number
   roomCardConsumed: number
   roomCardFeeAmount: number
+  downlineRoomCardFeeAmount?: number
   rakeAmount: number
   upstreamAgent?: string
   csvSortOrder?: number

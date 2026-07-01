@@ -1,4 +1,5 @@
 const {
+  computeDownlineRoomCardFeeForAgent,
   computeViewerRoomCardFeeForRow,
 } = require('../utils/clubBranchRoomCardFee')
 
@@ -21,16 +22,26 @@ const bindings = [
     agentRoomCardFee: 2,
     branchAgentRoomCardFee: 3,
   },
+  {
+    playerId: 'mid',
+    upstreamAgentPlayerId: 'master',
+    agentLevel: 'mid',
+    agentRoomCardFee: 1,
+    branchAgentRoomCardFee: 2,
+  },
 ]
 
 const upstreamBindings = [
   { playerId: 'player', upstreamAgentPlayerId: 'master' },
+  { playerId: 'player2', upstreamAgentPlayerId: 'mid' },
 ]
 
 const roomCardConsumedByPlayer = new Map([
   ['super', 10],
   ['master', 5],
+  ['mid', 7],
   ['player', 4],
+  ['player2', 3],
 ])
 
 const baseArgs = {
@@ -75,6 +86,33 @@ assert(
     branchRoomCardEnabled: true,
   }) === -32,
   'player row should still use effective branch room card fee'
+)
+
+assert(
+  computeDownlineRoomCardFeeForAgent({
+    ...baseArgs,
+    targetPlayerId: 'master',
+    branchRoomCardEnabled: false,
+  }) === 34,
+  'normal downline room card fee should include direct players and child agent subtree'
+)
+
+assert(
+  computeDownlineRoomCardFeeForAgent({
+    ...baseArgs,
+    targetPlayerId: 'master',
+    branchRoomCardEnabled: true,
+  }) === 52,
+  'branch downline room card fee should use active child agent fee'
+)
+
+assert(
+  computeDownlineRoomCardFeeForAgent({
+    ...baseArgs,
+    targetPlayerId: 'super',
+    branchRoomCardEnabled: true,
+  }) === 57,
+  'upstream agent should receive the direct child agent full subtree at that child fee'
 )
 
 console.log('club_branch_room_card_fee_unit_test passed')

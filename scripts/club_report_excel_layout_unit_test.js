@@ -33,6 +33,7 @@ function row(overrides) {
     battleScore,
     roomCardConsumed: 0,
     roomCardFeeAmount: 0,
+    downlineRoomCardFeeAmount: 0,
     rakeAmount: 0,
     upstreamAgent: '',
     ...overrides,
@@ -50,7 +51,7 @@ const sortedRows = [
     roomCardFeeAmount: -1,
   }),
   row({ id: '100002', payment: 20, battleScore: 20, roomCardFeeAmount: -2 }),
-  row({ id: '200001', agentLevel: 'master', title: '大代理', payment: 50, rakeAmount: 8, roomCardFeeAmount: -4 }),
+  row({ id: '200001', agentLevel: 'master', title: '大代理', payment: 50, rakeAmount: 8, roomCardFeeAmount: -4, downlineRoomCardFeeAmount: 6 }),
   row({ id: '200002', payment: 60, roomCardFeeAmount: -3 }),
   row({ id: '200003', agentLevel: 'mid', title: '中代理', payment: 70, rakeAmount: 9, roomCardFeeAmount: -5 }),
   row({ id: '200004', payment: 80, roomCardFeeAmount: -6 }),
@@ -70,7 +71,7 @@ assert(blocks[1].type === 'master', 'second block should be master')
 assert(balance(blocks[0].rows[0]) === 10, 'super balance should use battleScore without rake deduction')
 assert(balance(blocks[1].rows[0]) === 50, 'master balance should use payment')
 assert(memberSummary(blocks[1].rows[0]) === 46, 'member summary should subtract absolute room card fee')
-assert(agentSettlement(blocks[1].rows[0]) === 12, 'agent settlement should add absolute room card fee')
+assert(agentSettlement(blocks[1].rows[0]) === 14, 'agent settlement should add downline room card fee only')
 assert(findMidSpans(blocks[1].rows)[0].end === 3, 'mid line summary span should include direct players only')
 assert(findSmallSpans(blocks[1].rows)[0].end === 7, 'small line summary span should include lower subtree')
 
@@ -85,7 +86,7 @@ assert(superTotalRow[6] === sumMemberSummary(blocks[0].rows), 'super total shoul
 const firstMasterRow = layout.rows[4]
 assert(firstMasterRow[0] === '200001', 'first master should appear after super total row')
 assert(firstMasterRow[COL.MEMBER_SUMMARY] === 46, 'master member summary cell should subtract room card fee')
-assert(firstMasterRow[COL.AGENT_SETTLEMENT] === 12, 'master settlement cell should add room card fee abs')
+assert(firstMasterRow[COL.AGENT_SETTLEMENT] === 14, 'master settlement cell should use downline room card fee')
 assert(
   firstMasterRow[COL.LINE_SUMMARY] === sumLineContribution(blocks[1].rows.slice(0, 2)),
   'master line summary should include master and direct players only'

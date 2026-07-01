@@ -45,10 +45,6 @@ function roundMoney(value: number): number {
   return Math.round(value * 100) / 100
 }
 
-function roomCardFeeAbs(row: ClubReportExportRow): number {
-  return Math.abs(row.roomCardFeeAmount)
-}
-
 /** 總代理餘額不扣區間自摸抽，其餘成員使用 payment（戰績 − 自摸抽）。 */
 export function balance(row: ClubReportExportRow): number {
   if (row.agentLevel === 'super') {
@@ -62,7 +58,7 @@ export function memberSummary(row: ClubReportExportRow): number {
 }
 
 export function agentSettlement(row: ClubReportExportRow): number {
-  return row.agentLevel != null ? roundMoney(row.rakeAmount + roomCardFeeAbs(row)) : 0
+  return row.agentLevel != null ? roundMoney(row.rakeAmount + (row.downlineRoomCardFeeAmount ?? 0)) : 0
 }
 
 export function lineContribution(row: ClubReportExportRow): number {

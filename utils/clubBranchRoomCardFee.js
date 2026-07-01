@@ -140,6 +140,94 @@ function computeViewerRoomCardFeeForRow({
   );
 }
 
+function buildAgentChildrenMap(bindings) {
+  const children = new Map();
+  for (const binding of bindings || []) {
+    const upstream = binding.upstreamAgentPlayerId;
+    if (!upstream) continue;
+    const list = children.get(upstream) || [];
+    list.push(binding.playerId);
+    children.set(upstream, list);
+  }
+  return children;
+}
+
+function buildDirectPlayerChildrenMap(bindings, upstreamBindings) {
+  const agentIds = new Set((bindings || []).map((binding) => binding.playerId));
+  const children = new Map();
+  for (const binding of upstreamBindings || []) {
+    if (agentIds.has(binding.playerId)) continue;
+    const list = children.get(binding.upstreamAgentPlayerId) || [];
+    list.push(binding.playerId);
+    children.set(binding.upstreamAgentPlayerId, list);
+  }
+  return children;
+}
+
+function subtreeRoomCardConsumed(
+  rootPlayerId,
+  roomCardConsumedByPlayer,
+  agentChildrenByPlayer,
+  directPlayersByAgent
+) {
+  let total = 0;
+  const stack = [rootPlayerId];
+  const seen = new Set();
+  while (stack.length) {
+    const playerId = stack.pop();
+    if (!playerId || seen.has(playerId)) continue;
+    seen.add(playerId);
+
+    total += Math.abs(numberOrZero(roomCardConsumedByPlayer.get(playerId)));
+    stack.push(...(agentChildrenByPlayer.get(playerId) || []));
+    stack.push(...(directPlayersByAgent.get(playerId) || []));
+  }
+  return total;
+}
+
+function computeDownlineRoomCardFeeForAgent({
+  targetPlayerId,
+  roomCardConsumedByPlayer,
+  bindings,
+  upstreamBindings = [],
+  clubRoomCardFee,
+  branchRoomCardEnabled,
+  branchFees = [],
+}) {
+  const bindingByPlayer = buildBindingMap(bindings);
+  if (!bindingByPlayer.has(targetPlayerId)) return 0;
+
+  const agentChildrenByPlayer = buildAgentChildrenMap(bindings);
+  const directPlayersByAgent = buildDirectPlayerChildrenMap(bindings, upstreamBindings);
+  let total = 0;
+
+  for (const playerId of directPlayersByAgent.get(targetPlayerId) || []) {
+    const fee = resolveEffectiveRoomCardFee({
+      clubRoomCardFee,
+      branchRoomCardEnabled,
+      playerId,
+      bindings,
+      upstreamBindings,
+      branchFees,
+    });
+    total += Math.abs(numberOrZero(roomCardConsumedByPlayer.get(playerId))) * fee;
+  }
+
+  for (const childAgentId of agentChildrenByPlayer.get(targetPlayerId) || []) {
+    const childBinding = bindingByPlayer.get(childAgentId);
+    const fee = activeAgentRoomCardFee(childBinding, branchRoomCardEnabled);
+    const consumed = subtreeRoomCardConsumed(
+      childAgentId,
+      roomCardConsumedByPlayer,
+      agentChildrenByPlayer,
+      directPlayersByAgent
+    );
+    total += consumed * fee;
+  }
+
+  return roundMoney(total);
+}
+
 async function resolveRoomCardQuotaLimitForTarget(prisma, {
   club,
   bindings,
@@ -178,6 +266,7 @@ function computeOwnRoomCardFeeAmount(roomCardConsumed, fee) {
 module.exports = {
   buildBranchFeeMap,
   activeAgentRoomCardFee,
+  computeDownlineRoomCardFeeForAgent,
   computeViewerRoomCardFeeForRow,
   computeOwnRoomCardFeeAmount,
   projectActiveAgentRoomCardFees,

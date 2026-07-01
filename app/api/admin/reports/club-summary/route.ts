@@ -8,6 +8,7 @@ const { isV2RoundCompletedForStatistics } = require('../../../../../utils/v2Roun
 const { aggregateSelfDrawStatsByPlayerId } = require('../../../../../utils/clubSelfDrawRakeMoney')
 const { computeViewerSelfDrawRakeForRow } = require('../../../../../utils/clubAgentSelfDrawRakeTree')
 const {
+  computeDownlineRoomCardFeeForAgent,
   computeViewerRoomCardFeeForRow,
   resolveEffectiveRoomCardFee,
 } = require('../../../../../utils/clubBranchRoomCardFee')
@@ -567,6 +568,15 @@ export async function GET(request: NextRequest) {
         branchRoomCardEnabled: club.branchRoomCardEnabled,
         branchFees,
       })
+      const downlineRoomCardFeeAmount = computeDownlineRoomCardFeeForAgent({
+        targetPlayerId: r.playerId,
+        roomCardConsumedByPlayer,
+        bindings: agentBindings,
+        upstreamBindings,
+        clubRoomCardFee: club.roomCardFee,
+        branchRoomCardEnabled: club.branchRoomCardEnabled,
+        branchFees,
+      })
       const payment = roundMoney(r.battleScore - originalSelfDrawRakeAmount)
       return {
         timeRange: `${startRaw} ~ ${endRaw}`,
@@ -587,6 +597,7 @@ export async function GET(request: NextRequest) {
         roomCardConsumed: r.roomCardConsumed,
         effectiveRoomCardFee,
         roomCardFeeAmount,
+        downlineRoomCardFeeAmount,
         completedGames: r.completedGames,
         dongMoney: Math.round(r.dongMoney),
         rakeAmount,
